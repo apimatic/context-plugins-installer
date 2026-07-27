@@ -6,9 +6,44 @@ const manifest = require('./manifest');
 const { resolvePlugin, loadCatalog } = require('./catalog');
 const { materialize } = require('./fetch');
 const { byName, resolveTargets } = require('./harness');
+const { isInteractive, createPrompter } = require('./prompt');
 const { assertPlugin, UserError } = require('./util');
 
 const nowIso = () => new Date().toISOString();
+
+async function askEach(names, ask) {
+  const chosen = [];
+  for (const name of names) {
+    if (await ask(`Install into ${byName(name).title}?`, true)) chosen.push(name);
+  }
+  return chosen;
+}
+
+/**
+ * Nothing is installed into a harness the user did not agree to.
+ *
+ * The question is skipped when the answer is already known: an explicit
+ * --targets is a decision, --yes opts out, and a non-interactive shell has
+ * nobody to ask (so it keeps the previous install-all-detected behaviour
+ * rather than hanging).
+ */
+async function chooseHarnesses(available, { explicit = false, assumeYes = false, confirm } = {}) {
+  if (!available.length || explicit || assumeYes) return available;
+
+  if (confirm) return askEach(available, confirm);
+
+  if (!isInteractive()) {
+    log.info('Non-interactive shell - using every detected harness (--targets to choose).');
+    return available;
+  }
+
+  const prompter = createPrompter();
+  try {
+    return await askEach(available, (question, def) => prompter.confirm(question, def));
+  } finally {
+    prompter.close();
+  }
+}
 
 /**
  * Two marketplaces may ship the same plugin id, and Cursor/VS Code both place
@@ -34,6 +69,7 @@ async function installPlugin({
   ref,
   targets,
   force = false,
+  assumeYes = false,
   deps = {},
   pathOpts,
 } = {}) {
@@ -49,16 +85,38 @@ async function installPlugin({
     deps,
   });
 
-  const want = resolveTargets(targets);
+  const requested = resolveTargets(targets);
   assertNoCrossBrandCollision(manifestFile, { plugin, repo: brand.repo }, force);
 
   log.banner(`Installing '${plugin}'  (marketplace: ${resolved.marketplace}, repo: ${brand.repo}@${effectiveRef})`);
-  log.info(`Targets: ${want.join(', ')}`);
   if (resolved.description) log.info(resolved.description);
   log.rule();
 
-  // Only pay for the fetch if a file-copy harness is actually present.
-  const needsSource = want.some((name) => byName(name).needsSource && byName(name).detect(pathOpts));
+  log.step('[Harnesses]');
+  const available = requested.filter((name) => byName(name).detect(pathOpts));
+  for (const name of requested) {
+    if (!available.includes(name)) log.info(`${byName(name).title} not detected - skipping.`);
+  }
+  if (!available.length) {
+    log.plain('');
+    log.warn('No supported harness found. Install Claude Code, Cursor, or VS Code first.');
+    return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
+  }
+
+  const want = await chooseHarnesses(available, {
+    explicit: Array.isArray(targets) && targets.length > 0,
+    assumeYes,
+    confirm: deps.confirm,
+  });
+  if (!want.length) {
+    log.plain('');
+    log.warn('No harness selected - nothing was installed.');
+    return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
+  }
+  log.info(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
+
+  // Only pay for the fetch if a chosen harness needs the files.
+  const needsSource = want.some((name) => byName(name).needsSource);
   let source = null;
   if (needsSource) {
     log.step('[Fetch]');
@@ -173,6 +231,7 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
         ref: entry.ref,
         targets: entry.targets,
         force: true, // the manifest is the source of truth here
+        assumeYes: true, // never re-ask; the user already chose these harnesses
         deps,
         pathOpts,
       });
@@ -227,4 +286,4 @@ function summarize(done, verb) {
   log.plain('');
 }
 
-module.exports = { installPlugin, uninstallPlugin, updateAll, listPlugins };
+module.exports = { installPlugin, uninstallPlugin, updateAll, listPlugins, chooseHarnesses };

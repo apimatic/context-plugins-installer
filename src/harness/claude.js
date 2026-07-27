@@ -7,14 +7,16 @@ const { which, run, UserError } = require('../util');
 const name = 'claude';
 const title = 'Claude Code';
 
-const cli = () => which('claude');
-const detect = () => Boolean(cli());
+// Honours opts.env like the other harnesses, so a sandboxed test machine can
+// present a PATH without `claude` on it.
+const cli = (opts) => which('claude', (opts && opts.env) || process.env);
+const detect = (opts) => Boolean(cli(opts));
 
 const tail = (res) =>
   (res.stderr || res.stdout || '').trim().split('\n').slice(-3).join(' ').trim();
 
-async function install({ plugin, marketplace, repo }) {
-  const claude = cli();
+async function install({ plugin, marketplace, repo }, opts) {
+  const claude = cli(opts);
   if (!claude) {
     log.warn("'claude' CLI not on PATH - skipping Claude Code.");
     return false;
@@ -35,8 +37,8 @@ async function install({ plugin, marketplace, repo }) {
   return true;
 }
 
-async function uninstall({ plugin, marketplace }) {
-  const claude = cli();
+async function uninstall({ plugin, marketplace }, opts) {
+  const claude = cli(opts);
   if (!claude) {
     log.warn("'claude' CLI not on PATH - skipping Claude Code.");
     return false;

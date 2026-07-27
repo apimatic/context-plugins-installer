@@ -10,7 +10,7 @@ const { installPlugin, uninstallPlugin, updateAll, listPlugins } = require('./in
 const pkg = require('../package.json');
 
 const VALUE_FLAGS = new Set(['repo', 'ref', 'marketplace', 'targets']);
-const BOOL_FLAGS = new Set(['force', 'verbose', 'quiet', 'json', 'help', 'version']);
+const BOOL_FLAGS = new Set(['force', 'yes', 'verbose', 'quiet', 'json', 'help', 'version']);
 
 const camel = (s) => s.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -33,6 +33,10 @@ function parseArgs(argv) {
     }
     if (token === '-v' || token === '-V') {
       flags.version = true;
+      continue;
+    }
+    if (token === '-y') {
+      flags.yes = true;
       continue;
     }
     if (!token.startsWith('--')) {
@@ -84,7 +88,8 @@ Options
   --repo <owner/repo>   Marketplace repository        (default: ${brand.repo})
   --ref <branch|tag|sha> Version to install from       (default: ${brand.ref})
   --marketplace <name>  Marketplace name              (default: read from marketplace.json)
-  --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (default: all detected)
+  --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (skips the prompt)
+  -y, --yes             Accept every detected harness without asking
   --force               Replace a plugin installed from another marketplace
   --json                Machine-readable output (list, installed)
   --verbose             Show underlying git / CLI detail
@@ -163,7 +168,14 @@ async function run(argv = process.argv.slice(2), profile = {}) {
             hint: `Usage: ${bin} install <plugin>   (or set CP_PLUGIN)`,
           });
         }
-        await installPlugin({ brand, plugin, ref: flags.ref, targets, force: flags.force });
+        await installPlugin({
+          brand,
+          plugin,
+          ref: flags.ref,
+          targets,
+          force: flags.force,
+          assumeYes: flags.yes,
+        });
         return 0;
       }
       case 'uninstall':

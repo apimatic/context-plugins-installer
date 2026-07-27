@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const { installPlugin, uninstallPlugin, listPlugins } = require('../src/install');
+const { installPlugin, uninstallPlugin, listPlugins, chooseHarnesses } = require('../src/install');
 const { resolveBrand } = require('../src/brand');
 const { rawUrl } = require('../src/catalog');
 const manifest = require('../src/manifest');
@@ -238,6 +238,166 @@ test('a harness that is not installed is skipped, not failed', async () => {
     }),
   );
   assert.deepEqual(result.targets, ['vscode']);
+});
+
+// ---- harness consent -----------------------------------------------------
+
+/** Records what was asked, and answers from a scripted list of booleans. */
+function scriptedConfirm(answers) {
+  const asked = [];
+  const fn = async (question) => {
+    asked.push(question);
+    return answers.length ? answers.shift() : true;
+  };
+  fn.asked = asked;
+  return fn;
+}
+
+test('the user is asked once per detected harness', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const confirm = scriptedConfirm([true, true]);
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null, // no --targets => ask
+      deps: { ...deps({ repo, srcDir }), confirm },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(confirm.asked, ['Install into Cursor?', 'Install into VS Code?']);
+  assert.deepEqual(result.targets, ['cursor', 'vscode']);
+});
+
+test('a declined harness is not touched', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, true]) },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(result.targets, ['vscode']);
+  assert.ok(
+    !fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')),
+    'declined harness got no files',
+  );
+  assert.ok(fs.existsSync(path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk')));
+  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
+});
+
+test('declining everything changes nothing at all', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, false]) },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(result.targets, []);
+  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 0, 'no manifest entry');
+  assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json')));
+});
+
+test('an undetected harness is never offered', async () => {
+  const m = machine();
+  fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const confirm = scriptedConfirm([true]);
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: { ...deps({ repo, srcDir }), confirm },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(confirm.asked, ['Install into VS Code?'], 'Cursor absent, so not offered');
+});
+
+test('nothing is downloaded when every harness is declined', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  let fetched = false;
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: {
+        ...deps({ repo, srcDir: pluginSource() }),
+        materialize: async () => {
+          fetched = true;
+          throw new Error('should not fetch');
+        },
+        confirm: scriptedConfirm([false, false]),
+      },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.equal(fetched, false, 'the prompt runs before the download');
+});
+
+test('--targets is a decision, so it skips the prompt', async () => {
+  const confirm = scriptedConfirm([]);
+  const chosen = await chooseHarnesses(['cursor', 'vscode'], { explicit: true, confirm });
+  assert.deepEqual(chosen, ['cursor', 'vscode']);
+  assert.deepEqual(confirm.asked, []);
+});
+
+test('--yes skips the prompt', async () => {
+  const confirm = scriptedConfirm([]);
+  const chosen = await chooseHarnesses(['cursor', 'vscode'], { assumeYes: true, confirm });
+  assert.deepEqual(chosen, ['cursor', 'vscode']);
+  assert.deepEqual(confirm.asked, []);
+});
+
+test('update never re-asks, it replays the recorded harnesses', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const d = deps({ repo, srcDir });
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: { ...d, confirm: scriptedConfirm([false, true]) },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  const confirm = scriptedConfirm([]);
+  const { updateAll } = require('../src/install');
+  await quietly(() => updateAll({ brand: brandFor(repo), deps: { ...d, confirm }, pathOpts: m.pathOpts }));
+
+  assert.deepEqual(confirm.asked, []);
+  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
 });
 
 test('list marks what is installed on this machine', async () => {

@@ -31,13 +31,36 @@ context-plugins installed                      # what this machine has
 | `--repo <owner/repo>` | `context-plugins/plugin-marketplace` | Marketplace repository |
 | `--ref <branch\|tag\|sha>` | `main` | Version to install from |
 | `--marketplace <name>` | read from `marketplace.json` | Marketplace name |
-| `--targets <list>` | all detected | `claude`, `cursor`, `vscode`, or `all` |
+| `--targets <list>` | ask | `claude`, `cursor`, `vscode`, or `all` — skips the prompt |
+| `-y`, `--yes` | off | Accept every detected harness without asking |
 | `--force` | off | Replace a plugin installed from a different marketplace |
 | `--json` | off | Machine-readable output for `list` / `installed` |
 | `--verbose` / `--quiet` | off | More or less progress detail |
 
 Environment equivalents: `CP_PLUGIN`, `CP_REPO`, `CP_REF`, `CP_MARKETPLACE`.
 `GITHUB_TOKEN` raises the GitHub API rate limit. `CP_STATE_DIR` moves the state directory.
+
+## Choosing harnesses
+
+`install` detects which assistants are present and asks before touching each one:
+
+```
+[Harnesses]
+  ?   Install into Claude Code? [Y/n] y
+  ?   Install into Cursor? [Y/n] n
+  ?   Install into VS Code? [Y/n] y
+```
+
+Only the ones you accept are installed. Undetected assistants are never offered, and the plugin
+is downloaded *after* you answer — decline everything and nothing is fetched, written, or recorded.
+
+The question is skipped when the answer is already known:
+
+- `--targets cursor,vscode` — you already chose
+- `-y` / `--yes` — take every detected harness
+- a non-interactive shell (CI, piped input, `CP_NO_INPUT=1`) — falls back to every detected
+  harness rather than hanging on a question nobody can answer
+- `update` — replays the harnesses each plugin was installed into
 
 ## What it does per harness
 
