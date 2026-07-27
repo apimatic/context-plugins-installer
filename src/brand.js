@@ -6,12 +6,12 @@ const path = require('path');
 const { UserError, assertRepo, assertRef, stripBom } = require('./util');
 
 /**
- * Nothing here names a vendor. `apimatic` is not a constant anywhere in this
- * package - it is only ever a value someone supplies (flag, env, rc file, or a
- * brand wrapper package), which is what makes the CLI whitelabel-safe.
+ * Defaults for the marketplace the CLI talks to. Every field can be overridden
+ * by a flag, a CP_* environment variable, a .contextpluginsrc file, or a preset
+ * profile passed in programmatically.
  */
 const DEFAULT_PROFILE = Object.freeze({
-  id: null, // marketplace name; null => derive from the repo's marketplace.json
+  id: null, // marketplace name; null => read it from the repo's marketplace.json
   displayName: 'Context Plugins',
   repo: 'context-plugins/plugin-marketplace',
   ref: 'main',
@@ -38,7 +38,7 @@ const firstSet = (...values) => values.find((v) => v !== undefined && v !== null
 /**
  * Resolution order (first hit wins):
  *   CLI flag -> env (CP_*) -> .contextpluginsrc (cwd, then home)
- *            -> wrapper profile -> neutral defaults
+ *            -> preset profile -> defaults
  */
 function resolveBrand({
   flags = {},

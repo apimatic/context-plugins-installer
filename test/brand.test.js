@@ -17,21 +17,21 @@ const clean = (over = {}) => ({ env: {}, cwd: tmpDir('cp-cwd-'), home: tmpDir('c
 const writeRc = (dir, data) =>
   fs.writeFileSync(path.join(dir, '.contextpluginsrc'), JSON.stringify(data), 'utf8');
 
-test('with nothing configured, the defaults are neutral', () => {
+test('with nothing configured, the built-in defaults apply', () => {
   const brand = resolveBrand(clean());
   assert.equal(brand.repo, 'context-plugins/plugin-marketplace');
   assert.equal(brand.ref, 'main');
   assert.equal(brand.bin, 'context-plugins');
-  assert.equal(brand.id, null, 'marketplace name is derived, never hardcoded');
+  assert.equal(brand.id, null, 'marketplace name is read from the registry');
   assert.equal(brand.displayName, DEFAULT_PROFILE.displayName);
 });
 
-test('no vendor name is baked into the defaults', () => {
+test('the default marketplace name is not hardcoded', () => {
   const serialized = JSON.stringify(resolveBrand(clean())).toLowerCase();
-  assert.ok(!serialized.includes('apimatic'), `whitelabel leak: ${serialized}`);
+  assert.ok(!serialized.includes('apimatic'), `unexpected default: ${serialized}`);
 });
 
-test('a wrapper profile overrides the defaults', () => {
+test('a preset profile overrides the defaults', () => {
   const brand = resolveBrand({
     ...clean(),
     profile: { id: 'acme', repo: 'acme/plugin-marketplace', displayName: 'Acme AI', bin: 'acme-plugins' },
@@ -42,7 +42,7 @@ test('a wrapper profile overrides the defaults', () => {
   assert.equal(brand.displayName, 'Acme AI');
 });
 
-test('an rc file in cwd beats the wrapper profile', () => {
+test('an rc file in cwd beats the preset profile', () => {
   const cwd = tmpDir('cp-cwd-');
   writeRc(cwd, { repo: 'rc/marketplace' });
   const brand = resolveBrand({ ...clean({ cwd }), profile: { repo: 'acme/plugin-marketplace' } });

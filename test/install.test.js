@@ -102,7 +102,7 @@ test('install places files for every detected harness and records the manifest',
   assert.deepEqual(recorded[0].targets, ['cursor', 'vscode']);
 });
 
-test('a whitelabel marketplace installs with no vendor string anywhere', async () => {
+test('a second marketplace installs independently', async () => {
   const m = machine();
   const repo = 'acme/plugin-marketplace';
   const srcDir = pluginSource('acme-payments-sdk');
@@ -119,7 +119,7 @@ test('a whitelabel marketplace installs with no vendor string anywhere', async (
 
   assert.equal(result.marketplace, 'acme');
   const recorded = JSON.stringify(manifest.list(paths.manifestPath(m.pathOpts))).toLowerCase();
-  assert.ok(!recorded.includes('apimatic'), `whitelabel leak in manifest: ${recorded}`);
+  assert.ok(!recorded.includes('apimatic'), `unexpected marketplace value in manifest: ${recorded}`);
 });
 
 test('re-installing updates in place rather than duplicating', async () => {

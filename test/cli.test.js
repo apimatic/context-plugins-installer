@@ -61,7 +61,7 @@ test('an unknown target names the valid ones', () => {
   );
 });
 
-test('help text uses the wrapper bin name, so a brand shows its own command', () => {
+test('help text uses the configured bin name', () => {
   const text = helpText('acme-plugins', {
     displayName: 'Acme AI Plugins',
     repo: 'acme/plugin-marketplace',
@@ -72,7 +72,7 @@ test('help text uses the wrapper bin name, so a brand shows its own command', ()
   assert.ok(!text.toLowerCase().includes('apimatic'));
 });
 
-test('the neutral help text names no vendor', () => {
+test('the default help text uses the default command name', () => {
   const text = helpText('context-plugins', {
     displayName: 'Context Plugins',
     repo: 'context-plugins/plugin-marketplace',

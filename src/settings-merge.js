@@ -7,8 +7,7 @@ const { ensureDir, timestamp, stripBom } = require('./util');
 /**
  * VS Code's settings.json is JSONC: comments and trailing commas are legal, and
  * users care about their formatting. Parsing and re-serializing would silently
- * destroy both, so every edit here is a targeted string insertion - the same
- * approach validated in the PowerShell installer, across the same 8 shapes.
+ * destroy both, so every edit here is a targeted string insertion.
  */
 const KEY = 'chat.pluginLocations';
 const BOM = String.fromCharCode(0xfeff);

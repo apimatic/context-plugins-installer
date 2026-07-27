@@ -20,12 +20,11 @@ async function askEach(names, ask) {
 }
 
 /**
- * Nothing is installed into a harness the user did not agree to.
+ * Nothing is installed into an assistant the user did not agree to.
  *
  * The question is skipped when the answer is already known: an explicit
  * --targets is a decision, --yes opts out, and a non-interactive shell has
- * nobody to ask (so it keeps the previous install-all-detected behaviour
- * rather than hanging).
+ * nobody to ask (so it uses every detected assistant rather than hanging).
  */
 async function chooseHarnesses(available, { explicit = false, assumeYes = false, confirm } = {}) {
   if (!available.length || explicit || assumeYes) return available;
@@ -46,11 +45,11 @@ async function chooseHarnesses(available, { explicit = false, assumeYes = false,
 }
 
 /**
- * Two marketplaces may ship the same plugin id, and Cursor/VS Code both place
- * plugins in a flat <plugin>/ directory - so the second install would silently
- * overwrite the first. Refuse instead, unless the user forces it.
+ * The same plugin id can exist in more than one marketplace, and Cursor/VS Code
+ * both place plugins in a flat <plugin>/ directory - so a second install would
+ * silently overwrite the first. Refuse instead, unless the user forces it.
  */
-function assertNoCrossBrandCollision(manifestFile, { plugin, repo }, force) {
+function assertNoMarketplaceConflict(manifestFile, { plugin, repo }, force) {
   if (force) return;
   const clash = manifest
     .list(manifestFile)
@@ -86,7 +85,7 @@ async function installPlugin({
   });
 
   const requested = resolveTargets(targets);
-  assertNoCrossBrandCollision(manifestFile, { plugin, repo: brand.repo }, force);
+  assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
 
   log.banner(`Installing '${plugin}'  (marketplace: ${resolved.marketplace}, repo: ${brand.repo}@${effectiveRef})`);
   if (resolved.description) log.info(resolved.description);

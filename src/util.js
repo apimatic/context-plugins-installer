@@ -197,7 +197,7 @@ async function pool(items, limit, worker) {
   return results;
 }
 
-/** yyyyMMdd-HHmmss, matching the PowerShell installer's backup suffix. */
+/** yyyyMMdd-HHmmss, used as the settings.json backup suffix. */
 function timestamp(date = new Date()) {
   const p = (n, w = 2) => String(n).padStart(w, '0');
   return (

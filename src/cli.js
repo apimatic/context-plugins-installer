@@ -122,7 +122,7 @@ function report(err) {
 
 /**
  * @param {string[]} argv  process.argv.slice(2)
- * @param {object} profile Brand profile injected by a wrapper package (see run.js)
+ * @param {object} profile Preset configuration (see run.js)
  * @returns {Promise<number>} process exit code
  */
 async function run(argv = process.argv.slice(2), profile = {}) {

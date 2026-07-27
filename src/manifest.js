@@ -5,12 +5,11 @@ const path = require('path');
 const { ensureDir, stripBom } = require('./util');
 
 /**
- * ~/.context-plugins/installed.json - one shared state file across every brand,
- * so a single update pass covers all of them.
+ * ~/.context-plugins/installed.json - a single state file, so one update pass
+ * covers everything installed on the machine.
  *
- * Entries are keyed by repo + plugin, not plugin alone: two marketplaces can
- * legitimately ship the same plugin id, and keying on the id would make them
- * evict each other.
+ * Entries are keyed by repo + plugin rather than plugin alone, because the same
+ * plugin id can legitimately exist in more than one marketplace.
  */
 const MANIFEST_VERSION = 1;
 
