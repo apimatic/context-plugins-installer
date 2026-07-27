@@ -105,7 +105,7 @@ require('context-plugins/run')({
 {
   "name": "@acme/ai-plugins",
   "bin": { "acme-plugins": "bin/cli.js" },
-  "dependencies": { "context-plugins": "^0.1.0" }
+  "dependencies": { "context-plugins": "^1.0.0" }
 }
 ```
 
@@ -138,12 +138,35 @@ await installPlugin({
 ## Development
 
 ```bash
-node --test          # 90+ unit and integration tests, zero dependencies
+node --test          # 90+ unit and integration tests, zero runtime dependencies
 node bin/cli.js list # run the CLI from source
 ```
 
 Tests sandbox every install with `CP_STATE_DIR`, `CP_CURSOR_DIR`, and `CP_VSCODE_USER_DIR`, so
-they never touch a real editor installation.
+they never touch a real editor installation. The dev dependencies are release tooling only —
+the published package still has none.
+
+## Releasing
+
+Releases are automatic and driven by commit messages. There is no manual `npm version` or
+`npm publish`.
+
+1. **Write conventional commits.** `fix:` → patch, `feat:` → minor, `feat!:` or a
+   `BREAKING CHANGE:` footer → major. Anything else (`chore:`, `docs:`, `refactor:`) releases
+   nothing. CI checks this on every pull request.
+2. **Merge to `main`.** That starts the Release workflow.
+3. **Approve the deployment.** The job waits on the `npm-publish` environment until a reviewer
+   approves it — nothing reaches npm without a human click.
+4. semantic-release then works out the next version, updates `CHANGELOG.md` and `package.json`,
+   tags the commit, publishes to npm, and opens a GitHub release.
+
+`main` publishes to the `latest` dist-tag. `beta` and `alpha` publish prereleases to their own
+dist-tags, so `npx context-plugins` is unaffected until a change lands on `main`.
+
+Publishing uses **npm trusted publishing (OIDC)** — the workflow authenticates with a short-lived
+identity token, so there is no `NPM_TOKEN` secret to leak or rotate. The `version` field in
+`package.json` reads `0.0.0-development` on purpose: the real version comes from the git tag
+history at release time.
 
 ## License
 

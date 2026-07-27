@@ -26,7 +26,7 @@ No flags, and no other vendor's name in the command.
 
 ## Why a caret dependency
 
-`"context-plugins": "^0.1.0"` means fixes and new harness support reach your users without you
+`"context-plugins": "^1.0.0"` means fixes and new harness support reach your users without you
 republishing. The wrapper only ever carries your branding.
 
 ## Precedence
