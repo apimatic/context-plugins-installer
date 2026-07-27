@@ -26,8 +26,12 @@ No flags, and no other vendor's name in the command.
 
 ## Why a caret dependency
 
-`"context-plugins": "^1.0.0"` means fixes and new harness support reach your users without you
+`"context-plugins": "^0"` means fixes and new harness support reach your users without you
 republishing. The wrapper only ever carries your branding.
+
+The range is `^0`, not `^0.1.0`, on purpose: below 1.0.0 npm reads a caret as patch-only, so
+`^0.1.0` would strand you on the 0.1.x line the moment 0.2.0 ships. Switch to `^1` once
+`context-plugins` reaches 1.0.0.
 
 ## Precedence
 

@@ -128,7 +128,7 @@ require('context-plugins/run')({
 {
   "name": "@acme/ai-plugins",
   "bin": { "acme-plugins": "bin/cli.js" },
-  "dependencies": { "context-plugins": "^1.0.0" }
+  "dependencies": { "context-plugins": "^0" }
 }
 ```
 
