@@ -4,7 +4,7 @@ const log = require('./log');
 const paths = require('./paths');
 const manifest = require('./manifest');
 const { resolveBrand } = require('./brand');
-const { NAMES } = require('./harness');
+const { NAMES, byName } = require('./harness');
 const { UserError } = require('./util');
 const { installPlugin, uninstallPlugin, updateAll, listPlugins } = require('./install');
 const pkg = require('../package.json');
@@ -85,9 +85,9 @@ Usage
   ${bin} installed
 
 Options
-  --repo <owner/repo>   Marketplace repository        (default: ${brand.repo})
+  --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
   --ref <branch|tag|sha> Version to install from       (default: ${brand.ref})
-  --marketplace <name>  Marketplace name              (default: read from marketplace.json)
+  --marketplace <name>  Marketplace name              (default: read from the marketplace)
   --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (skips the prompt)
   -y, --yes             Accept every detected harness without asking
   --force               Replace a plugin installed from another marketplace
@@ -196,7 +196,7 @@ async function run(argv = process.argv.slice(2), profile = {}) {
           log.plain(JSON.stringify(result, null, 2));
           return 0;
         }
-        log.banner(`${result.plugins.length} plugin(s) in ${result.repo} (marketplace: ${result.marketplace})`);
+        log.banner(`${result.plugins.length} plugin(s) in ${result.label}`);
         for (const p of result.plugins) {
           log.plain(`  ${p.installed ? '*' : ' '} ${p.name}`);
           if (p.description) log.info(p.description);
@@ -217,8 +217,9 @@ async function run(argv = process.argv.slice(2), profile = {}) {
         }
         log.banner(`${entries.length} plugin(s) installed`);
         for (const e of entries) {
-          log.plain(`  ${e.plugin}  [${(e.targets || []).join(', ')}]`);
-          log.info(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
+          const where = (e.targets || []).map((n) => (byName(n) ? byName(n).title : n));
+          log.plain(`  ${e.plugin}  [${where.join(', ')}]`);
+          log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
         }
         return 0;
       }

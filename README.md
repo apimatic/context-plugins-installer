@@ -27,7 +27,7 @@ context-plugins installed                      # what this machine has
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `--repo <owner/repo>` | `context-plugins/plugin-marketplace` | Marketplace repository |
+| `--repo <owner/repo>` | the bundled marketplace | Install from a different marketplace |
 | `--ref <branch\|tag\|sha>` | `main` | Version to install from |
 | `--marketplace <name>` | read from `marketplace.json` | Marketplace name |
 | `--targets <list>` | ask | `claude`, `cursor`, `vscode`, or `all` — skips the prompt |

@@ -36,7 +36,7 @@ function assertPlugin(id) {
 function assertRepo(repo) {
   if (typeof repo !== 'string' || !REPO_RE.test(repo)) {
     throw new UserError(`Invalid repo: ${JSON.stringify(repo)}`, {
-      hint: 'Expected owner/repo, e.g. context-plugins/plugin-marketplace',
+      hint: 'Expected owner/repo, e.g. acme/plugin-marketplace',
     });
   }
   return repo;

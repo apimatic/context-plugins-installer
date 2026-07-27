@@ -49,6 +49,13 @@ function resolveBrand({
 } = {}) {
   const rc = readRc(cwd) || readRc(home) || {};
 
+  const displayName = firstSet(
+    env.CP_DISPLAY_NAME,
+    rc.displayName,
+    profile.displayName,
+    DEFAULT_PROFILE.displayName,
+  );
+
   const brand = {
     repo: firstSet(flags.repo, env.CP_REPO, rc.repo, profile.repo, DEFAULT_PROFILE.repo),
     ref: firstSet(flags.ref, env.CP_REF, rc.ref, profile.ref, DEFAULT_PROFILE.ref),
@@ -60,11 +67,14 @@ function resolveBrand({
         profile.id,
         DEFAULT_PROFILE.id,
       ) || null,
-    displayName: firstSet(
-      env.CP_DISPLAY_NAME,
-      rc.displayName,
-      profile.displayName,
-      DEFAULT_PROFILE.displayName,
+    displayName,
+    // What the user sees in place of the repository. The repository is an
+    // implementation detail of where plugins are stored.
+    label: firstSet(
+      env.CP_MARKETPLACE_LABEL,
+      rc.marketplaceLabel,
+      profile.label,
+      `${displayName} Marketplace`,
     ),
     bin: firstSet(profile.bin, DEFAULT_PROFILE.bin),
   };

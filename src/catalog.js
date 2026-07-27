@@ -83,7 +83,9 @@ function sourcePathFor(entry, plugin) {
  * Resolve everything the installers need for one plugin:
  * the marketplace name (derived unless overridden) and the folder inside the repo.
  */
-async function resolvePlugin({ repo, ref, plugin, marketplace = null, deps = {} }) {
+async function resolvePlugin({ repo, ref, plugin, marketplace = null, label, deps = {} }) {
+  // `label` is what the user sees; the repository stays an internal detail.
+  const shown = label || `${repo}@${ref}`;
   const catalog = await loadCatalog({ repo, ref, deps });
   const entry = entryFor(catalog, plugin);
 
@@ -91,14 +93,14 @@ async function resolvePlugin({ repo, ref, plugin, marketplace = null, deps = {} 
     const known = catalog.plugins
       .map((p) => (typeof p === 'string' ? p : p && p.name))
       .filter(Boolean);
-    throw new UserError(`Plugin '${plugin}' is not listed in ${repo}@${ref}.`, {
+    throw new UserError(`Plugin '${plugin}' is not listed in ${shown}.`, {
       hint: known.length ? `Available: ${known.slice(0, 12).join(', ')}` : undefined,
     });
   }
 
   const resolvedMarketplace = marketplace || (catalog && catalog.marketplace);
   if (!resolvedMarketplace) {
-    throw new UserError(`Could not determine the marketplace name for ${repo}@${ref}.`, {
+    throw new UserError(`Could not determine the marketplace name for ${shown}.`, {
       hint: `No 'name' in ${REGISTRY_FILES[0]}. Pass --marketplace <name>.`,
     });
   }

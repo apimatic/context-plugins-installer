@@ -55,10 +55,9 @@ function assertNoMarketplaceConflict(manifestFile, { plugin, repo }, force) {
     .list(manifestFile)
     .find((p) => p.plugin === plugin && (p.repo || '') !== repo);
   if (clash) {
-    throw new UserError(
-      `'${plugin}' is already installed from a different marketplace (${clash.repo}).`,
-      { hint: `Uninstall it first, or re-run with --force to replace it.` },
-    );
+    throw new UserError(`'${plugin}' is already installed from a different marketplace.`, {
+      hint: 'Uninstall it first, or re-run with --force to replace it.',
+    });
   }
 }
 
@@ -81,13 +80,16 @@ async function installPlugin({
     ref: effectiveRef,
     plugin,
     marketplace: brand.id,
+    label: brand.label,
     deps,
   });
 
   const requested = resolveTargets(targets);
   assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
 
-  log.banner(`Installing '${plugin}'  (marketplace: ${resolved.marketplace}, repo: ${brand.repo}@${effectiveRef})`);
+  const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
+  log.banner(`Installing '${plugin}' from ${from}`);
+  log.debug(`source: ${brand.repo}@${effectiveRef}, marketplace: ${resolved.marketplace}`);
   if (resolved.description) log.info(resolved.description);
   log.rule();
 
@@ -180,7 +182,7 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
     ).marketplace;
   }
 
-  log.banner(`Uninstalling '${plugin}'  (repo: ${brand.repo})`);
+  log.banner(`Uninstalling '${plugin}' from ${brand.label}`);
   log.info(`Removing from: ${want.map((n) => byName(n).title).join(', ')}`);
   log.rule();
 
@@ -251,7 +253,7 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
 async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
   const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
   if (!catalog) {
-    throw new UserError(`No marketplace registry found in ${brand.repo}@${brand.ref}.`, {
+    throw new UserError(`Could not read ${brand.label}.`, {
       hint: 'Check --repo, or the branch you pointed at with --ref.',
     });
   }
@@ -262,6 +264,7 @@ async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
       .map((p) => p.plugin),
   );
   return {
+    label: brand.label,
     marketplace: catalog.marketplace,
     repo: brand.repo,
     plugins: catalog.plugins.map((p) => {
