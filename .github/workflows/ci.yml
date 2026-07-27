@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # No dependencies to install - that is the point.
+      - run: npm run syntax
+      - run: npm test
+
+  smoke:
+    name: real marketplace smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: list the default marketplace
+        run: node bin/cli.js list --json > /dev/null
+      - name: install into a sandboxed machine
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state"
+          export CP_CURSOR_DIR="$RUNNER_TEMP/.cursor"
+          export CP_VSCODE_USER_DIR="$RUNNER_TEMP/code-user"
+          mkdir -p "$CP_CURSOR_DIR" "$CP_VSCODE_USER_DIR"
+          node bin/cli.js install discourse-api-documentation-sdk --targets cursor,vscode
+          test -f "$CP_VSCODE_USER_DIR/settings.json"
+          node bin/cli.js installed
+          node bin/cli.js uninstall discourse-api-documentation-sdk --targets cursor,vscode

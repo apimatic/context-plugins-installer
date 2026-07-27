@@ -1,0 +1,53 @@
+{
+  "name": "context-plugins",
+  "version": "0.1.0",
+  "description": "Install a plugin from a plugin marketplace into Claude Code, Cursor, and VS Code with one command.",
+  "keywords": [
+    "claude-code",
+    "cursor",
+    "vscode",
+    "copilot",
+    "plugin",
+    "plugins",
+    "skills",
+    "marketplace",
+    "installer",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "APIMatic <developer@apimatic.io>",
+  "homepage": "https://github.com/apimatic/context-plugins-installer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apimatic/context-plugins-installer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/apimatic/context-plugins-installer/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "context-plugins": "bin/cli.js"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./run": "./run.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "run.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "syntax": "node --check bin/cli.js && node --check run.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

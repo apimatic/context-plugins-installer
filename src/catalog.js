@@ -1,0 +1,127 @@
+'use strict';
+
+const { UserError, assertRepo, assertRef, stripBom } = require('./util');
+
+// Claude Code and Cursor read the same registry shape from different folders.
+// We prefer the Claude one and fall back to Cursor's.
+const REGISTRY_FILES = ['.claude-plugin/marketplace.json', '.cursor-plugin/marketplace.json'];
+
+const rawUrl = (repo, ref, filePath) =>
+  `https://raw.githubusercontent.com/${repo}/${ref}/${filePath}`;
+
+function ghHeaders(env = process.env) {
+  const headers = { 'User-Agent': 'context-plugins-installer', Accept: 'application/json' };
+  const token = env.CP_GITHUB_TOKEN || env.GITHUB_TOKEN || env.GH_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+/** GET JSON, returning null for 404 so a missing registry is not an error. */
+async function getJson(url, { env = process.env, fetchImpl = fetch } = {}) {
+  let res;
+  try {
+    res = await fetchImpl(url, { headers: ghHeaders(env), redirect: 'follow' });
+  } catch (err) {
+    throw new UserError(`Network request failed: ${url}`, { hint: err.message });
+  }
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new UserError(`GET ${url} returned ${res.status} ${res.statusText || ''}`.trim(), {
+      hint:
+        res.status === 403
+          ? 'GitHub rate limit? Set GITHUB_TOKEN to raise it, or install git for the clone path.'
+          : undefined,
+    });
+  }
+  const text = await res.text();
+  try {
+    return JSON.parse(stripBom(text));
+  } catch (err) {
+    throw new UserError(`${url} is not valid JSON: ${err.message}`);
+  }
+}
+
+function normalize(data, from) {
+  return {
+    marketplace: typeof data.name === 'string' && data.name ? data.name : null,
+    plugins: Array.isArray(data.plugins) ? data.plugins : [],
+    from,
+  };
+}
+
+/** Load a repo's marketplace registry. Returns null when the repo has none. */
+async function loadCatalog({ repo, ref, deps = {} }) {
+  assertRepo(repo);
+  assertRef(ref);
+  for (const file of REGISTRY_FILES) {
+    const data = await getJson(rawUrl(repo, ref, file), deps);
+    if (data) return normalize(data, file);
+  }
+  return null;
+}
+
+const entryFor = (catalog, plugin) =>
+  catalog ? catalog.plugins.find((p) => (typeof p === 'string' ? p : p && p.name) === plugin) : undefined;
+
+/** `./plugins/foo` and `plugins/foo` both normalize to the repo-relative `plugins/foo`. */
+function sourcePathFor(entry, plugin) {
+  const source = entry && typeof entry === 'object' ? entry.source : undefined;
+  if (typeof source === 'string' && source.trim()) {
+    const rel = source.trim().replace(/^\.\//, '').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (rel && !rel.includes('..')) return rel;
+  }
+  if (source && typeof source === 'object') {
+    throw new UserError(
+      `Plugin '${plugin}' is hosted in another repository (source type '${source.source || 'object'}').`,
+      { hint: 'Point --repo at the repository that actually contains the plugin folder.' },
+    );
+  }
+  return `plugins/${plugin}`;
+}
+
+/**
+ * Resolve everything the installers need for one plugin:
+ * the marketplace name (derived unless overridden) and the folder inside the repo.
+ */
+async function resolvePlugin({ repo, ref, plugin, marketplace = null, deps = {} }) {
+  const catalog = await loadCatalog({ repo, ref, deps });
+  const entry = entryFor(catalog, plugin);
+
+  if (catalog && catalog.plugins.length && !entry) {
+    const known = catalog.plugins
+      .map((p) => (typeof p === 'string' ? p : p && p.name))
+      .filter(Boolean);
+    throw new UserError(`Plugin '${plugin}' is not listed in ${repo}@${ref}.`, {
+      hint: known.length ? `Available: ${known.slice(0, 12).join(', ')}` : undefined,
+    });
+  }
+
+  const resolvedMarketplace = marketplace || (catalog && catalog.marketplace);
+  if (!resolvedMarketplace) {
+    throw new UserError(`Could not determine the marketplace name for ${repo}@${ref}.`, {
+      hint: `No 'name' in ${REGISTRY_FILES[0]}. Pass --marketplace <name>.`,
+    });
+  }
+
+  return {
+    plugin,
+    repo,
+    ref,
+    marketplace: resolvedMarketplace,
+    sourcePath: sourcePathFor(entry, plugin),
+    description: entry && typeof entry === 'object' ? entry.description || '' : '',
+    catalogFound: Boolean(catalog),
+  };
+}
+
+module.exports = {
+  REGISTRY_FILES,
+  rawUrl,
+  ghHeaders,
+  getJson,
+  normalize,
+  loadCatalog,
+  entryFor,
+  sourcePathFor,
+  resolvePlugin,
+};

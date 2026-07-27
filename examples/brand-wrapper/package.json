@@ -1,0 +1,21 @@
+{
+  "name": "@acme/ai-plugins",
+  "version": "0.1.0",
+  "description": "Install Acme AI plugins into Claude Code, Cursor, and VS Code.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "bin": {
+    "acme-plugins": "bin/cli.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "dependencies": {
+    "context-plugins": "^0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,6 @@
+# Normalize to LF in the repository and in the working tree.
+# bin/cli.js ships in the npm tarball: a CRLF shebang breaks it on Linux/macOS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
