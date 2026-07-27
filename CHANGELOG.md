@@ -1,3 +1,12 @@
+# [0.2.0](https://github.com/apimatic/context-plugins-installer/compare/v0.1.0...v0.2.0) (2026-07-27)
+
+
+### Features
+
+* ask which harnesses to install into ([7ddabd3](https://github.com/apimatic/context-plugins-installer/commit/7ddabd36ad6d88fc3d244c43dffd2a7aac76df24))
+* clearer install output ([28118e4](https://github.com/apimatic/context-plugins-installer/commit/28118e408691a39abaac88c822664657acb37fba))
+* match uninstall output to install ([4b5e8be](https://github.com/apimatic/context-plugins-installer/commit/4b5e8be557018221c2464b85550220f33114f6d5))
+
 # [0.1.0](https://github.com/apimatic/context-plugins-installer/compare/v0.0.0...v0.1.0) (2026-07-27)
 
 
