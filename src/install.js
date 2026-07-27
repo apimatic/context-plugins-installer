@@ -181,7 +181,7 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
   }
 
   log.banner(`Uninstalling '${plugin}'  (repo: ${brand.repo})`);
-  log.info(`Targets: ${want.join(', ')}`);
+  log.info(`Removing from: ${want.map((n) => byName(n).title).join(', ')}`);
   log.rule();
 
   const removed = [];

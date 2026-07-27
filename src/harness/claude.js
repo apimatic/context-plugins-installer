@@ -50,6 +50,7 @@ async function uninstall({ plugin, marketplace }, opts) {
     return false;
   }
   log.ok(`Uninstalled ${target}`);
+  log.info('Restart `claude` or /reload-plugins to unload the plugin.');
   return true;
 }
 

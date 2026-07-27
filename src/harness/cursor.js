@@ -39,7 +39,8 @@ async function uninstall({ plugin }, opts) {
     return false;
   }
   rmrf(dest);
-  log.ok(`Removed ${dest}`);
+  log.ok(`Removed -> ${dest}`);
+  log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
 

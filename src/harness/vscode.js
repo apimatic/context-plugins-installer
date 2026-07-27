@@ -49,8 +49,10 @@ async function uninstall({ plugin }, opts) {
     log.info(`Nothing to remove at ${dest}`);
     return false;
   }
-  log.ok('Unregistered and removed the VS Code copy');
+  log.ok(`Removed -> ${dest}`);
+  if (result.action === 'removed') log.info(`Unregistered from chat.pluginLocations (${settings})`);
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
+  log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
 
