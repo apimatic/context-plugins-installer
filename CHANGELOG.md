@@ -1,3 +1,11 @@
+# [0.3.0](https://github.com/apimatic/context-plugins-installer/compare/v0.2.0...v0.3.0) (2026-07-27)
+
+
+### Features
+
+* production polish for command output ([7065576](https://github.com/apimatic/context-plugins-installer/commit/7065576c46a7df76e1b1243031483a64ba55ef1c))
+* show a marketplace name instead of a repository path ([a6836b9](https://github.com/apimatic/context-plugins-installer/commit/a6836b9543a7329b57d92e358c1997fadd1fe900))
+
 # [0.2.0](https://github.com/apimatic/context-plugins-installer/compare/v0.1.0...v0.2.0) (2026-07-27)
 
 
