@@ -208,6 +208,63 @@ function timestamp(date = new Date()) {
 
 const stripBom = (s) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 
+/** Display form of a path: `~` beats repeating the user's home directory back at them. */
+function shortPath(target, home = require('os').homedir()) {
+  if (!target || !home) return target;
+  const normalized = String(target);
+  if (normalized.toLowerCase().startsWith(home.toLowerCase())) {
+    const rest = normalized.slice(home.length);
+    return `~${rest.startsWith(path.sep) || rest.startsWith('/') ? '' : path.sep}${rest}`;
+  }
+  return normalized;
+}
+
+/** Edit distance, capped work for the short strings we compare (plugin ids). */
+function editDistance(a, b) {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  let prev = Array.from({ length: cols }, (_v, i) => i);
+  for (let i = 1; i < rows; i += 1) {
+    const curr = [i];
+    for (let j = 1; j < cols; j += 1) {
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = curr;
+  }
+  return prev[cols - 1];
+}
+
+const sharedPrefix = (a, b) => {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
+  return i;
+};
+
+/**
+ * Closest names to `query`. Substring hits rank first, then names sharing a
+ * substantial prefix - plugin ids in a marketplace tend to share a suffix, so
+ * plain edit distance alone rates `azure-cognitve` as too far from
+ * `azure-cognitive-sdk` to be worth offering.
+ */
+function suggest(query, candidates, limit = 3) {
+  const q = String(query).toLowerCase();
+  const threshold = Math.max(3, Math.ceil(q.length * 0.4));
+  const scored = candidates
+    .map((name) => {
+      const n = String(name).toLowerCase();
+      if (n.includes(q) || q.includes(n)) return { name, score: 0 };
+      if (sharedPrefix(q, n) >= Math.max(4, Math.ceil(q.length * 0.6))) return { name, score: 1 };
+      return { name, score: editDistance(q, n) };
+    })
+    .filter((c) => c.score <= threshold)
+    .sort((a, b) => a.score - b.score || a.name.length - b.name.length);
+  return scored.slice(0, limit).map((c) => c.name);
+}
+
 module.exports = {
   UserError,
   assertPlugin,
@@ -226,4 +283,7 @@ module.exports = {
   pool,
   timestamp,
   stripBom,
+  shortPath,
+  editDistance,
+  suggest,
 };

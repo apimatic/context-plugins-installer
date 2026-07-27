@@ -65,15 +65,28 @@ test('the Cursor registry is used when the Claude one is absent', async () => {
   assert.equal(catalog.from, '.cursor-plugin/marketplace.json');
 });
 
-test('a plugin missing from the registry fails with the available list', async () => {
+test('a mistyped plugin name suggests the closest match', async () => {
   await assert.rejects(
     resolvePlugin({
       repo: REPO,
       ref: 'main',
-      plugin: 'nope-sdk',
+      plugin: 'my-sdkk',
       deps: deps({ [CLAUDE_REG]: { body: registry() } }),
     }),
-    (err) => err instanceof UserError && /not listed/.test(err.message) && /my-sdk/.test(err.hint),
+    (err) =>
+      err instanceof UserError && /not listed/.test(err.message) && /Did you mean: my-sdk/.test(err.hint),
+  );
+});
+
+test('a plugin with no near match points at the list command and the count', async () => {
+  await assert.rejects(
+    resolvePlugin({
+      repo: REPO,
+      ref: 'main',
+      plugin: 'zzzzzzzzzzzzzzzz',
+      deps: deps({ [CLAUDE_REG]: { body: registry() } }),
+    }),
+    (err) => err instanceof UserError && /Run 'list' to see the 2 available/.test(err.hint),
   );
 });
 

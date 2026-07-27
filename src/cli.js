@@ -10,7 +10,10 @@ const { installPlugin, uninstallPlugin, updateAll, listPlugins } = require('./in
 const pkg = require('../package.json');
 
 const VALUE_FLAGS = new Set(['repo', 'ref', 'marketplace', 'targets']);
-const BOOL_FLAGS = new Set(['force', 'yes', 'verbose', 'quiet', 'json', 'help', 'version']);
+const BOOL_FLAGS = new Set(['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version']);
+
+// A plugin id longer than this is treated as an outlier when sizing the list grid.
+const OUTLIER_NAME = 36;
 
 const camel = (s) => s.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -91,6 +94,7 @@ Options
   --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (skips the prompt)
   -y, --yes             Accept every detected harness without asking
   --force               Replace a plugin installed from another marketplace
+  --long                Show plugin descriptions (list)
   --json                Machine-readable output (list, installed)
   --verbose             Show underlying git / CLI detail
   --quiet               Suppress progress output
@@ -196,13 +200,45 @@ async function run(argv = process.argv.slice(2), profile = {}) {
           log.plain(JSON.stringify(result, null, 2));
           return 0;
         }
-        log.banner(`${result.plugins.length} plugin(s) in ${result.label}`);
-        for (const p of result.plugins) {
-          log.plain(`  ${p.installed ? '*' : ' '} ${p.name}`);
-          if (p.description) log.info(p.description);
-        }
+        const plugins = [...result.plugins].sort((a, b) => a.name.localeCompare(b.name));
+        log.banner(`${log.plural(plugins.length, 'plugin')} in ${result.label}`);
         log.plain('');
-        log.info('* = installed on this machine');
+
+        if (flags.long) {
+          // Full detail, one plugin per block.
+          for (const p of plugins) {
+            const mark = p.installed ? log.MARK : ' ';
+            log.plain(`  ${mark} ${log.bold(p.name)}`);
+            if (p.description) log.info(p.description);
+          }
+        } else {
+          // A grid of names. Descriptions in a marketplace are long and largely
+          // boilerplate, so a truncated column of them shows the same prefix on
+          // every row and crowds out the one thing that differs.
+          // Sized to the longest name that is not an outlier. Using the true
+          // maximum lets one very long id set the width for every column and
+          // collapse the grid; using a percentile makes a third of the rows
+          // ragged. Ignoring only the outliers keeps every ordinary row aligned.
+          const lengths = plugins.map((p) => p.name.length);
+          const cell = Math.max(16, ...lengths.filter((l) => l <= OUTLIER_NAME)) + 3;
+          const cols = Math.max(1, Math.floor((log.width(120) - 2) / cell));
+          const rows = Math.ceil(plugins.length / cols);
+          for (let r = 0; r < rows; r += 1) {
+            let line = '  ';
+            for (let c = 0; c < cols; c += 1) {
+              const p = plugins[c * rows + r]; // column-major keeps A-Z reading down
+              if (!p) continue;
+              line += `${p.installed ? log.MARK : ' '} ${p.name.padEnd(cell - 2)}`;
+            }
+            log.plain(line.trimEnd());
+          }
+        }
+
+        log.plain('');
+        const count = plugins.filter((p) => p.installed).length;
+        if (count) log.info(`${log.MARK} installed on this machine (${count})`);
+        if (!flags.long) log.info(`Run \`${bin} list --long\` for descriptions.`);
+        log.info(`Install one with \`${bin} install <plugin>\`.`);
         return 0;
       }
       case 'installed': {
@@ -212,15 +248,19 @@ async function run(argv = process.argv.slice(2), profile = {}) {
           return 0;
         }
         if (!entries.length) {
-          log.info('No plugins installed by this tool yet.');
+          log.info('No plugins installed yet.');
+          log.info(`Browse what is available with:  ${bin} list`);
           return 0;
         }
-        log.banner(`${entries.length} plugin(s) installed`);
+        log.banner(`${log.plural(entries.length, 'plugin')} installed`);
+        log.plain('');
+        const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
         for (const e of entries) {
           const where = (e.targets || []).map((n) => (byName(n) ? byName(n).title : n));
-          log.plain(`  ${e.plugin}  [${where.join(', ')}]`);
+          log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(where.join(', '))}`);
           log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
         }
+        log.plain('');
         return 0;
       }
       default:

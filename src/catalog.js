@@ -1,6 +1,6 @@
 'use strict';
 
-const { UserError, assertRepo, assertRef, stripBom } = require('./util');
+const { UserError, assertRepo, assertRef, stripBom, suggest } = require('./util');
 
 // Claude Code and Cursor read the same registry shape from different folders.
 // We prefer the Claude one and fall back to Cursor's.
@@ -93,8 +93,11 @@ async function resolvePlugin({ repo, ref, plugin, marketplace = null, label, dep
     const known = catalog.plugins
       .map((p) => (typeof p === 'string' ? p : p && p.name))
       .filter(Boolean);
+    const close = suggest(plugin, known);
     throw new UserError(`Plugin '${plugin}' is not listed in ${shown}.`, {
-      hint: known.length ? `Available: ${known.slice(0, 12).join(', ')}` : undefined,
+      hint: close.length
+        ? `Did you mean: ${close.join(', ')}?  Run 'list' to see all ${known.length}.`
+        : `Run 'list' to see the ${known.length} available plugins.`,
     });
   }
 

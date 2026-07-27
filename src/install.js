@@ -211,13 +211,19 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   const manifestFile = paths.manifestPath(pathOpts);
   const entries = manifest.list(manifestFile);
   if (!entries.length) {
-    log.warn(`Nothing recorded in ${manifestFile} - install a plugin first.`);
+    log.warn('No plugins installed yet - nothing to update.');
     return { updated: [], failed: [] };
   }
 
-  log.banner(`Updating ${entries.length} plugin(s) from ${manifestFile}`);
+  log.banner(`Updating ${log.plural(entries.length, 'plugin')}`);
+  log.plain('');
   const updated = [];
   const failed = [];
+  // Each plugin would otherwise print a full install report; at five plugins
+  // that is sixty lines of scrollback to find one failure in. Collapse to a
+  // line each unless --verbose asked for the detail.
+  const collapse = !log.isVerbose && !log.isQuiet;
+  const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
 
   for (const entry of entries) {
     const entryBrand = Object.freeze({
@@ -226,8 +232,9 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
       ref: entry.ref || brand.ref,
       id: entry.marketplace || brand.id,
     });
+    if (collapse) log.setQuiet(true);
     try {
-      await installPlugin({
+      const result = await installPlugin({
         brand: entryBrand,
         plugin: entry.plugin,
         ref: entry.ref,
@@ -237,16 +244,25 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
         deps,
         pathOpts,
       });
+      if (collapse) log.setQuiet(false);
       updated.push(entry.plugin);
+      const where = (result.targets || []).map((n) => byName(n).title).join(', ');
+      if (collapse) log.ok(`${entry.plugin.padEnd(idWidth)}  ${log.dim(where)}`);
     } catch (err) {
+      if (collapse) log.setQuiet(false);
       failed.push({ plugin: entry.plugin, error: err.message });
-      log.error(`${entry.plugin}: ${err.message}`);
+      log.error(`${entry.plugin.padEnd(idWidth)}  ${err.message}`);
     }
   }
 
+  log.plain('');
   log.rule();
-  log.ok(`Updated ${updated.length}/${entries.length}`);
-  if (failed.length) log.warn(`Failed: ${failed.map((f) => f.plugin).join(', ')}`);
+  if (failed.length) {
+    log.warn(`Updated ${updated.length} of ${entries.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`);
+  } else {
+    log.ok(`Updated ${log.plural(updated.length, 'plugin')}`);
+  }
+  log.plain('');
   return { updated, failed };
 }
 

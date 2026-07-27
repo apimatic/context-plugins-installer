@@ -5,7 +5,7 @@ const path = require('path');
 
 const log = require('../log');
 const paths = require('../paths');
-const { replaceDir, rmrf, exists } = require('../util');
+const { replaceDir, rmrf, exists, shortPath } = require('../util');
 
 const name = 'cursor';
 const title = 'Cursor';
@@ -27,7 +27,7 @@ async function install({ plugin, srcDir }, opts) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   replaceDir(srcDir, dest);
 
-  log.ok(`Installed -> ${dest}`);
+  log.ok(`Installed -> ${shortPath(dest)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
@@ -35,11 +35,11 @@ async function install({ plugin, srcDir }, opts) {
 async function uninstall({ plugin }, opts) {
   const dest = destFor(plugin, opts);
   if (!exists(dest)) {
-    log.info(`Nothing to remove at ${dest}`);
+    log.info(`Nothing to remove at ${shortPath(dest)}`);
     return false;
   }
   rmrf(dest);
-  log.ok(`Removed -> ${dest}`);
+  log.ok(`Removed -> ${shortPath(dest)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }

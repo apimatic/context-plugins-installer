@@ -5,7 +5,7 @@ const path = require('path');
 const log = require('../log');
 const paths = require('../paths');
 const { addPluginLocation, removePluginLocation } = require('../settings-merge');
-const { replaceDir, rmrf, exists } = require('../util');
+const { replaceDir, rmrf, exists, shortPath } = require('../util');
 
 // VS Code loads a plugin from anywhere on disk once the folder is listed in
 // `chat.pluginLocations`, so we keep our own copy under the state dir rather
@@ -19,7 +19,7 @@ const destFor = (plugin, opts) => path.join(paths.vscodeStoreDir(opts), plugin);
 
 async function install({ plugin, srcDir }, opts) {
   if (!detect(opts)) {
-    log.warn(`${paths.vscodeUserDir(opts)} not found - VS Code not installed, skipping.`);
+    log.warn(`${shortPath(paths.vscodeUserDir(opts))} not found - VS Code not installed, skipping.`);
     return false;
   }
 
@@ -29,9 +29,9 @@ async function install({ plugin, srcDir }, opts) {
   const settings = paths.vscodeSettingsPath(opts);
   const result = addPluginLocation(settings, dest);
 
-  log.ok(`Installed -> ${dest}`);
-  if (result.action === 'already') log.info(`Already registered in ${settings}`);
-  else log.info(`Registered in chat.pluginLocations (${settings})`);
+  log.ok(`Installed -> ${shortPath(dest)}`);
+  if (result.action === 'already') log.info(`Already registered in ${shortPath(settings)}`);
+  else log.info(`Registered in chat.pluginLocations (${shortPath(settings)})`);
   // The backup always happens; it is only worth mentioning when asked for detail.
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
@@ -46,11 +46,11 @@ async function uninstall({ plugin }, opts) {
   if (had) rmrf(dest);
 
   if (!had && result.action !== 'removed') {
-    log.info(`Nothing to remove at ${dest}`);
+    log.info(`Nothing to remove at ${shortPath(dest)}`);
     return false;
   }
-  log.ok(`Removed -> ${dest}`);
-  if (result.action === 'removed') log.info(`Unregistered from chat.pluginLocations (${settings})`);
+  log.ok(`Removed -> ${shortPath(dest)}`);
+  if (result.action === 'removed') log.info(`Unregistered from chat.pluginLocations (${shortPath(settings)})`);
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
