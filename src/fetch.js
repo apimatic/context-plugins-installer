@@ -52,7 +52,7 @@ async function materialize({ repo, ref, sourcePath, deps = {} }) {
 async function viaGit({ git, repo, ref, sourcePath, work }) {
   const clone = path.join(work, 'repo');
   const url = `https://github.com/${repo}.git`;
-  log.info(`Fetching via git sparse-clone (${repo}@${ref}) ...`);
+  log.info(`Fetching marketplace via git (${repo}@${ref}) ...`);
 
   const base = ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse'];
 

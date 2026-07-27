@@ -126,7 +126,7 @@ async function installPlugin({
       sourcePath: resolved.sourcePath,
       deps,
     });
-    log.ok(`Plugin source ready (via ${source.via})`);
+    log.ok('Plugin source ready');
   }
 
   const installed = [];
@@ -162,6 +162,7 @@ async function installPlugin({
   }
 
   summarize(installed, 'Installed into');
+
   return { plugin, targets: installed, marketplace: resolved.marketplace, ref: effectiveRef };
 }
 
@@ -278,9 +279,9 @@ function summarize(done, verb) {
   log.plain('');
   log.rule();
   if (!done.length) {
-    log.warn('No harnesses were affected. Are Claude Code / Cursor / VS Code installed?');
+    log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
   } else {
-    log.ok(`${verb}: ${done.join(', ')}`);
+    log.ok(`${verb}: ${done.map((n) => byName(n).title).join(', ')}`);
   }
   log.plain('');
 }

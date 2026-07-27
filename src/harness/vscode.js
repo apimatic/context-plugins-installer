@@ -32,8 +32,9 @@ async function install({ plugin, srcDir }, opts) {
   log.ok(`Installed -> ${dest}`);
   if (result.action === 'already') log.info(`Already registered in ${settings}`);
   else log.info(`Registered in chat.pluginLocations (${settings})`);
-  if (result.backup) log.info(`Backed up settings.json -> ${path.basename(result.backup)}`);
-  log.info('Reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
+  // The backup always happens; it is only worth mentioning when asked for detail.
+  if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
+  log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
 
@@ -49,7 +50,7 @@ async function uninstall({ plugin }, opts) {
     return false;
   }
   log.ok('Unregistered and removed the VS Code copy');
-  if (result.backup) log.info(`Backed up settings.json -> ${path.basename(result.backup)}`);
+  if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   return true;
 }
 

@@ -1,9 +1,28 @@
 'use strict';
 
-// ASCII-only output on purpose: Windows consoles still default to cp437/cp1252,
-// where box-drawing characters and em-dashes turn into mojibake.
-
 const state = { verbose: false, quiet: false };
+
+/**
+ * A check mark reads better than "OK", but legacy Windows consoles run cp437/
+ * cp1252 and render it as mojibake. Use it only where the terminal is known to
+ * cope, and fall back to ASCII everywhere else.
+ */
+function unicodeSupported() {
+  if (process.platform !== 'win32') return process.env.TERM !== 'linux';
+  return Boolean(
+    process.env.WT_SESSION || // Windows Terminal
+      process.env.TERMINUS_SUBLIME ||
+      process.env.ConEmuTask === '{cmd::Cmd}' ||
+      process.env.TERM_PROGRAM === 'vscode' ||
+      process.env.TERM === 'xterm-256color' ||
+      process.env.TERM === 'alacritty',
+  );
+}
+
+// Every prefix is padded to the same width so continuation lines line up.
+const TICK = unicodeSupported() ? `  ${String.fromCharCode(0x2713)}   ` : '  OK  ';
+const BANG = '  !!  ';
+const CROSS = '  XX  ';
 
 function colorEnabled() {
   if (process.env.NO_COLOR !== undefined) return false;
@@ -35,16 +54,16 @@ const log = {
     if (!state.quiet) console.log(`\n${paint('1', msg)}`);
   },
   ok(msg) {
-    if (!state.quiet) console.log(`${paint('32', '  OK  ')}${msg}`);
+    if (!state.quiet) console.log(`${paint('32', TICK)}${msg}`);
   },
   info(msg) {
     if (!state.quiet) console.log(paint('90', `      ${msg}`));
   },
   warn(msg) {
-    if (!state.quiet) console.log(`${paint('33', '  !!  ')}${msg}`);
+    if (!state.quiet) console.log(`${paint('33', BANG)}${msg}`);
   },
   error(msg) {
-    console.error(`${paint('31', '  XX  ')}${msg}`);
+    console.error(`${paint('31', CROSS)}${msg}`);
   },
   debug(msg) {
     if (state.verbose && !state.quiet) console.log(paint('90', `  ..  ${msg}`));

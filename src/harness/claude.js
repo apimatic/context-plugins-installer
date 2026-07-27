@@ -33,7 +33,7 @@ async function install({ plugin, marketplace, repo }, opts) {
     throw new UserError(`claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim());
   }
   log.ok(`Installed ${target} (user scope)`);
-  log.info('Start `claude`; skills load automatically. /plugin lists what is installed.');
+  log.info('Start with `claude` or /reload-plugins to load newly added plugin.');
   return true;
 }
 

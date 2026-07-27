@@ -28,7 +28,7 @@ async function install({ plugin, srcDir }, opts) {
   replaceDir(srcDir, dest);
 
   log.ok(`Installed -> ${dest}`);
-  log.info('Reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
+  log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
 
