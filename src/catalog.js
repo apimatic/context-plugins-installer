@@ -6,6 +6,9 @@ const { UserError, assertRepo, assertRef, stripBom, suggest } = require('./util'
 // We prefer the Claude one and fall back to Cursor's.
 const REGISTRY_FILES = ['.claude-plugin/marketplace.json', '.cursor-plugin/marketplace.json'];
 
+// Claude Code's marketplace schema: kebab-case identifier, no spaces.
+const MARKETPLACE_RE = /^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i;
+
 const rawUrl = (repo, ref, filePath) =>
   `https://raw.githubusercontent.com/${repo}/${ref}/${filePath}`;
 
@@ -106,6 +109,18 @@ async function resolvePlugin({ repo, ref, plugin, marketplace = null, label, dep
     throw new UserError(`Could not determine the marketplace name for ${shown}.`, {
       hint: `No 'name' in ${REGISTRY_FILES[0]}. Pass --marketplace <name>.`,
     });
+  }
+
+  // Claude Code requires a kebab-case marketplace id. Catching it here names the
+  // real problem; otherwise the failure surfaces much later as a bare
+  // "plugin not found in marketplace" from the Claude CLI.
+  if (!MARKETPLACE_RE.test(resolvedMarketplace)) {
+    throw new UserError(
+      `Marketplace name '${resolvedMarketplace}' is not a valid identifier.`,
+      {
+        hint: `It must be kebab-case with no spaces (e.g. my-marketplace). Fix 'name' in ${REGISTRY_FILES[0]}.`,
+      },
+    );
   }
 
   return {

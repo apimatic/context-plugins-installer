@@ -65,6 +65,33 @@ test('the Cursor registry is used when the Claude one is absent', async () => {
   assert.equal(catalog.from, '.cursor-plugin/marketplace.json');
 });
 
+test('a marketplace name with spaces is rejected with the schema rule', async () => {
+  await assert.rejects(
+    resolvePlugin({
+      repo: REPO,
+      ref: 'main',
+      plugin: 'my-sdk',
+      deps: deps({ [CLAUDE_REG]: { body: registry({ name: 'Context Plugins' }) } }),
+    }),
+    (err) =>
+      err instanceof UserError &&
+      /not a valid identifier/.test(err.message) &&
+      /kebab-case/.test(err.hint),
+  );
+});
+
+test('ordinary marketplace identifiers still pass', async () => {
+  for (const name of ['apimatic', 'context-plugins', 'acme_2', 'a.b']) {
+    const resolved = await resolvePlugin({
+      repo: REPO,
+      ref: 'main',
+      plugin: 'my-sdk',
+      deps: deps({ [CLAUDE_REG]: { body: registry({ name }) } }),
+    });
+    assert.equal(resolved.marketplace, name);
+  }
+});
+
 test('a mistyped plugin name suggests the closest match', async () => {
   await assert.rejects(
     resolvePlugin({
