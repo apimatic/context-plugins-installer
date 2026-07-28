@@ -1,3 +1,16 @@
+# [0.4.0](https://github.com/apimatic/context-plugins-installer/compare/v0.3.0...v0.4.0) (2026-07-28)
+
+
+### Bug Fixes
+
+* fail clearly when a requested editor is not installed ([2e5e481](https://github.com/apimatic/context-plugins-installer/commit/2e5e481333b383aecd4d85c02482f02f27a70953))
+* report an invalid marketplace name instead of failing later ([65b40b8](https://github.com/apimatic/context-plugins-installer/commit/65b40b8d009e305243c8f0dbeeb2764dfac84169))
+
+
+### Features
+
+* add a doctor command ([ee219bc](https://github.com/apimatic/context-plugins-installer/commit/ee219bc73d4994934cb4cd143e513b5d0a53ff1c))
+
 # [0.3.0](https://github.com/apimatic/context-plugins-installer/compare/v0.2.0...v0.3.0) (2026-07-27)
 
 
