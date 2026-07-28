@@ -222,6 +222,48 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
   assert.deepEqual(settings['chat.pluginLocations'], {});
 });
 
+test('asking for an editor that is not installed fails, naming it', async () => {
+  const m = machine();
+  fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
+  const repo = 'context-plugins/plugin-marketplace';
+
+  await assert.rejects(
+    quietly(() =>
+      installPlugin({
+        brand: brandFor(repo),
+        plugin: 'my-sdk',
+        targets: ['cursor'],
+        deps: deps({ repo, srcDir: pluginSource() }),
+        pathOpts: m.pathOpts,
+      }),
+    ),
+    (err) =>
+      err instanceof UserError &&
+      /Cursor is not installed/.test(err.message) &&
+      /--targets/.test(err.hint),
+  );
+});
+
+test('no editor at all fails rather than silently doing nothing', async () => {
+  const m = machine();
+  fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
+  fs.rmSync(m.pathOpts.env.CP_VSCODE_USER_DIR, { recursive: true, force: true });
+  const repo = 'context-plugins/plugin-marketplace';
+
+  await assert.rejects(
+    quietly(() =>
+      installPlugin({
+        brand: brandFor(repo),
+        plugin: 'my-sdk',
+        targets: TARGETS,
+        deps: deps({ repo, srcDir: pluginSource() }),
+        pathOpts: m.pathOpts,
+      }),
+    ),
+    (err) => err instanceof UserError && /not installed on this machine/.test(err.message),
+  );
+});
+
 test('a harness that is not installed is skipped, not failed', async () => {
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true }); // Cursor absent

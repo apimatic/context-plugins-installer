@@ -19,13 +19,29 @@ function ghHeaders(env = process.env) {
   return headers;
 }
 
+/**
+ * Node's built-in fetch ignores HTTP_PROXY / HTTPS_PROXY, so on a network that
+ * requires a proxy this fails even though `git` - which does read the proxy
+ * settings - would succeed. Worth saying, because the raw error is just a
+ * connect timeout.
+ */
+function networkHint(env = process.env) {
+  const proxied = env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy;
+  if (proxied) {
+    return 'A proxy is configured, but Node does not apply it to its own requests. Check your network, or see the docs for NODE_USE_ENV_PROXY.';
+  }
+  return 'Check your network connection, or whether access to github.com is blocked.';
+}
+
 /** GET JSON, returning null for 404 so a missing registry is not an error. */
 async function getJson(url, { env = process.env, fetchImpl = fetch } = {}) {
   let res;
   try {
     res = await fetchImpl(url, { headers: ghHeaders(env), redirect: 'follow' });
   } catch (err) {
-    throw new UserError(`Network request failed: ${url}`, { hint: err.message });
+    throw new UserError(`Could not reach ${new URL(url).host}: ${err.message}`, {
+      hint: networkHint(env),
+    });
   }
   if (res.status === 404) return null;
   if (!res.ok) {

@@ -44,4 +44,6 @@ async function uninstall({ plugin }, opts) {
   return true;
 }
 
-module.exports = { name, title, detect, install, uninstall, needsSource: true, destFor };
+const location = (opts) => shortPath(paths.cursorRoot(opts));
+
+module.exports = { name, title, detect, location, install, uninstall, needsSource: true, destFor };

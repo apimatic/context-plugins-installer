@@ -79,4 +79,6 @@ async function uninstall({ plugin, marketplace, repo }, opts) {
   return true;
 }
 
-module.exports = { name, title, detect, install, uninstall, needsSource: false };
+const location = () => 'claude on PATH';
+
+module.exports = { name, title, detect, location, install, uninstall, needsSource: false };

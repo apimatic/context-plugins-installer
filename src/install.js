@@ -5,7 +5,7 @@ const paths = require('./paths');
 const manifest = require('./manifest');
 const { resolvePlugin, loadCatalog } = require('./catalog');
 const { materialize } = require('./fetch');
-const { byName, resolveTargets } = require('./harness');
+const { byName, resolveTargets, NAMES } = require('./harness');
 const { isInteractive, createPrompter } = require('./prompt');
 const { assertPlugin, UserError } = require('./util');
 
@@ -94,18 +94,37 @@ async function installPlugin({
   log.rule();
 
   log.step('[Harnesses]');
+  const explicit = Array.isArray(targets) && targets.length > 0;
   const available = requested.filter((name) => byName(name).detect(pathOpts));
-  for (const name of requested) {
-    if (!available.includes(name)) log.info(`${byName(name).title} not detected - skipping.`);
+  const missing = requested.filter((name) => !available.includes(name));
+
+  for (const name of missing) {
+    const h = byName(name);
+    log.info(`${h.title} is not installed (looked in ${h.location(pathOpts)}).`);
   }
+
+  // Nothing to install into is a failure, not a quiet no-op. Saying which
+  // editor was asked for beats a generic "no harness found" when the user
+  // named one explicitly.
   if (!available.length) {
-    log.plain('');
-    log.warn('No supported harness found. Install Claude Code, Cursor, or VS Code first.');
-    return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
+    const names = missing.map((n) => byName(n).title);
+    throw new UserError(
+      explicit
+        ? `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} not installed on this machine.`
+        : 'No supported editor found on this machine.',
+      {
+        hint: explicit
+          ? `Install it first, or choose another with --targets ${NAMES.join(',')}.`
+          : 'Install Claude Code, Cursor, or VS Code, then run this again.',
+      },
+    );
+  }
+  if (missing.length) {
+    log.info(`Continuing with ${available.map((n) => byName(n).title).join(', ')}.`);
   }
 
   const want = await chooseHarnesses(available, {
-    explicit: Array.isArray(targets) && targets.length > 0,
+    explicit,
     assumeYes,
     confirm: deps.confirm,
   });

@@ -8,6 +8,7 @@
  * variables still take precedence over it.
  */
 module.exports = function runWithProfile(profile = {}, argv = process.argv.slice(2)) {
+  require('./src/require-node')();
   return require('./src/cli')
     .run(argv, profile)
     .then((code) => {
