@@ -7,6 +7,7 @@ const { resolveBrand } = require('./brand');
 const { NAMES, byName } = require('./harness');
 const { UserError } = require('./util');
 const { installPlugin, uninstallPlugin, updateAll, listPlugins } = require('./install');
+const { diagnose } = require('./doctor');
 const pkg = require('../package.json');
 
 const VALUE_FLAGS = new Set(['repo', 'ref', 'marketplace', 'targets']);
@@ -86,6 +87,7 @@ Usage
   ${bin} update
   ${bin} list
   ${bin} installed
+  ${bin} doctor
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
@@ -240,6 +242,37 @@ async function run(argv = process.argv.slice(2), profile = {}) {
         if (!flags.long) log.info(`Run \`${bin} list --long\` for descriptions.`);
         log.info(`Install one with \`${bin} install <plugin>\`.`);
         return 0;
+      }
+      case 'doctor': {
+        const report = await diagnose({ brand });
+        if (flags.json) {
+          log.plain(JSON.stringify(report, null, 2));
+          return report.ok ? 0 : 1;
+        }
+
+        const labels = report.groups.flatMap((g) => g.checks.map((c) => c.label.length));
+        const labelWidth = Math.min(Math.max(...labels, 8), 22);
+        for (const group of report.groups) {
+          log.step(group.title);
+          for (const c of group.checks) {
+            const symbol = { ok: log.MARK, warn: '!', fail: 'x' }[c.status];
+            const paint = c.status === 'ok' ? log.dim : (s) => s;
+            log.plain(`  ${symbol}   ${c.label.padEnd(labelWidth)}  ${paint(c.detail)}`);
+            if (c.hint) log.info(c.hint);
+          }
+        }
+
+        log.plain('');
+        log.rule();
+        if (report.failures) {
+          log.error(`${log.plural(report.failures, 'problem')} found.`);
+        } else if (report.warnings) {
+          log.ok(`No problems. ${log.plural(report.warnings, 'warning')}.`);
+        } else {
+          log.ok('Everything checks out.');
+        }
+        log.plain('');
+        return report.ok ? 0 : 1;
       }
       case 'installed': {
         const entries = manifest.list(paths.manifestPath());

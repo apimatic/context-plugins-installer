@@ -23,7 +23,38 @@ context-plugins uninstall <plugin> [options]   # remove it again
 context-plugins update                         # refresh everything already installed
 context-plugins list                           # what the marketplace offers
 context-plugins installed                      # what this machine has
+context-plugins doctor                         # check this machine can install
 ```
+
+## Something not working?
+
+`doctor` checks everything an install depends on and says which part is unhappy:
+
+```
+$ npx context-plugins doctor
+
+Environment
+  ✓   Node.js          v20.11.0
+  ✓   git              git version 2.43.0
+
+Editors
+  ✓   Claude Code      claude on PATH
+  ✓   Cursor           ~/.cursor
+  !   VS Code          not installed (looked in ~/.config/Code/User)
+
+Marketplace
+  ✓   Reachable        raw.githubusercontent.com
+  ✓   Registry         context-plugins, 44 plugins
+  ✓   API budget       59 of 60 requests left
+
+Local state
+  ✓   State directory  ~/.context-plugins (writable)
+  ✓   Installed        2 plugins
+```
+
+`✓` fine, `!` works but worth knowing, `x` blocks an install. It exits non-zero
+only when something blocks, so it can be used in a script; add `--json` for machine-readable
+output.
 
 | Option | Default | Description |
 | --- | --- | --- |
