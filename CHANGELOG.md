@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/apimatic/context-plugins-installer/compare/v0.4.0...v0.4.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* update an existing marketplace instead of failing the install ([2ca833c](https://github.com/apimatic/context-plugins-installer/commit/2ca833ceee618093cb54142c7f16c9afb00c039d))
+
 # [0.4.0](https://github.com/apimatic/context-plugins-installer/compare/v0.3.0...v0.4.0) (2026-07-28)
 
 
