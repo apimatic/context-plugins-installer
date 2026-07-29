@@ -100,7 +100,7 @@ falls back to every detected assistant rather than waiting on input.
 
 | Assistant | Mechanism | Location |
 | --- | --- | --- |
-| **Claude Code** | `claude plugin marketplace add <repo>` then `claude plugin install <plugin>@<marketplace> --scope user` | Managed by Claude Code |
+| **Claude Code** | Adds the marketplace, or updates it if you already had it, then `claude plugin install <plugin>@<marketplace> --scope user` | Managed by Claude Code |
 | **Cursor** | Copies the plugin folder into the local-plugin directory | `~/.cursor/plugins/local/<plugin>/` |
 | **VS Code** | Copies the folder to the state directory and registers it in `chat.pluginLocations` | `~/.context-plugins/vscode/<plugin>/` |
 
@@ -128,6 +128,7 @@ and it is backed up to `settings.json.bak-<timestamp>` before any change.
 | `GitHub API request failed (403)` | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`. |
 | `'<plugin>' is already installed from a different marketplace` | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`. |
 | `Could not determine the marketplace name` | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`. |
+| `Claude Code already has a different marketplace named '<name>'` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run. |
 | Plugin doesn't appear after install | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`. |
 
 ## License
