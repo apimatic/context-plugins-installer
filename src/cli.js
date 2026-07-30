@@ -109,10 +109,10 @@ Environment
   CP_STATE_DIR                                  Override ~/.context-plugins
 
 Examples
-  ${bin} install discourse-api-documentation-sdk
-  ${bin} install acme-payments-sdk --repo acme/plugin-marketplace
-  ${bin} install my-sdk --targets cursor,vscode --ref v1.2.0
-  ${bin} uninstall my-sdk
+  ${bin} install paypal
+  ${bin} install acme-payments --repo acme/plugin-marketplace
+  ${bin} install paypal --targets cursor,vscode --ref v1.2.0
+  ${bin} uninstall paypal
 `.trimStart();
 }
 
