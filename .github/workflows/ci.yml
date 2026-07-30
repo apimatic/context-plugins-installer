@@ -57,7 +57,7 @@ jobs:
           export CP_CURSOR_DIR="$RUNNER_TEMP/.cursor"
           export CP_VSCODE_USER_DIR="$RUNNER_TEMP/code-user"
           mkdir -p "$CP_CURSOR_DIR" "$CP_VSCODE_USER_DIR"
-          node bin/cli.js install discourse-api-documentation-sdk --targets cursor,vscode
+          node bin/cli.js install paypal --targets cursor,vscode
           test -f "$CP_VSCODE_USER_DIR/settings.json"
           node bin/cli.js installed
-          node bin/cli.js uninstall discourse-api-documentation-sdk --targets cursor,vscode
+          node bin/cli.js uninstall paypal --targets cursor,vscode
