@@ -153,7 +153,28 @@ async function ensureMarketplace(exec, claude, { marketplace, repo }) {
   return { known: marketplace, updated: true };
 }
 
-async function install({ plugin, marketplace, repo }, opts) {
+/**
+ * Registering a marketplace is per-repository work, not per-plugin: it costs two
+ * `claude` invocations and a network fetch, and the answer is the same for every
+ * plugin that comes from it. During `update` the session remembers it so the
+ * second plugin onwards skips straight to installing.
+ *
+ * The promise is cached rather than its result, so a failure is shared too - if
+ * the marketplace cannot be registered, every plugin from it fails the same way
+ * instead of retrying a deterministic error N times.
+ */
+function ensureMarketplaceOnce(exec, claude, { marketplace, repo }, session) {
+  if (!session || !session.marketplaces) {
+    return ensureMarketplace(exec, claude, { marketplace, repo });
+  }
+  const key = `${repo}::${marketplace}`;
+  if (!session.marketplaces.has(key)) {
+    session.marketplaces.set(key, ensureMarketplace(exec, claude, { marketplace, repo }));
+  }
+  return session.marketplaces.get(key);
+}
+
+async function install({ plugin, marketplace, repo, session }, opts) {
   const claude = cli(opts);
   if (!claude) {
     log.warn("'claude' CLI not on PATH - skipping Claude Code.");
@@ -161,7 +182,12 @@ async function install({ plugin, marketplace, repo }, opts) {
   }
   const exec = runner(opts);
 
-  const { known, updated } = await ensureMarketplace(exec, claude, { marketplace, repo });
+  const { known, updated } = await ensureMarketplaceOnce(
+    exec,
+    claude,
+    { marketplace, repo },
+    session,
+  );
   const target = `${plugin}@${known}`;
   const args = ['plugin', 'install', target, '--scope', 'user'];
 
@@ -208,4 +234,13 @@ async function uninstall({ plugin, marketplace, repo }, opts) {
 
 const location = () => 'claude on PATH';
 
-module.exports = { name, title, detect, location, install, uninstall, needsSource: false };
+module.exports = {
+  name,
+  title,
+  detect,
+  location,
+  install,
+  uninstall,
+  ensureMarketplaceOnce,
+  needsSource: false,
+};
