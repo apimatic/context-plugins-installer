@@ -26,7 +26,7 @@ const { tmpDir, cleanupAll } = require('./helpers');
 test.after(cleanupAll);
 
 test('plugin ids must be kebab-case', () => {
-  assert.equal(assertPlugin('discourse-api-documentation-sdk'), 'discourse-api-documentation-sdk');
+  assert.equal(assertPlugin('acme-payments-sdk'), 'acme-payments-sdk');
   assert.equal(assertPlugin('sdk1'), 'sdk1');
   for (const bad of ['', 'Has-Caps', 'trailing-', '-leading', 'has_underscore', 'has space', '../etc', 'a'.repeat(65)]) {
     assert.throws(() => assertPlugin(bad), UserError, `expected rejection: ${JSON.stringify(bad)}`);

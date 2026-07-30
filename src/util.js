@@ -27,7 +27,7 @@ const SHA_RE = /^[0-9a-f]{7,40}$/i;
 function assertPlugin(id) {
   if (typeof id !== 'string' || !PLUGIN_RE.test(id) || id.length > 64) {
     throw new UserError(`Invalid plugin id: ${JSON.stringify(id)}`, {
-      hint: 'Expected kebab-case, e.g. discourse-api-documentation-sdk',
+      hint: 'Expected kebab-case, e.g. acme-payments',
     });
   }
   return id;

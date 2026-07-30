@@ -105,6 +105,7 @@ and it is backed up to `settings.json.bak-<timestamp>` before any change.
 
 ```
 $ npx context-plugins doctor
+# example output - versions, paths, and counts will differ on your machine
 
 Environment
   ✓   Node.js          v20.11.0
@@ -117,7 +118,7 @@ Editors
 
 Marketplace
   ✓   Reachable        raw.githubusercontent.com
-  ✓   Registry         context-plugins, 16 plugins
+  ✓   Registry         context-plugins, 29 plugins
   ✓   API budget       59 of 60 requests left
 
 Local state
