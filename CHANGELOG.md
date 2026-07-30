@@ -1,3 +1,10 @@
+## [0.4.2](https://github.com/apimatic/context-plugins-installer/compare/v0.4.1...v0.4.2) (2026-07-30)
+
+
+### Performance Improvements
+
+* do per-run work once in update instead of once per plugin ([0a683fd](https://github.com/apimatic/context-plugins-installer/commit/0a683fda8454f688d0497b9a675837401350e9eb)), closes [apimatic/contextmatic-crawler#31](https://github.com/apimatic/contextmatic-crawler/issues/31)
+
 ## [0.4.1](https://github.com/apimatic/context-plugins-installer/compare/v0.4.0...v0.4.1) (2026-07-29)
 
 
