@@ -4,7 +4,7 @@ const log = require('./log');
 const paths = require('./paths');
 const manifest = require('./manifest');
 const { resolvePlugin, loadCatalog } = require('./catalog');
-const { materialize } = require('./fetch');
+const { createSession } = require('./session');
 const { byName, resolveTargets, NAMES } = require('./harness');
 const { isInteractive, createPrompter } = require('./prompt');
 const { assertPlugin, UserError } = require('./util');
@@ -61,6 +61,12 @@ function assertNoMarketplaceConflict(manifestFile, { plugin, repo }, force) {
   }
 }
 
+/**
+ * `session` carries the work that is the same for every plugin in a run (the
+ * registry, the clone, the Claude marketplace registration). `update` passes one
+ * in so that work happens once; a lone `install` gets a throwaway session and
+ * behaves exactly as before.
+ */
 async function installPlugin({
   brand,
   plugin,
@@ -70,7 +76,28 @@ async function installPlugin({
   assumeYes = false,
   deps = {},
   pathOpts,
+  session,
 } = {}) {
+  const ownSession = !session;
+  const run = session || createSession({ deps });
+  try {
+    return await runInstall({
+      brand,
+      plugin,
+      ref,
+      targets,
+      force,
+      assumeYes,
+      deps,
+      pathOpts,
+      run,
+    });
+  } finally {
+    if (ownSession) await run.cleanup();
+  }
+}
+
+async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps, pathOpts, run }) {
   assertPlugin(plugin);
   const effectiveRef = ref || brand.ref;
   const manifestFile = paths.manifestPath(pathOpts);
@@ -82,6 +109,7 @@ async function installPlugin({
     marketplace: brand.id,
     label: brand.label,
     deps,
+    catalog: await run.catalog({ repo: brand.repo, ref: effectiveRef }),
   });
 
   const requested = resolveTargets(targets);
@@ -135,40 +163,36 @@ async function installPlugin({
   }
   log.info(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
 
-  // Only pay for the fetch if a chosen harness needs the files.
+  // Only pay for the fetch if a chosen harness needs the files. The session
+  // owns the clone, so a second plugin from the same repo checks out locally.
   const needsSource = want.some((name) => byName(name).needsSource);
-  let source = null;
+  let srcDir = null;
   if (needsSource) {
     log.step('[Fetch]');
-    const materializeImpl = deps.materialize || materialize;
-    source = await materializeImpl({
+    srcDir = await run.source({
       repo: brand.repo,
       ref: effectiveRef,
       sourcePath: resolved.sourcePath,
-      deps,
     });
     log.ok('Plugin source ready');
   }
 
   const installed = [];
-  try {
-    for (const name of want) {
-      const harness = byName(name);
-      log.step(`[${harness.title}]`);
-      const ctx = {
-        plugin,
-        marketplace: resolved.marketplace,
-        repo: brand.repo,
-        srcDir: source ? source.dir : null,
-      };
-      if (harness.needsSource && !ctx.srcDir) {
-        log.warn(`${harness.title} not detected - skipping.`);
-        continue;
-      }
-      if (await harness.install(ctx, pathOpts)) installed.push(name);
+  for (const name of want) {
+    const harness = byName(name);
+    log.step(`[${harness.title}]`);
+    const ctx = {
+      plugin,
+      marketplace: resolved.marketplace,
+      repo: brand.repo,
+      srcDir,
+      session: run,
+    };
+    if (harness.needsSource && !ctx.srcDir) {
+      log.warn(`${harness.title} not detected - skipping.`);
+      continue;
     }
-  } finally {
-    if (source) source.cleanup();
+    if (await harness.install(ctx, pathOpts)) installed.push(name);
   }
 
   if (installed.length) {
@@ -244,34 +268,43 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   const collapse = !log.isVerbose && !log.isQuiet;
   const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
 
-  for (const entry of entries) {
-    const entryBrand = Object.freeze({
-      ...brand,
-      repo: entry.repo || brand.repo,
-      ref: entry.ref || brand.ref,
-      id: entry.marketplace || brand.id,
-    });
-    if (collapse) log.setQuiet(true);
-    try {
-      const result = await installPlugin({
-        brand: entryBrand,
-        plugin: entry.plugin,
-        ref: entry.ref,
-        targets: entry.targets,
-        force: true, // the manifest is the source of truth here
-        assumeYes: true, // never re-ask; the user already chose these harnesses
-        deps,
-        pathOpts,
+  // One session for the whole run: the registry is read once per marketplace,
+  // each marketplace is cloned once, and Claude Code is told about it once -
+  // instead of all three happening again for every plugin.
+  const session = createSession({ deps });
+  try {
+    for (const entry of entries) {
+      const entryBrand = Object.freeze({
+        ...brand,
+        repo: entry.repo || brand.repo,
+        ref: entry.ref || brand.ref,
+        id: entry.marketplace || brand.id,
       });
-      if (collapse) log.setQuiet(false);
-      updated.push(entry.plugin);
-      const where = (result.targets || []).map((n) => byName(n).title).join(', ');
-      if (collapse) log.ok(`${entry.plugin.padEnd(idWidth)}  ${log.dim(where)}`);
-    } catch (err) {
-      if (collapse) log.setQuiet(false);
-      failed.push({ plugin: entry.plugin, error: err.message });
-      log.error(`${entry.plugin.padEnd(idWidth)}  ${err.message}`);
+      if (collapse) log.setQuiet(true);
+      try {
+        const result = await installPlugin({
+          brand: entryBrand,
+          plugin: entry.plugin,
+          ref: entry.ref,
+          targets: entry.targets,
+          force: true, // the manifest is the source of truth here
+          assumeYes: true, // never re-ask; the user already chose these harnesses
+          deps,
+          pathOpts,
+          session,
+        });
+        if (collapse) log.setQuiet(false);
+        updated.push(entry.plugin);
+        const where = (result.targets || []).map((n) => byName(n).title).join(', ');
+        if (collapse) log.ok(`${entry.plugin.padEnd(idWidth)}  ${log.dim(where)}`);
+      } catch (err) {
+        if (collapse) log.setQuiet(false);
+        failed.push({ plugin: entry.plugin, error: err.message });
+        log.error(`${entry.plugin.padEnd(idWidth)}  ${err.message}`);
+      }
     }
+  } finally {
+    await session.cleanup();
   }
 
   log.plain('');

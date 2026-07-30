@@ -442,6 +442,55 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
   assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
 });
 
+test('update reads the registry once for the whole run, not once per plugin', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const registry = rawUrl(repo, 'main', '.claude-plugin/marketplace.json');
+  const fetchImpl = stubFetch({
+    [registry]: {
+      body: {
+        name: 'apimatic',
+        plugins: [
+          { name: 'alpha', source: './plugins/alpha' },
+          { name: 'beta', source: './plugins/beta' },
+        ],
+      },
+    },
+  });
+  const d = {
+    fetchImpl,
+    env: {},
+    materialize: async ({ sourcePath }) => ({
+      dir: pluginSource(sourcePath.split('/').pop()),
+      cleanup: () => {},
+      via: 'stub',
+    }),
+  };
+
+  for (const plugin of ['alpha', 'beta']) {
+    await quietly(() =>
+      installPlugin({
+        brand: brandFor(repo),
+        plugin,
+        targets: TARGETS,
+        deps: d,
+        pathOpts: m.pathOpts,
+      }),
+    );
+  }
+
+  const before = fetchImpl.calls.filter((u) => u === registry).length;
+  const { updateAll } = require('../src/install');
+  const result = await quietly(() =>
+    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
+  );
+
+  const during = fetchImpl.calls.filter((u) => u === registry).length - before;
+  assert.deepEqual(result.updated.sort(), ['alpha', 'beta']);
+  assert.deepEqual(result.failed, []);
+  assert.equal(during, 1, `expected one registry read for two plugins, got ${during}`);
+});
+
 test('list marks what is installed on this machine', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';

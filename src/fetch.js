@@ -49,11 +49,12 @@ async function materialize({ repo, ref, sourcePath, deps = {} }) {
   }
 }
 
-async function viaGit({ git, repo, ref, sourcePath, work }) {
+/** Clone the repository itself, with no plugin folder checked out yet. */
+async function cloneRepo({ git, repo, ref, work }) {
   const clone = path.join(work, 'repo');
   const url = `https://github.com/${repo}.git`;
   log.info('Fetching marketplace via git ...');
-  log.debug(`${url} (${ref}), sparse path ${sourcePath}`);
+  log.debug(`${url} (${ref})`);
 
   const base = ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse'];
 
@@ -69,10 +70,20 @@ async function viaGit({ git, repo, ref, sourcePath, work }) {
       `git clone ${url} (branch ${ref})`,
     );
   }
+  return clone;
+}
 
+/**
+ * Add one plugin folder to an existing clone's sparse checkout.
+ *
+ * `add` rather than `set`: a --sparse clone starts with only the root files, so
+ * for the first path the two are equivalent, and `add` lets later plugins join
+ * the same working tree instead of replacing what is already there.
+ */
+async function addSparsePath({ git, clone, repo, ref, sourcePath }) {
   await expect(
-    run(git, ['-C', clone, 'sparse-checkout', 'set', sourcePath]),
-    `git sparse-checkout set ${sourcePath}`,
+    run(git, ['-C', clone, 'sparse-checkout', 'add', sourcePath]),
+    `git sparse-checkout add ${sourcePath}`,
   );
 
   const dir = path.join(clone, ...sourcePath.split('/'));
@@ -81,6 +92,11 @@ async function viaGit({ git, repo, ref, sourcePath, work }) {
   }
   log.debug(`${countFiles(dir)} files checked out`);
   return dir;
+}
+
+async function viaGit({ git, repo, ref, sourcePath, work }) {
+  const clone = await cloneRepo({ git, repo, ref, work });
+  return addSparsePath({ git, clone, repo, ref, sourcePath });
 }
 
 async function expect(promise, what) {
@@ -92,11 +108,10 @@ async function expect(promise, what) {
   return result;
 }
 
-async function viaApi({ repo, ref, sourcePath, work, deps = {} }) {
+/** The repository's file tree. One request, reusable for every plugin in it. */
+async function fetchTree({ repo, ref, deps = {} }) {
   const fetchImpl = deps.fetchImpl || fetch;
   const env = deps.env || process.env;
-  const dest = ensureDir(path.join(work, 'plugin'));
-
   const treeUrl = `https://api.github.com/repos/${repo}/git/trees/${ref}?recursive=1`;
   let tree;
   try {
@@ -116,6 +131,15 @@ async function viaApi({ repo, ref, sourcePath, work, deps = {} }) {
   if (tree.truncated) {
     log.warn('GitHub tree response was truncated; some files may be missing. Prefer git.');
   }
+  return tree;
+}
+
+/** Download one plugin folder out of an already-fetched tree. */
+async function downloadPath({ tree, repo, ref, sourcePath, work, deps = {} }) {
+  const fetchImpl = deps.fetchImpl || fetch;
+  const env = deps.env || process.env;
+  // Mirror the repository layout so two plugins never share a destination.
+  const dest = ensureDir(path.join(work, 'files', ...sourcePath.split('/')));
 
   const prefix = `${sourcePath}/`;
   const blobs = (tree.tree || []).filter((n) => n.type === 'blob' && n.path.startsWith(prefix));
@@ -137,4 +161,75 @@ async function viaApi({ repo, ref, sourcePath, work, deps = {} }) {
   return dest;
 }
 
-module.exports = { materialize, viaGit, viaApi, DOWNLOAD_CONCURRENCY };
+async function viaApi({ repo, ref, sourcePath, work, deps = {} }) {
+  const tree = await fetchTree({ repo, ref, deps });
+  return downloadPath({ tree, repo, ref, sourcePath, work, deps });
+}
+
+/**
+ * Open `repo@ref` once and check plugin folders out of it on demand.
+ *
+ * `update` re-installs every recorded plugin, and materializing each one
+ * separately meant cloning the whole marketplace once per plugin - work that
+ * grows with the marketplace, not with what you asked for. One handle clones (or
+ * fetches the API tree) once and every checkout after that is local.
+ *
+ * Callers must call cleanup() when the run is done.
+ */
+async function openRepo({ repo, ref, deps = {} }) {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'context-plugins-'));
+  const cleanup = () => {
+    try {
+      rmrf(work);
+    } catch {
+      /* a locked temp dir is not worth failing the install over */
+    }
+  };
+
+  const done = new Map();
+  const git = which('git', deps.env || process.env);
+
+  if (git) {
+    let cloning = null;
+    return {
+      via: 'git',
+      cleanup,
+      async checkout(sourcePath) {
+        if (!done.has(sourcePath)) {
+          // Store the promise, not the result, so concurrent callers share one clone.
+          if (!cloning) cloning = cloneRepo({ git, repo, ref, work });
+          const clone = await cloning;
+          done.set(sourcePath, await addSparsePath({ git, clone, repo, ref, sourcePath }));
+        }
+        return done.get(sourcePath);
+      },
+    };
+  }
+
+  log.warn('git not found - falling back to the GitHub API (60 requests/hour unauthenticated).');
+  let fetching = null;
+  return {
+    via: 'api',
+    cleanup,
+    async checkout(sourcePath) {
+      if (!done.has(sourcePath)) {
+        if (!fetching) fetching = fetchTree({ repo, ref, deps });
+        const tree = await fetching;
+        done.set(sourcePath, await downloadPath({ tree, repo, ref, sourcePath, work, deps }));
+      }
+      return done.get(sourcePath);
+    },
+  };
+}
+
+module.exports = {
+  materialize,
+  openRepo,
+  viaGit,
+  viaApi,
+  cloneRepo,
+  addSparsePath,
+  fetchTree,
+  downloadPath,
+  DOWNLOAD_CONCURRENCY,
+};
