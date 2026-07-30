@@ -4,11 +4,17 @@ Install a plugin from a plugin marketplace into every AI coding assistant on the
 **Claude Code**, **Cursor**, and **VS Code (Copilot)** — with one command.
 
 ```bash
-npx context-plugins install discourse-api-documentation-sdk
+npx context-plugins install <plugin>
 ```
 
-Assistants that aren't installed are skipped. Nothing is installed globally; `npx` runs the CLI
-from a cache.
+For example, to install the PayPal SDK plugin:
+
+```bash
+npx context-plugins install paypal
+```
+
+`npx context-plugins list` shows every plugin the marketplace offers. Assistants that aren't
+installed are skipped. Nothing is installed globally; `npx` runs the CLI from a cache.
 
 ## Requirements
 
@@ -26,35 +32,7 @@ context-plugins installed                      # what this machine has
 context-plugins doctor                         # check this machine can install
 ```
 
-## Something not working?
-
-`doctor` checks everything an install depends on and says which part is unhappy:
-
-```
-$ npx context-plugins doctor
-
-Environment
-  ✓   Node.js          v20.11.0
-  ✓   git              git version 2.43.0
-
-Editors
-  ✓   Claude Code      claude on PATH
-  ✓   Cursor           ~/.cursor
-  !   VS Code          not installed (looked in ~/.config/Code/User)
-
-Marketplace
-  ✓   Reachable        raw.githubusercontent.com
-  ✓   Registry         context-plugins, 44 plugins
-  ✓   API budget       59 of 60 requests left
-
-Local state
-  ✓   State directory  ~/.context-plugins (writable)
-  ✓   Installed        2 plugins
-```
-
-`✓` fine, `!` works but worth knowing, `x` blocks an install. It exits non-zero
-only when something blocks, so it can be used in a script; add `--json` for machine-readable
-output.
+## Options
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -64,6 +42,7 @@ output.
 | `--targets <list>` | ask | `claude`, `cursor`, `vscode`, or `all` — skips the prompt |
 | `-y`, `--yes` | off | Accept every detected assistant without asking |
 | `--force` | off | Replace a plugin installed from a different marketplace |
+| `--long` | off | Show plugin descriptions in `list` |
 | `--json` | off | Machine-readable output for `list` / `installed` |
 | `--verbose` / `--quiet` | off | More or less progress detail |
 
@@ -120,6 +99,36 @@ and it is backed up to `settings.json.bak-<timestamp>` before any change.
   vscode/<plugin>/        the copy VS Code points at
 ```
 
+## Something not working?
+
+`doctor` checks everything an install depends on and says which part is unhappy:
+
+```
+$ npx context-plugins doctor
+
+Environment
+  ✓   Node.js          v20.11.0
+  ✓   git              git version 2.43.0
+
+Editors
+  ✓   Claude Code      claude on PATH
+  ✓   Cursor           ~/.cursor
+  !   VS Code          not installed (looked in ~/.config/Code/User)
+
+Marketplace
+  ✓   Reachable        raw.githubusercontent.com
+  ✓   Registry         context-plugins, 16 plugins
+  ✓   API budget       59 of 60 requests left
+
+Local state
+  ✓   State directory  ~/.context-plugins (writable)
+  ✓   Installed        2 plugins
+```
+
+`✓` fine, `!` works but worth knowing, `x` blocks an install. It exits non-zero
+only when something blocks, so it can be used in a script; add `--json` for machine-readable
+output.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
@@ -128,7 +137,9 @@ and it is backed up to `settings.json.bak-<timestamp>` before any change.
 | `GitHub API request failed (403)` | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`. |
 | `'<plugin>' is already installed from a different marketplace` | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`. |
 | `Could not determine the marketplace name` | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`. |
-| `Claude Code already has a different marketplace named '<name>'` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run. |
+| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run. |
+| `'<plugin>' is not listed in <marketplace>` | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all. |
+| A plugin fails during `update` | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`. |
 | Plugin doesn't appear after install | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`. |
 
 ## License
