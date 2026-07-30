@@ -129,6 +129,7 @@ Local state
 `✓` fine, `!` works but worth knowing, `x` blocks an install. It exits non-zero
 only when something blocks, so it can be used in a script; add `--json` for machine-readable
 output.
+The live plugin list and count are at [the Context Plugins directory](https://hub.contextplugins-hub.pages.dev/), or run `npx context-plugins list`.
 
 ## Troubleshooting
 
