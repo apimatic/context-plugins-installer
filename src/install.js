@@ -26,7 +26,10 @@ async function askEach(names, ask) {
  * --targets is a decision, --yes opts out, and a non-interactive shell has
  * nobody to ask (so it uses every detected assistant rather than hanging).
  */
-async function chooseHarnesses(available, { explicit = false, assumeYes = false, confirm } = {}) {
+async function chooseHarnesses(
+  available,
+  { explicit = false, assumeYes = false, confirm, onPrompted } = {},
+) {
   if (!available.length || explicit || assumeYes) return available;
 
   if (confirm) return askEach(available, confirm);
@@ -36,6 +39,9 @@ async function chooseHarnesses(available, { explicit = false, assumeYes = false,
     return available;
   }
 
+  // Only this branch draws the prompt flow, so only this branch leaves a connector
+  // for the caller to close with `log.groupEnd`.
+  if (onPrompted) onPrompted();
   const prompter = createPrompter();
   try {
     return await askEach(available, (question, def) => prompter.confirm(question, def));
@@ -152,17 +158,27 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
     log.info(`Continuing with ${available.map((n) => byName(n).title).join(', ')}.`);
   }
 
+  let prompted = false;
   const want = await chooseHarnesses(available, {
     explicit,
     assumeYes,
     confirm: deps.confirm,
+    onPrompted: () => {
+      prompted = true;
+    },
   });
+  // When the questions were drawn, this line closes their flow; otherwise nothing was
+  // drawn to close and it stays the plain info line it has always been.
+  const closeGroup = (msg) => (prompted ? log.groupEnd(msg) : log.info(msg));
   if (!want.length) {
-    log.plain('');
-    log.warn('No harness selected - nothing was installed.');
+    if (prompted) log.groupEnd('No harness selected - nothing was installed.');
+    else {
+      log.plain('');
+      log.warn('No harness selected - nothing was installed.');
+    }
     return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
   }
-  log.info(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
+  closeGroup(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
 
   // Editors this run skipped that an earlier one installed into. Install only ever
   // adds, so their copies are still on disk untouched - they stay on the record
