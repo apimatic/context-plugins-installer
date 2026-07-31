@@ -114,6 +114,7 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
 
   const requested = resolveTargets(targets);
   assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
+  const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
 
   const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
   log.banner(`Installing '${plugin}' from ${from}`);
@@ -163,6 +164,12 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
   }
   log.info(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
 
+  // Editors this run skipped that an earlier one installed into. Install only ever
+  // adds, so their copies are still on disk untouched - they stay on the record
+  // below (or `update` would never refresh them again) and get a line in the
+  // closing summary, which is where the user looks to see where the plugin lives.
+  const untouched = (recorded ? recorded.targets || [] : []).filter((n) => !want.includes(n));
+
   // Only pay for the fetch if a chosen harness needs the files. The session
   // owns the clone, so a second plugin from the same repo checks out locally.
   const needsSource = want.some((name) => byName(name).needsSource);
@@ -196,19 +203,30 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
   }
 
   if (installed.length) {
+    // The record is the union of what is on disk: what this run installed, plus the
+    // editors an earlier run installed into that this one left alone. Writing only
+    // `installed` would drop those, and `update` reads this list to decide what to
+    // refresh - so a dropped editor becomes a copy that is never updated again.
+    const keep = new Set([...untouched, ...installed]);
     manifest.upsert(manifestFile, {
       plugin,
       repo: brand.repo,
       marketplace: resolved.marketplace,
       ref: effectiveRef,
-      targets: installed,
+      targets: NAMES.filter((n) => keep.has(n)), // canonical order, not call order
       installedAt: nowIso(),
     });
   }
 
-  summarize(installed, 'Installed into');
+  summarize(installed, 'Installed into', untouched);
 
-  return { plugin, targets: installed, marketplace: resolved.marketplace, ref: effectiveRef };
+  return {
+    plugin,
+    targets: installed,
+    untouched,
+    marketplace: resolved.marketplace,
+    ref: effectiveRef,
+  };
 }
 
 async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } = {}) {
@@ -346,13 +364,18 @@ async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
   };
 }
 
-function summarize(done, verb) {
+function summarize(done, verb, unchanged = []) {
   log.plain('');
   log.rule();
   if (!done.length) {
     log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
   } else {
     log.ok(`${verb}: ${done.map((n) => byName(n).title).join(', ')}`);
+  }
+  // An editor that already had the plugin and was skipped this run still has it, so
+  // it belongs in the report - otherwise this reads as "it is only in these two".
+  if (unchanged.length) {
+    log.info(`Already installed: ${unchanged.map((n) => byName(n).title).join(', ')}`);
   }
   log.plain('');
 }
