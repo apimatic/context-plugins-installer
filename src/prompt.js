@@ -18,12 +18,14 @@ function isInteractive(env = process.env) {
 const YES = new Set(['y', 'yes']);
 const NO = new Set(['n', 'no']);
 
+const ESC = String.fromCharCode(27);
+const UP_AND_CLEAR = `${ESC}[1A${ESC}[2K\r`;
+
 /**
  * The questions in one run are a single flow, not a handful of unrelated lines, so
  * they are drawn as one: the glyph sits against its text with no floating gap, and a
  * connector runs from each answer down to the next question and on to whatever the
- * caller prints last (see `log.groupEnd`). Nothing already on screen is ever
- * rewritten - the flow only ever grows downwards.
+ * caller prints last (see `log.groupEnd`).
  *
  * Legacy Windows consoles run cp437/cp1252 and render box drawing as mojibake, so
  * every glyph has an ASCII stand-in - the same rule log.js applies to its check mark.
@@ -60,6 +62,11 @@ function createPrompter({ input = stdin, out = stdout, unicode } = {}) {
     process.exit(130);
   });
 
+  // Redrawing means clearing the row the user just typed on. Only attempt it on a
+  // TTY, and only when that row cannot have wrapped - past the terminal width the
+  // cursor arithmetic would clear the wrong line and eat real output.
+  const canRedraw = (line) => Boolean(out.isTTY) && line.length < (out.columns || 80);
+
   return {
     async confirm(question, defaultYes = true) {
       const hint = defaultYes ? '(Y/n)' : '(y/N)';
@@ -76,13 +83,17 @@ function createPrompter({ input = stdin, out = stdout, unicode } = {}) {
           out.write(`${log.dim(g.bar)}  Please answer yes or no.\n`);
           continue;
         }
-        // The asked row is left exactly as the user saw it, hint and keystroke and
-        // all. Rewriting it to drop the hint reads as a flicker, and it would mean
-        // clearing a row with the cursor - which eats real output the moment the
-        // arithmetic is off by one.
-        // A TTY echoes the user's Enter, so the cursor is already on a fresh row.
-        // Nothing echoes off one, so the answer would land on the asked row.
-        if (!out.isTTY) out.write('\n');
+        // The keystroke goes, the question and its hint stay: the row is redrawn as it
+        // was asked, and the decision lands under it as its own resolved step. Reading
+        // back `(Y/n) y` next to `Yes` is the same answer twice.
+        if (canRedraw(asked + String(answer))) {
+          out.write(UP_AND_CLEAR);
+          out.write(`${log.dim(g.step)}  ${question} ${hint}\n`);
+        } else if (!out.isTTY) {
+          // A TTY echoes the user's Enter, so the cursor is already on a fresh row.
+          // Nothing echoes off one, so the answer would land on the asked row.
+          out.write('\n');
+        }
         out.write(`${log.dim(g.bar)}  ${log.dim(parsed ? 'Yes' : 'No')}\n`);
         return parsed;
       }
