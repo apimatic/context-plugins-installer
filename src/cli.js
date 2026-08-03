@@ -10,7 +10,7 @@ const { installPlugin, uninstallPlugin, updateAll, listPlugins } = require('./in
 const { diagnose } = require('./doctor');
 const pkg = require('../package.json');
 
-const VALUE_FLAGS = new Set(['repo', 'ref', 'marketplace', 'targets']);
+const VALUE_FLAGS = new Set(['repo', 'ref', 'marketplace', 'targets', 'target']);
 const BOOL_FLAGS = new Set(['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version']);
 
 // A plugin id longer than this is treated as an outlier when sizing the list grid.
@@ -97,6 +97,7 @@ Options
   -y, --yes             Accept every detected harness without asking
   --force               Replace a plugin installed from another marketplace
   --long                Show plugin descriptions (list)
+  --target <name>       Show install status for one editor only (list): ${NAMES.join(', ')}
   --json                Machine-readable output (list, installed)
   --verbose             Show underlying git / CLI detail
   --quiet               Suppress progress output
@@ -113,6 +114,7 @@ Examples
   ${bin} install acme-payments --repo acme/plugin-marketplace
   ${bin} install paypal --targets cursor,vscode --ref v1.2.0
   ${bin} uninstall paypal
+  ${bin} list --target cursor
 `.trimStart();
 }
 
@@ -197,21 +199,28 @@ async function run(argv = process.argv.slice(2), profile = {}) {
         return result.failed.length ? 1 : 0;
       }
       case 'list': {
-        const result = await listPlugins({ brand });
+        const target = flags.target || null;
+        const result = await listPlugins({ brand, target });
         if (flags.json) {
           log.plain(JSON.stringify(result, null, 2));
           return 0;
         }
         const plugins = [...result.plugins].sort((a, b) => a.name.localeCompare(b.name));
-        log.banner(`${log.plural(plugins.length, 'plugin')} in ${result.label}`);
+        const scope = target ? ` installed in ${byName(target).title}` : '';
+        log.banner(`${log.plural(plugins.length, 'plugin')} in ${result.label}${scope}`);
         log.plain('');
 
         if (flags.long) {
-          // Full detail, one plugin per block.
+          // Full detail, one plugin per block. The mark answers "installed anywhere?"
+          // (or, with --target, "installed there?"); the line under it always names
+          // the actual editors on record, so it never reads as installed everywhere.
           for (const p of plugins) {
             const mark = p.installed ? log.MARK : ' ';
             log.plain(`  ${mark} ${log.bold(p.name)}`);
             if (p.description) log.info(p.description);
+            if (p.targets.length) {
+              log.info(`Installed into: ${p.targets.map((n) => byName(n).title).join(', ')}`);
+            }
           }
         } else {
           // A grid of names. Descriptions in a marketplace are long and largely
@@ -238,7 +247,9 @@ async function run(argv = process.argv.slice(2), profile = {}) {
 
         log.plain('');
         const count = plugins.filter((p) => p.installed).length;
-        if (count) log.info(`${log.MARK} installed on this machine (${count})`);
+        if (count) {
+          log.info(`${log.MARK} installed${target ? ` in ${byName(target).title}` : ' on this machine'} (${count})`);
+        }
         if (!flags.long) log.info(`Run \`${bin} list --long\` for descriptions.`);
         log.info(`Install one with \`${bin} install <plugin>\`.`);
         return 0;

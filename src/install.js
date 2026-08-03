@@ -352,18 +352,24 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   return { updated, failed };
 }
 
-async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
+async function listPlugins({ brand, deps = {}, pathOpts, target } = {}) {
+  if (target && !NAMES.includes(target)) {
+    throw new UserError(`Unknown target: ${target}`, { hint: `Valid targets: ${NAMES.join(', ')}` });
+  }
   const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
   if (!catalog) {
     throw new UserError(`Could not read ${brand.label}.`, {
       hint: 'Check --repo, or the branch you pointed at with --ref.',
     });
   }
-  const installed = new Set(
+  // Per-plugin, not per-machine: a plugin recorded with targets: ['cursor'] is only
+  // installed in Cursor, so `installed` (and an optional --target filter) must read
+  // that list rather than "does this plugin appear anywhere in the manifest".
+  const targetsByPlugin = new Map(
     manifest
       .list(paths.manifestPath(pathOpts))
       .filter((p) => (p.repo || '') === brand.repo)
-      .map((p) => p.plugin),
+      .map((p) => [p.plugin, p.targets || []]),
   );
   return {
     label: brand.label,
@@ -371,10 +377,12 @@ async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
     repo: brand.repo,
     plugins: catalog.plugins.map((p) => {
       const name = typeof p === 'string' ? p : p.name;
+      const targets = targetsByPlugin.get(name) || [];
       return {
         name,
         description: (typeof p === 'object' && p.description) || '',
-        installed: installed.has(name),
+        targets,
+        installed: target ? targets.includes(target) : targets.length > 0,
       };
     }),
   };

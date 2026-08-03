@@ -588,3 +588,31 @@ test('list marks what is installed on this machine', async () => {
     [['my-sdk', true]],
   );
 });
+
+test('list scopes installed status to the editor it was actually installed into', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const brand = brandFor(repo);
+  const d = deps({ repo, srcDir });
+
+  // Installed into Cursor only - VS Code never got a copy.
+  await quietly(() =>
+    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
+  );
+
+  const unscoped = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
+  assert.deepEqual(unscoped.plugins[0].targets, ['cursor']);
+  assert.equal(unscoped.plugins[0].installed, true, 'installed somewhere');
+
+  const inCursor = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'cursor' });
+  assert.equal(inCursor.plugins[0].installed, true);
+
+  const inVscode = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'vscode' });
+  assert.equal(inVscode.plugins[0].installed, false, 'never installed into VS Code');
+
+  await assert.rejects(
+    () => listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'not-a-real-target' }),
+    UserError,
+  );
+});
