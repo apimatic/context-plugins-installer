@@ -26,7 +26,10 @@ async function askEach(names, ask) {
  * --targets is a decision, --yes opts out, and a non-interactive shell has
  * nobody to ask (so it uses every detected assistant rather than hanging).
  */
-async function chooseHarnesses(available, { explicit = false, assumeYes = false, confirm } = {}) {
+async function chooseHarnesses(
+  available,
+  { explicit = false, assumeYes = false, confirm, onPrompted } = {},
+) {
   if (!available.length || explicit || assumeYes) return available;
 
   if (confirm) return askEach(available, confirm);
@@ -36,6 +39,9 @@ async function chooseHarnesses(available, { explicit = false, assumeYes = false,
     return available;
   }
 
+  // Only this branch draws the prompt flow, so only this branch leaves a connector
+  // for the caller to close with `log.groupEnd`.
+  if (onPrompted) onPrompted();
   const prompter = createPrompter();
   try {
     return await askEach(available, (question, def) => prompter.confirm(question, def));
@@ -114,6 +120,7 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
 
   const requested = resolveTargets(targets);
   assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
+  const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
 
   const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
   log.banner(`Installing '${plugin}' from ${from}`);
@@ -151,17 +158,33 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
     log.info(`Continuing with ${available.map((n) => byName(n).title).join(', ')}.`);
   }
 
+  let prompted = false;
   const want = await chooseHarnesses(available, {
     explicit,
     assumeYes,
     confirm: deps.confirm,
+    onPrompted: () => {
+      prompted = true;
+    },
   });
+  // When the questions were drawn, this line closes their flow; otherwise nothing was
+  // drawn to close and it stays the plain info line it has always been.
+  const closeGroup = (msg) => (prompted ? log.groupEnd(msg) : log.info(msg));
   if (!want.length) {
-    log.plain('');
-    log.warn('No harness selected - nothing was installed.');
+    if (prompted) log.groupEnd('No harness selected - nothing was installed.');
+    else {
+      log.plain('');
+      log.warn('No harness selected - nothing was installed.');
+    }
     return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
   }
-  log.info(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
+  closeGroup(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
+
+  // Editors this run skipped that an earlier one installed into. Install only ever
+  // adds, so their copies are still on disk untouched - they stay on the record
+  // below (or `update` would never refresh them again) and get a line in the
+  // closing summary, which is where the user looks to see where the plugin lives.
+  const untouched = (recorded ? recorded.targets || [] : []).filter((n) => !want.includes(n));
 
   // Only pay for the fetch if a chosen harness needs the files. The session
   // owns the clone, so a second plugin from the same repo checks out locally.
@@ -196,19 +219,30 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
   }
 
   if (installed.length) {
+    // The record is the union of what is on disk: what this run installed, plus the
+    // editors an earlier run installed into that this one left alone. Writing only
+    // `installed` would drop those, and `update` reads this list to decide what to
+    // refresh - so a dropped editor becomes a copy that is never updated again.
+    const keep = new Set([...untouched, ...installed]);
     manifest.upsert(manifestFile, {
       plugin,
       repo: brand.repo,
       marketplace: resolved.marketplace,
       ref: effectiveRef,
-      targets: installed,
+      targets: NAMES.filter((n) => keep.has(n)), // canonical order, not call order
       installedAt: nowIso(),
     });
   }
 
-  summarize(installed, 'Installed into');
+  summarize(installed, 'Installed into', untouched);
 
-  return { plugin, targets: installed, marketplace: resolved.marketplace, ref: effectiveRef };
+  return {
+    plugin,
+    targets: installed,
+    untouched,
+    marketplace: resolved.marketplace,
+    ref: effectiveRef,
+  };
 }
 
 async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } = {}) {
@@ -318,18 +352,24 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   return { updated, failed };
 }
 
-async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
+async function listPlugins({ brand, deps = {}, pathOpts, target } = {}) {
+  if (target && !NAMES.includes(target)) {
+    throw new UserError(`Unknown target: ${target}`, { hint: `Valid targets: ${NAMES.join(', ')}` });
+  }
   const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
   if (!catalog) {
     throw new UserError(`Could not read ${brand.label}.`, {
       hint: 'Check --repo, or the branch you pointed at with --ref.',
     });
   }
-  const installed = new Set(
+  // Per-plugin, not per-machine: a plugin recorded with targets: ['cursor'] is only
+  // installed in Cursor, so `installed` (and an optional --target filter) must read
+  // that list rather than "does this plugin appear anywhere in the manifest".
+  const targetsByPlugin = new Map(
     manifest
       .list(paths.manifestPath(pathOpts))
       .filter((p) => (p.repo || '') === brand.repo)
-      .map((p) => p.plugin),
+      .map((p) => [p.plugin, p.targets || []]),
   );
   return {
     label: brand.label,
@@ -337,22 +377,29 @@ async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
     repo: brand.repo,
     plugins: catalog.plugins.map((p) => {
       const name = typeof p === 'string' ? p : p.name;
+      const targets = targetsByPlugin.get(name) || [];
       return {
         name,
         description: (typeof p === 'object' && p.description) || '',
-        installed: installed.has(name),
+        targets,
+        installed: target ? targets.includes(target) : targets.length > 0,
       };
     }),
   };
 }
 
-function summarize(done, verb) {
+function summarize(done, verb, unchanged = []) {
   log.plain('');
   log.rule();
   if (!done.length) {
     log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
   } else {
     log.ok(`${verb}: ${done.map((n) => byName(n).title).join(', ')}`);
+  }
+  // An editor that already had the plugin and was skipped this run still has it, so
+  // it belongs in the report - otherwise this reads as "it is only in these two".
+  if (unchanged.length) {
+    log.info(`Already installed: ${unchanged.map((n) => byName(n).title).join(', ')}`);
   }
   log.plain('');
 }
