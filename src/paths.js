@@ -29,6 +29,10 @@ function vscodeStoreDir(o) {
   return ctx(o).p.join(stateDir(o), 'vscode');
 }
 
+function telemetryIdPath(o) {
+  return ctx(o).p.join(stateDir(o), 'telemetry-id');
+}
+
 function cursorRoot(o) {
   const c = ctx(o);
   return c.env.CP_CURSOR_DIR || c.p.join(c.home, '.cursor');
@@ -60,6 +64,7 @@ module.exports = {
   stateDir,
   manifestPath,
   vscodeStoreDir,
+  telemetryIdPath,
   cursorRoot,
   cursorLocalDir,
   vscodeUserDir,

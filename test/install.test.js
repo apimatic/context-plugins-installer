@@ -406,15 +406,23 @@ test('nothing is downloaded when every harness is declined', async () => {
 
 test('--targets is a decision, so it skips the prompt', async () => {
   const confirm = scriptedConfirm([]);
-  const chosen = await chooseHarnesses(['cursor', 'vscode'], { explicit: true, confirm });
+  const { chosen, source } = await chooseHarnesses(['cursor', 'vscode'], {
+    explicit: true,
+    confirm,
+  });
   assert.deepEqual(chosen, ['cursor', 'vscode']);
+  assert.equal(source, 'explicit_targets');
   assert.deepEqual(confirm.asked, []);
 });
 
 test('--yes skips the prompt', async () => {
   const confirm = scriptedConfirm([]);
-  const chosen = await chooseHarnesses(['cursor', 'vscode'], { assumeYes: true, confirm });
+  const { chosen, source } = await chooseHarnesses(['cursor', 'vscode'], {
+    assumeYes: true,
+    confirm,
+  });
   assert.deepEqual(chosen, ['cursor', 'vscode']);
+  assert.equal(source, 'assume_yes');
   assert.deepEqual(confirm.asked, []);
 });
 
@@ -489,6 +497,207 @@ test('update reads the registry once for the whole run, not once per plugin', as
   assert.deepEqual(result.updated.sort(), ['alpha', 'beta']);
   assert.deepEqual(result.failed, []);
   assert.equal(during, 1, `expected one registry read for two plugins, got ${during}`);
+});
+
+// ---- telemetry -----------------------------------------------------------
+
+/** Collects events in place of sending them. */
+function recorder() {
+  const events = [];
+  return {
+    events,
+    only(name) {
+      return events.filter((e) => e.event === name);
+    },
+    track(event, props) {
+      events.push({ event, props });
+    },
+    async flush() {},
+  };
+}
+
+test('a declined harness is reported as declined, not merely absent', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null, // no --targets => ask
+      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, true]), telemetry },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.equal(telemetry.events.length, 1);
+  const { event, props } = telemetry.events[0];
+  assert.equal(event, 'Install');
+  assert.equal(props.plugin, 'my-sdk');
+  assert.equal(props.trigger, 'install');
+  assert.equal(props.outcome, 'success', 'everything the user accepted was installed');
+  assert.equal(props.error_code, null);
+  assert.equal(props.prompt_source, 'interactive', 'a real answer, not an auto-accept');
+  assert.deepEqual(props.detected_harnesses, ['cursor', 'vscode']);
+  assert.deepEqual(props.declined_harnesses, ['cursor']);
+  assert.deepEqual(props.accepted_harnesses, ['vscode']);
+  assert.deepEqual(props.installed_harnesses, ['vscode']);
+  assert.equal(props.custom_marketplace, false);
+  assert.equal(typeof props.duration_ms, 'number');
+});
+
+test('declining every harness is its own outcome', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: {
+        ...deps({ repo, srcDir: pluginSource() }),
+        confirm: scriptedConfirm([false, false]),
+        telemetry,
+      },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  const { props } = telemetry.events[0];
+  assert.equal(props.outcome, 'no_harness_selected');
+  assert.deepEqual(props.declined_harnesses, ['cursor', 'vscode']);
+  assert.equal(props.fetch_via, 'none', 'nothing was fetched');
+  assert.equal(props.fetch_duration_ms, null);
+});
+
+test('an auto-accepted run is not counted as a user decision', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS, // explicit --targets
+      deps: { ...deps({ repo, srcDir: pluginSource() }), telemetry },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  const { props } = telemetry.events[0];
+  assert.equal(props.prompt_source, 'explicit_targets');
+  assert.deepEqual(props.declined_harnesses, [], 'nobody declined anything');
+});
+
+test('a custom marketplace is reported as a flag, never by name', async () => {
+  const m = machine();
+  const repo = 'acme/private-marketplace';
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: { ...deps({ repo, marketplace: 'acme', srcDir: pluginSource() }), telemetry },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  const { props } = telemetry.events[0];
+  assert.equal(props.custom_marketplace, true);
+  const sent = JSON.stringify(props);
+  assert.ok(!sent.includes('acme'), `marketplace leaked into the event: ${sent}`);
+  assert.ok(!sent.includes(m.root), `a filesystem path leaked into the event: ${sent}`);
+});
+
+test('a failed install reports why, by code', async () => {
+  const m = machine();
+  const srcDir = pluginSource();
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor('context-plugins/plugin-marketplace'),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: { ...deps({ repo: 'context-plugins/plugin-marketplace', srcDir }), telemetry },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  await assert.rejects(
+    quietly(() =>
+      installPlugin({
+        brand: brandFor('acme/plugin-marketplace'),
+        plugin: 'my-sdk',
+        targets: TARGETS,
+        deps: {
+          ...deps({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
+          telemetry,
+        },
+        pathOpts: m.pathOpts,
+      }),
+    ),
+  );
+
+  const last = telemetry.events[telemetry.events.length - 1].props;
+  assert.equal(last.outcome, 'error');
+  assert.equal(last.error_code, 'force_needed');
+  assert.equal(typeof last.duration_ms, 'number');
+});
+
+test('update reports itself as an update, not a fresh install', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const d = deps({ repo, srcDir: pluginSource() });
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: { ...d, telemetry },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  const { updateAll } = require('../src/install');
+  await quietly(() =>
+    updateAll({ brand: brandFor(repo), deps: { ...d, telemetry }, pathOpts: m.pathOpts }),
+  );
+
+  assert.deepEqual(
+    telemetry.only('Install').map((e) => e.props.trigger),
+    ['install', 'update'],
+  );
+});
+
+test('uninstall reports how long the plugin lasted', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const brand = brandFor(repo);
+  const d = deps({ repo, srcDir: pluginSource() });
+  const telemetry = recorder();
+
+  await quietly(() =>
+    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: { ...d, telemetry }, pathOpts: m.pathOpts }),
+  );
+  await quietly(() =>
+    uninstallPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: { ...d, telemetry }, pathOpts: m.pathOpts }),
+  );
+
+  const [{ props }] = telemetry.only('Uninstall');
+  assert.equal(props.plugin, 'my-sdk');
+  assert.deepEqual(props.removed_harnesses, ['cursor', 'vscode']);
+  assert.equal(typeof props.time_since_install_ms, 'number');
+  assert.ok(props.time_since_install_ms >= 0);
 });
 
 test('list marks what is installed on this machine', async () => {

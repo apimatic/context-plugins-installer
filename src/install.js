@@ -5,6 +5,8 @@ const paths = require('./paths');
 const manifest = require('./manifest');
 const { resolvePlugin, loadCatalog } = require('./catalog');
 const { createSession } = require('./session');
+const { createTelemetry, classifyError } = require('./telemetry');
+const { DEFAULT_PROFILE } = require('./brand');
 const { byName, resolveTargets, NAMES } = require('./harness');
 const { isInteractive, createPrompter } = require('./prompt');
 const { assertPlugin, UserError } = require('./util');
@@ -25,20 +27,28 @@ async function askEach(names, ask) {
  * The question is skipped when the answer is already known: an explicit
  * --targets is a decision, --yes opts out, and a non-interactive shell has
  * nobody to ask (so it uses every detected assistant rather than hanging).
+ *
+ * Returns which harnesses were chosen *and* how, because "the user said no to
+ * Cursor" and "nobody was asked" are the same empty answer otherwise.
  */
 async function chooseHarnesses(available, { explicit = false, assumeYes = false, confirm } = {}) {
-  if (!available.length || explicit || assumeYes) return available;
+  if (!available.length) return { chosen: available, source: 'nothing_detected' };
+  if (explicit) return { chosen: available, source: 'explicit_targets' };
+  if (assumeYes) return { chosen: available, source: 'assume_yes' };
 
-  if (confirm) return askEach(available, confirm);
+  if (confirm) return { chosen: await askEach(available, confirm), source: 'interactive' };
 
   if (!isInteractive()) {
     log.info('Non-interactive shell - using every detected harness (--targets to choose).');
-    return available;
+    return { chosen: available, source: 'non_interactive' };
   }
 
   const prompter = createPrompter();
   try {
-    return await askEach(available, (question, def) => prompter.confirm(question, def));
+    return {
+      chosen: await askEach(available, (question, def) => prompter.confirm(question, def)),
+      source: 'interactive',
+    };
   } finally {
     prompter.close();
   }
@@ -62,10 +72,43 @@ function assertNoMarketplaceConflict(manifestFile, { plugin, repo }, force) {
 }
 
 /**
+ * What one install reported, filled in as the run proceeds so a failure still
+ * says how far it got - which editors were found, which the user agreed to, and
+ * whether the files came from a clone or the API.
+ */
+function newRecord({ plugin, trigger, brand }) {
+  return {
+    plugin,
+    trigger,
+    // "Not the marketplace we ship with", as a flag: the repository name itself
+    // can be a private one, and is nobody's business but the user's.
+    custom_marketplace: Boolean(brand && brand.repo !== DEFAULT_PROFILE.repo),
+    prompt_source: null,
+    detected_harnesses: [],
+    accepted_harnesses: [],
+    declined_harnesses: [],
+    installed_harnesses: [],
+    fetch_via: 'none',
+    fetch_duration_ms: null,
+  };
+}
+
+/**
+ * An install ends up in exactly one of these. Nothing accepted means the user
+ * declined every editor, which is a different thing from an install that was
+ * attempted and came up short.
+ */
+function outcomeOf({ accepted_harnesses: accepted, installed_harnesses: installed }) {
+  if (!accepted.length) return 'no_harness_selected';
+  return installed.length === accepted.length ? 'success' : 'partial';
+}
+
+/**
  * `session` carries the work that is the same for every plugin in a run (the
  * registry, the clone, the Claude marketplace registration). `update` passes one
  * in so that work happens once; a lone `install` gets a throwaway session and
- * behaves exactly as before.
+ * behaves exactly as before. `update` also passes its own telemetry, so a run of
+ * ten plugins flushes once instead of ten times.
  */
 async function installPlugin({
   brand,
@@ -77,11 +120,15 @@ async function installPlugin({
   deps = {},
   pathOpts,
   session,
+  trigger = 'install',
 } = {}) {
   const ownSession = !session;
   const run = session || createSession({ deps });
+  const telemetry = deps.telemetry || createTelemetry({ pathOpts, env: deps.env });
+  const record = newRecord({ plugin, trigger, brand });
+  const startedAt = Date.now();
   try {
-    return await runInstall({
+    const result = await runInstall({
       brand,
       plugin,
       ref,
@@ -91,13 +138,41 @@ async function installPlugin({
       deps,
       pathOpts,
       run,
+      record,
     });
+    telemetry.track('Install', {
+      ...record,
+      outcome: outcomeOf(record),
+      error_code: null,
+      duration_ms: Date.now() - startedAt,
+    });
+    return result;
+  } catch (err) {
+    telemetry.track('Install', {
+      ...record,
+      outcome: 'error',
+      error_code: classifyError(err),
+      duration_ms: Date.now() - startedAt,
+    });
+    throw err;
   } finally {
     if (ownSession) await run.cleanup();
+    if (!deps.telemetry) await telemetry.flush();
   }
 }
 
-async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps, pathOpts, run }) {
+async function runInstall({
+  brand,
+  plugin,
+  ref,
+  targets,
+  force,
+  assumeYes,
+  deps,
+  pathOpts,
+  run,
+  record,
+}) {
   assertPlugin(plugin);
   const effectiveRef = ref || brand.ref;
   const manifestFile = paths.manifestPath(pathOpts);
@@ -125,6 +200,7 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
   const explicit = Array.isArray(targets) && targets.length > 0;
   const available = requested.filter((name) => byName(name).detect(pathOpts));
   const missing = requested.filter((name) => !available.includes(name));
+  record.detected_harnesses = available;
 
   for (const name of missing) {
     const h = byName(name);
@@ -151,11 +227,14 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
     log.info(`Continuing with ${available.map((n) => byName(n).title).join(', ')}.`);
   }
 
-  const want = await chooseHarnesses(available, {
+  const { chosen: want, source: promptSource } = await chooseHarnesses(available, {
     explicit,
     assumeYes,
     confirm: deps.confirm,
   });
+  record.prompt_source = promptSource;
+  record.accepted_harnesses = want;
+  record.declined_harnesses = available.filter((name) => !want.includes(name));
   if (!want.length) {
     log.plain('');
     log.warn('No harness selected - nothing was installed.');
@@ -169,11 +248,16 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
   let srcDir = null;
   if (needsSource) {
     log.step('[Fetch]');
+    const fetchStartedAt = Date.now();
     srcDir = await run.source({
       repo: brand.repo,
       ref: effectiveRef,
       sourcePath: resolved.sourcePath,
     });
+    // During `update` the session already holds the clone, so this is the cost
+    // of one checkout rather than one fetch - which is the point of measuring it.
+    record.fetch_duration_ms = Date.now() - fetchStartedAt;
+    record.fetch_via = run.via({ repo: brand.repo, ref: effectiveRef }) || 'unknown';
     log.ok('Plugin source ready');
   }
 
@@ -194,6 +278,7 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
     }
     if (await harness.install(ctx, pathOpts)) installed.push(name);
   }
+  record.installed_harnesses = installed;
 
   if (installed.length) {
     manifest.upsert(manifestFile, {
@@ -211,8 +296,20 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
   return { plugin, targets: installed, marketplace: resolved.marketplace, ref: effectiveRef };
 }
 
+/**
+ * How long the plugin sat installed before this uninstall, or null when the
+ * manifest cannot say - an entry written by an older version, or one already
+ * gone. An uninstall minutes after the install means something different from
+ * one months later.
+ */
+function sinceInstall(recorded) {
+  const at = recorded && recorded.installedAt ? Date.parse(recorded.installedAt) : NaN;
+  return Number.isNaN(at) ? null : Date.now() - at;
+}
+
 async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } = {}) {
   assertPlugin(plugin);
+  const telemetry = deps.telemetry || createTelemetry({ pathOpts, env: deps.env });
   const manifestFile = paths.manifestPath(pathOpts);
   const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
   const want = resolveTargets(targets);
@@ -229,24 +326,36 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
   log.info(`Removing from: ${want.map((n) => byName(n).title).join(', ')}`);
   log.rule();
 
+  const timeSinceInstall = sinceInstall(recorded);
   const removed = [];
-  for (const name of want) {
-    const harness = byName(name);
-    log.step(`[${harness.title}]`);
-    if (await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts)) {
-      removed.push(name);
+  try {
+    for (const name of want) {
+      const harness = byName(name);
+      log.step(`[${harness.title}]`);
+      if (await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts)) {
+        removed.push(name);
+      }
     }
-  }
 
-  const remaining = (recorded ? recorded.targets || [] : []).filter((t) => !removed.includes(t));
-  if (recorded && remaining.length === 0) {
-    manifest.remove(manifestFile, { plugin, repo: brand.repo });
-  } else if (recorded) {
-    manifest.upsert(manifestFile, { ...recorded, targets: remaining });
-  }
+    const remaining = (recorded ? recorded.targets || [] : []).filter((t) => !removed.includes(t));
+    if (recorded && remaining.length === 0) {
+      manifest.remove(manifestFile, { plugin, repo: brand.repo });
+    } else if (recorded) {
+      manifest.upsert(manifestFile, { ...recorded, targets: remaining });
+    }
 
-  summarize(removed, 'Uninstalled from');
-  return { plugin, targets: removed };
+    telemetry.track('Uninstall', {
+      plugin,
+      targets: want,
+      removed_harnesses: removed,
+      time_since_install_ms: timeSinceInstall,
+    });
+
+    summarize(removed, 'Uninstalled from');
+    return { plugin, targets: removed };
+  } finally {
+    if (!deps.telemetry) await telemetry.flush();
+  }
 }
 
 /** Re-install every recorded plugin, each with the repo/ref/targets it was installed with. */
@@ -270,8 +379,11 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
 
   // One session for the whole run: the registry is read once per marketplace,
   // each marketplace is cloned once, and Claude Code is told about it once -
-  // instead of all three happening again for every plugin.
+  // instead of all three happening again for every plugin. The telemetry is
+  // shared for the same reason: one flush at the end, not one per plugin.
   const session = createSession({ deps });
+  const telemetry = deps.telemetry || createTelemetry({ pathOpts, env: deps.env });
+  const runDeps = deps.telemetry ? deps : { ...deps, telemetry };
   try {
     for (const entry of entries) {
       const entryBrand = Object.freeze({
@@ -289,9 +401,10 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
           targets: entry.targets,
           force: true, // the manifest is the source of truth here
           assumeYes: true, // never re-ask; the user already chose these harnesses
-          deps,
+          deps: runDeps,
           pathOpts,
           session,
+          trigger: 'update',
         });
         if (collapse) log.setQuiet(false);
         updated.push(entry.plugin);
@@ -305,6 +418,7 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
     }
   } finally {
     await session.cleanup();
+    if (!deps.telemetry) await telemetry.flush();
   }
 
   log.plain('');

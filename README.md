@@ -48,6 +48,7 @@ context-plugins doctor                         # check this machine can install
 
 Environment equivalents: `CP_PLUGIN`, `CP_REPO`, `CP_REF`, `CP_MARKETPLACE`.
 `GITHUB_TOKEN` raises the GitHub API rate limit. `CP_STATE_DIR` moves the state directory.
+`DO_NOT_TRACK=1` or `CP_TELEMETRY=0` turns off [telemetry](#telemetry).
 
 Defaults can also be kept in a `.contextpluginsrc` file, in the current directory or your home
 directory:
@@ -96,8 +97,24 @@ and it is backed up to `settings.json.bak-<timestamp>` before any change.
 ```
 ~/.context-plugins/
   installed.json          what is installed, and from which marketplace
+  telemetry-id            a random id, only if telemetry is enabled
   vscode/<plugin>/        the copy VS Code points at
 ```
+
+## Telemetry
+
+`install` and `uninstall` send one anonymous event each, to tell whether the tool works on
+real machines: which editors were detected, which you accepted or declined, whether it
+succeeded, how long it took, whether the files came over `git` or the GitHub API, and the
+Node/OS version. Failures are reported as a code (`github_rate_limit`, `force_needed`, …),
+never as a message.
+
+What is never sent: file paths, your `GITHUB_TOKEN`, the name of a private marketplace (only
+a flag saying it wasn't the default one), or the contents of a plugin. The id in
+`~/.context-plugins/telemetry-id` is random and tied to nothing.
+
+Turn it off with `DO_NOT_TRACK=1` or `CP_TELEMETRY=0`. It is also off entirely in any build
+without a configured project token.
 
 ## Something not working?
 

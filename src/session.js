@@ -23,6 +23,7 @@ function createSession({ deps = {} } = {}) {
   const catalogs = new Map();
   const repos = new Map();
   const marketplaces = new Map();
+  const vias = new Map();
   const disposers = [];
 
   return {
@@ -43,13 +44,24 @@ function createSession({ deps = {} } = {}) {
       if (deps.materialize) {
         const result = await deps.materialize({ repo, ref, sourcePath, deps });
         if (result && typeof result.cleanup === 'function') disposers.push(result.cleanup);
+        if (result && result.via) vias.set(keyOf(repo, ref), result.via);
         return result ? result.dir : null;
       }
 
       const key = keyOf(repo, ref);
       if (!repos.has(key)) repos.set(key, openRepo({ repo, ref, deps }));
       const handle = await repos.get(key);
+      vias.set(key, handle.via);
       return handle.checkout(sourcePath);
+    },
+
+    /**
+     * How this repo's files arrived - 'git' or 'api' - or null before anything
+     * was fetched. Which path a machine takes is the difference between a clone
+     * and 60 API requests an hour, so it is worth being able to report.
+     */
+    via({ repo, ref }) {
+      return vias.get(keyOf(repo, ref)) || null;
     },
 
     /** Drop every temp directory the run opened. Safe to call more than once. */
