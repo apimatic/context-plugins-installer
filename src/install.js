@@ -352,10 +352,7 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   return { updated, failed };
 }
 
-async function listPlugins({ brand, deps = {}, pathOpts, target } = {}) {
-  if (target && !NAMES.includes(target)) {
-    throw new UserError(`Unknown target: ${target}`, { hint: `Valid targets: ${NAMES.join(', ')}` });
-  }
+async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
   const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
   if (!catalog) {
     throw new UserError(`Could not read ${brand.label}.`, {
@@ -363,8 +360,8 @@ async function listPlugins({ brand, deps = {}, pathOpts, target } = {}) {
     });
   }
   // Per-plugin, not per-machine: a plugin recorded with targets: ['cursor'] is only
-  // installed in Cursor, so `installed` (and an optional --target filter) must read
-  // that list rather than "does this plugin appear anywhere in the manifest".
+  // installed in Cursor, so `installed` must read that list rather than "does this
+  // plugin appear anywhere in the manifest".
   const targetsByPlugin = new Map(
     manifest
       .list(paths.manifestPath(pathOpts))
@@ -382,7 +379,7 @@ async function listPlugins({ brand, deps = {}, pathOpts, target } = {}) {
         name,
         description: (typeof p === 'object' && p.description) || '',
         targets,
-        installed: target ? targets.includes(target) : targets.length > 0,
+        installed: targets.length > 0,
       };
     }),
   };

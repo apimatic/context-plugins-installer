@@ -589,7 +589,7 @@ test('list marks what is installed on this machine', async () => {
   );
 });
 
-test('list scopes installed status to the editor it was actually installed into', async () => {
+test('list reports the editors a plugin was actually installed into', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
@@ -601,18 +601,7 @@ test('list scopes installed status to the editor it was actually installed into'
     installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
   );
 
-  const unscoped = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
-  assert.deepEqual(unscoped.plugins[0].targets, ['cursor']);
-  assert.equal(unscoped.plugins[0].installed, true, 'installed somewhere');
-
-  const inCursor = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'cursor' });
-  assert.equal(inCursor.plugins[0].installed, true);
-
-  const inVscode = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'vscode' });
-  assert.equal(inVscode.plugins[0].installed, false, 'never installed into VS Code');
-
-  await assert.rejects(
-    () => listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'not-a-real-target' }),
-    UserError,
-  );
+  const listing = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
+  assert.deepEqual(listing.plugins[0].targets, ['cursor']);
+  assert.equal(listing.plugins[0].installed, true, 'installed somewhere');
 });
