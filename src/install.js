@@ -4,7 +4,7 @@ const log = require('./log');
 const paths = require('./paths');
 const manifest = require('./manifest');
 const { resolvePlugin, loadCatalog, pluginNames } = require('./catalog');
-const { materialize } = require('./fetch');
+const { createSession } = require('./session');
 const { byName, resolveTargets, NAMES } = require('./harness');
 const { isInteractive, createPrompter } = require('./prompt');
 const { assertPlugin, UserError } = require('./util');
@@ -26,7 +26,10 @@ async function askEach(names, ask) {
  * --targets is a decision, --yes opts out, and a non-interactive shell has
  * nobody to ask (so it uses every detected assistant rather than hanging).
  */
-async function chooseHarnesses(available, { explicit = false, assumeYes = false, confirm } = {}) {
+async function chooseHarnesses(
+  available,
+  { explicit = false, assumeYes = false, confirm, onPrompted } = {},
+) {
   if (!available.length || explicit || assumeYes) return available;
 
   if (confirm) return askEach(available, confirm);
@@ -36,6 +39,9 @@ async function chooseHarnesses(available, { explicit = false, assumeYes = false,
     return available;
   }
 
+  // Only this branch draws the prompt flow, so only this branch leaves a connector
+  // for the caller to close with `log.groupEnd`.
+  if (onPrompted) onPrompted();
   const prompter = createPrompter();
   try {
     return await askEach(available, (question, def) => prompter.confirm(question, def));
@@ -61,6 +67,12 @@ function assertNoMarketplaceConflict(manifestFile, { plugin, repo }, force) {
   }
 }
 
+/**
+ * `session` carries the work that is the same for every plugin in a run (the
+ * registry, the clone, the Claude marketplace registration). `update` passes one
+ * in so that work happens once; a lone `install` gets a throwaway session and
+ * behaves exactly as before.
+ */
 async function installPlugin({
   brand,
   plugin,
@@ -70,7 +82,28 @@ async function installPlugin({
   assumeYes = false,
   deps = {},
   pathOpts,
+  session,
 } = {}) {
+  const ownSession = !session;
+  const run = session || createSession({ deps });
+  try {
+    return await runInstall({
+      brand,
+      plugin,
+      ref,
+      targets,
+      force,
+      assumeYes,
+      deps,
+      pathOpts,
+      run,
+    });
+  } finally {
+    if (ownSession) await run.cleanup();
+  }
+}
+
+async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps, pathOpts, run }) {
   assertPlugin(plugin);
   const effectiveRef = ref || brand.ref;
   const manifestFile = paths.manifestPath(pathOpts);
@@ -82,10 +115,12 @@ async function installPlugin({
     marketplace: brand.id,
     label: brand.label,
     deps,
+    catalog: await run.catalog({ repo: brand.repo, ref: effectiveRef }),
   });
 
   const requested = resolveTargets(targets);
   assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
+  const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
 
   const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
   log.banner(`Installing '${plugin}' from ${from}`);
@@ -123,68 +158,91 @@ async function installPlugin({
     log.info(`Continuing with ${available.map((n) => byName(n).title).join(', ')}.`);
   }
 
+  let prompted = false;
   const want = await chooseHarnesses(available, {
     explicit,
     assumeYes,
     confirm: deps.confirm,
+    onPrompted: () => {
+      prompted = true;
+    },
   });
+  // When the questions were drawn, this line closes their flow; otherwise nothing was
+  // drawn to close and it stays the plain info line it has always been.
+  const closeGroup = (msg) => (prompted ? log.groupEnd(msg) : log.info(msg));
   if (!want.length) {
-    log.plain('');
-    log.warn('No harness selected - nothing was installed.');
+    if (prompted) log.groupEnd('No harness selected - nothing was installed.');
+    else {
+      log.plain('');
+      log.warn('No harness selected - nothing was installed.');
+    }
     return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
   }
-  log.info(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
+  closeGroup(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
 
-  // Only pay for the fetch if a chosen harness needs the files.
+  // Editors this run skipped that an earlier one installed into. Install only ever
+  // adds, so their copies are still on disk untouched - they stay on the record
+  // below (or `update` would never refresh them again) and get a line in the
+  // closing summary, which is where the user looks to see where the plugin lives.
+  const untouched = (recorded ? recorded.targets || [] : []).filter((n) => !want.includes(n));
+
+  // Only pay for the fetch if a chosen harness needs the files. The session
+  // owns the clone, so a second plugin from the same repo checks out locally.
   const needsSource = want.some((name) => byName(name).needsSource);
-  let source = null;
+  let srcDir = null;
   if (needsSource) {
     log.step('[Fetch]');
-    const materializeImpl = deps.materialize || materialize;
-    source = await materializeImpl({
+    srcDir = await run.source({
       repo: brand.repo,
       ref: effectiveRef,
       sourcePath: resolved.sourcePath,
-      deps,
     });
     log.ok('Plugin source ready');
   }
 
   const installed = [];
-  try {
-    for (const name of want) {
-      const harness = byName(name);
-      log.step(`[${harness.title}]`);
-      const ctx = {
-        plugin,
-        marketplace: resolved.marketplace,
-        repo: brand.repo,
-        srcDir: source ? source.dir : null,
-      };
-      if (harness.needsSource && !ctx.srcDir) {
-        log.warn(`${harness.title} not detected - skipping.`);
-        continue;
-      }
-      if (await harness.install(ctx, pathOpts)) installed.push(name);
+  for (const name of want) {
+    const harness = byName(name);
+    log.step(`[${harness.title}]`);
+    const ctx = {
+      plugin,
+      marketplace: resolved.marketplace,
+      repo: brand.repo,
+      srcDir,
+      session: run,
+    };
+    if (harness.needsSource && !ctx.srcDir) {
+      log.warn(`${harness.title} not detected - skipping.`);
+      continue;
     }
-  } finally {
-    if (source) source.cleanup();
+    if (await harness.install(ctx, pathOpts)) installed.push(name);
   }
 
   if (installed.length) {
+    // The record is the union of what is on disk: what this run installed, plus the
+    // editors an earlier run installed into that this one left alone. Writing only
+    // `installed` would drop those, and `update` reads this list to decide what to
+    // refresh - so a dropped editor becomes a copy that is never updated again.
+    const keep = new Set([...untouched, ...installed]);
     manifest.upsert(manifestFile, {
       plugin,
       repo: brand.repo,
       marketplace: resolved.marketplace,
       ref: effectiveRef,
-      targets: installed,
+      targets: NAMES.filter((n) => keep.has(n)), // canonical order, not call order
       installedAt: nowIso(),
     });
   }
 
-  summarize(installed, 'Installed into');
+  summarize(installed, 'Installed into', untouched);
 
-  return { plugin, targets: installed, marketplace: resolved.marketplace, ref: effectiveRef };
+  return {
+    plugin,
+    targets: installed,
+    untouched,
+    marketplace: resolved.marketplace,
+    ref: effectiveRef,
+  };
 }
 
 async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } = {}) {
@@ -243,8 +301,11 @@ function nameList(names) {
  * A registry that could not be read counts as *supported*. Reporting "no longer
  * supported" because of a network blip would be worse than the stale message it
  * replaces, so the ordinary install path handles that and reports the real error.
+ *
+ * The registry comes from the run's session, so this classifies off the same one
+ * read per marketplace that the installs use rather than adding a fetch.
  */
-async function partitionBySupport(entries, brand, deps) {
+async function partitionBySupport(entries, brand, session) {
   const listed = new Map(); // repo@ref -> Set of ids, or null when unreadable
   const supported = [];
   const unsupported = [];
@@ -256,7 +317,7 @@ async function partitionBySupport(entries, brand, deps) {
     if (!listed.has(key)) {
       let names = null;
       try {
-        names = pluginNames(await loadCatalog({ repo, ref, deps }));
+        names = pluginNames(await session.catalog({ repo, ref }));
       } catch {
         names = null;
       }
@@ -300,46 +361,60 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   log.plain('');
   const updated = [];
   const failed = [];
+  // Filled by the partition inside the session, read again by the closing block.
+  let supported = [];
+  let unsupported = [];
   // Each plugin would otherwise print a full install report; at five plugins
   // that is sixty lines of scrollback to find one failure in. Collapse to a
   // line each unless --verbose asked for the detail.
   const collapse = !log.isVerbose && !log.isQuiet;
   const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
 
-  // Classified up front, and once per marketplace rather than once per plugin,
-  // so a de-listed plugin never reaches the install path that would call it an
-  // error. Skipped plugins print after the run: a clean block of what worked,
-  // then a block of what needs the user, beats the two interleaved.
-  const { supported, unsupported } = await partitionBySupport(entries, brand, deps);
+  // One session for the whole run: the registry is read once per marketplace,
+  // each marketplace is cloned once, and Claude Code is told about it once -
+  // instead of all three happening again for every plugin.
+  const session = createSession({ deps });
+  try {
+    // Classified up front, off the session's one registry read, so a de-listed
+    // plugin never reaches the install path that would call it an error.
+    // Skipped plugins print after the run: a clean block of what worked, then a
+    // block of what needs the user, beats the two interleaved.
+    const split = await partitionBySupport(entries, brand, session);
+    supported = split.supported;
+    unsupported = split.unsupported;
 
-  for (const entry of supported) {
-    const entryBrand = Object.freeze({
-      ...brand,
-      repo: entry.repo || brand.repo,
-      ref: entry.ref || brand.ref,
-      id: entry.marketplace || brand.id,
-    });
-    if (collapse) log.setQuiet(true);
-    try {
-      const result = await installPlugin({
-        brand: entryBrand,
-        plugin: entry.plugin,
-        ref: entry.ref,
-        targets: entry.targets,
-        force: true, // the manifest is the source of truth here
-        assumeYes: true, // never re-ask; the user already chose these harnesses
-        deps,
-        pathOpts,
+    for (const entry of supported) {
+      const entryBrand = Object.freeze({
+        ...brand,
+        repo: entry.repo || brand.repo,
+        ref: entry.ref || brand.ref,
+        id: entry.marketplace || brand.id,
       });
-      if (collapse) log.setQuiet(false);
-      updated.push(entry.plugin);
-      const where = (result.targets || []).map((n) => byName(n).title).join(', ');
-      if (collapse) log.ok(`${entry.plugin.padEnd(idWidth)}  ${log.dim(where)}`);
-    } catch (err) {
-      if (collapse) log.setQuiet(false);
-      failed.push({ plugin: entry.plugin, error: err.message });
-      log.error(`${entry.plugin.padEnd(idWidth)}  ${err.message}`);
+      if (collapse) log.setQuiet(true);
+      try {
+        const result = await installPlugin({
+          brand: entryBrand,
+          plugin: entry.plugin,
+          ref: entry.ref,
+          targets: entry.targets,
+          force: true, // the manifest is the source of truth here
+          assumeYes: true, // never re-ask; the user already chose these harnesses
+          deps,
+          pathOpts,
+          session,
+        });
+        if (collapse) log.setQuiet(false);
+        updated.push(entry.plugin);
+        const where = (result.targets || []).map((n) => byName(n).title).join(', ');
+        if (collapse) log.ok(`${entry.plugin.padEnd(idWidth)}  ${log.dim(where)}`);
+      } catch (err) {
+        if (collapse) log.setQuiet(false);
+        failed.push({ plugin: entry.plugin, error: err.message });
+        log.error(`${entry.plugin.padEnd(idWidth)}  ${err.message}`);
+      }
     }
+  } finally {
+    await session.cleanup();
   }
 
   for (const entry of unsupported) {
@@ -362,18 +437,24 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   return { updated, failed, skipped: unsupported.map((e) => e.plugin) };
 }
 
-async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
+async function listPlugins({ brand, deps = {}, pathOpts, target } = {}) {
+  if (target && !NAMES.includes(target)) {
+    throw new UserError(`Unknown target: ${target}`, { hint: `Valid targets: ${NAMES.join(', ')}` });
+  }
   const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
   if (!catalog) {
     throw new UserError(`Could not read ${brand.label}.`, {
       hint: 'Check --repo, or the branch you pointed at with --ref.',
     });
   }
-  const installed = new Set(
+  // Per-plugin, not per-machine: a plugin recorded with targets: ['cursor'] is only
+  // installed in Cursor, so `installed` (and an optional --target filter) must read
+  // that list rather than "does this plugin appear anywhere in the manifest".
+  const targetsByPlugin = new Map(
     manifest
       .list(paths.manifestPath(pathOpts))
       .filter((p) => (p.repo || '') === brand.repo)
-      .map((p) => p.plugin),
+      .map((p) => [p.plugin, p.targets || []]),
   );
   return {
     label: brand.label,
@@ -381,22 +462,29 @@ async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
     repo: brand.repo,
     plugins: catalog.plugins.map((p) => {
       const name = typeof p === 'string' ? p : p.name;
+      const targets = targetsByPlugin.get(name) || [];
       return {
         name,
         description: (typeof p === 'object' && p.description) || '',
-        installed: installed.has(name),
+        targets,
+        installed: target ? targets.includes(target) : targets.length > 0,
       };
     }),
   };
 }
 
-function summarize(done, verb) {
+function summarize(done, verb, unchanged = []) {
   log.plain('');
   log.rule();
   if (!done.length) {
     log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
   } else {
     log.ok(`${verb}: ${done.map((n) => byName(n).title).join(', ')}`);
+  }
+  // An editor that already had the plugin and was skipped this run still has it, so
+  // it belongs in the report - otherwise this reads as "it is only in these two".
+  if (unchanged.length) {
+    log.info(`Already installed: ${unchanged.map((n) => byName(n).title).join(', ')}`);
   }
   log.plain('');
 }

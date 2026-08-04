@@ -108,10 +108,20 @@ function sourcePathFor(entry, plugin) {
  * Resolve everything the installers need for one plugin:
  * the marketplace name (derived unless overridden) and the folder inside the repo.
  */
-async function resolvePlugin({ repo, ref, plugin, marketplace = null, label, deps = {} }) {
+async function resolvePlugin({
+  repo,
+  ref,
+  plugin,
+  marketplace = null,
+  label,
+  deps = {},
+  catalog: preloaded,
+}) {
   // `label` is what the user sees; the repository stays an internal detail.
   const shown = label || `${repo}@${ref}`;
-  const catalog = await loadCatalog({ repo, ref, deps });
+  // `undefined` means nobody supplied one; `null` is a valid answer meaning the
+  // repository has no registry, so it must not trigger a second fetch.
+  const catalog = preloaded === undefined ? await loadCatalog({ repo, ref, deps }) : preloaded;
   const entry = entryFor(catalog, plugin);
 
   if (catalog && catalog.plugins.length && !entry) {

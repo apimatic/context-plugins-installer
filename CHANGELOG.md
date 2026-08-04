@@ -1,3 +1,24 @@
+# [0.5.0](https://github.com/apimatic/context-plugins-installer/compare/v0.4.2...v0.5.0) (2026-08-03)
+
+
+### Bug Fixes
+
+* **install:** keep a declined editor on record instead of dropping it ([517872f](https://github.com/apimatic/context-plugins-installer/commit/517872fad5221d531e060f1d3a276eb8807aea3e)), closes [apimatic/contextmatic-crawler#39](https://github.com/apimatic/contextmatic-crawler/issues/39)
+* **list:** scope install status to the editor it is actually in ([25e002c](https://github.com/apimatic/context-plugins-installer/commit/25e002c32f1e9978a2c0c8f84af0a3ee50a411f0))
+
+
+### Features
+
+* **prompt:** draw the harness questions as one flow, not three stray lines ([4b0bd89](https://github.com/apimatic/context-plugins-installer/commit/4b0bd892fafde233adb7c052601ab2cfa8c0ec90))
+* **prompt:** drop the keystroke from an answered row, keep the question and hint ([1950852](https://github.com/apimatic/context-plugins-installer/commit/1950852d441e12142f192d11f969bda12b969315))
+
+## [0.4.2](https://github.com/apimatic/context-plugins-installer/compare/v0.4.1...v0.4.2) (2026-07-30)
+
+
+### Performance Improvements
+
+* do per-run work once in update instead of once per plugin ([0a683fd](https://github.com/apimatic/context-plugins-installer/commit/0a683fda8454f688d0497b9a675837401350e9eb)), closes [apimatic/contextmatic-crawler#31](https://github.com/apimatic/contextmatic-crawler/issues/31)
+
 ## [0.4.1](https://github.com/apimatic/context-plugins-installer/compare/v0.4.0...v0.4.1) (2026-07-29)
 
 

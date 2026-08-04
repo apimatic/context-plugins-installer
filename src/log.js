@@ -25,6 +25,9 @@ const TICK = unicodeSupported() ? `  ${String.fromCharCode(0x2713)}   ` : '  OK 
 const BANG = '  !!  ';
 const CROSS = '  XX  ';
 const MARK = unicodeSupported() ? String.fromCharCode(0x2713) : '*';
+// Closes the prompt flow drawn by prompt.js, so its connector has somewhere to land.
+// Its 3-column gutter matches that flow's, not the 6 of the prefixes above.
+const GROUP_END = unicodeSupported() ? String.fromCharCode(0x2514) : '+';
 
 /**
  * Terminal width, clamped: prose past ~78 columns is harder to read, not easier.
@@ -140,6 +143,13 @@ const log = {
    */
   note(msg) {
     if (!state.quiet) console.log(`${paint('33', BANG)}${ascii(msg)}`);
+  },
+  /** The last line of the prompt flow: `└  <msg>`, closing the connector above it. */
+  groupEnd(msg) {
+    if (state.quiet) return;
+    const [first, ...rest] = wrap(ascii(msg), 3);
+    console.log(`${paint('90', GROUP_END)}  ${first}`);
+    for (const line of rest) console.log(`   ${line}`);
   },
   error(msg) {
     const [first, ...rest] = wrap(ascii(msg));

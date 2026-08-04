@@ -18,7 +18,10 @@ installed are skipped. Nothing is installed globally; `npx` runs the CLI from a 
 
 ## Requirements
 
-- **Node.js 18 or newer.** That's the whole list.
+- **Node.js 18 or newer** — the only requirement for the CLI itself.
+- **At least one assistant.** Each has its own prerequisite: Claude Code needs the `claude` CLI on
+  `PATH`, Cursor needs `~/.cursor`, VS Code needs its user directory. Missing ones are skipped, so
+  an install succeeds as long as one is present.
 - `git` is optional — it makes fetching faster; without it the CLI uses the GitHub API instead.
 
 ## Commands
@@ -45,6 +48,8 @@ context-plugins doctor                         # check this machine can install
 | `--long` | off | Show plugin descriptions in `list` |
 | `--json` | off | Machine-readable output for `list` / `installed` |
 | `--verbose` / `--quiet` | off | More or less progress detail |
+| `-h`, `--help` | — | Show usage and exit |
+| `-v`, `--version` | — | Print the version and exit |
 
 Environment equivalents: `CP_PLUGIN`, `CP_REPO`, `CP_REF`, `CP_MARKETPLACE`.
 `GITHUB_TOKEN` raises the GitHub API rate limit. `CP_STATE_DIR` moves the state directory.
@@ -58,7 +63,7 @@ directory:
 
 ## Choosing where to install
 
-`install` detects which assistants are present and asks before touching each one:
+`install` looks for each assistant and asks before touching the ones it finds:
 
 ```
 [Harnesses]
@@ -70,6 +75,11 @@ directory:
 Only the ones you accept are installed. Assistants that aren't detected are never offered, and
 the plugin is downloaded *after* you answer — decline everything and nothing is fetched, written,
 or recorded.
+
+Detection is a directory check, not a true install check: Claude Code is found by looking for the
+`claude` CLI on `PATH`, but Cursor and VS Code are found by the presence of their user directories.
+A leftover directory from an uninstalled editor still counts as present, and an editor that has
+never been launched may not be found yet.
 
 The question is skipped when the answer is already known: with `--targets`, with `-y`, during
 `update` (which reuses your earlier choices), and in a non-interactive shell such as CI, where it
@@ -86,7 +96,8 @@ falls back to every detected assistant rather than waiting on input.
 Everything is installed for the current user, so it is available in every project you open.
 
 After installing, reload the editor: `Ctrl+Shift+P` (`Cmd+Shift+P`) → **Developer: Reload Window**.
-Claude Code picks up skills on next launch.
+In Claude Code, run `/reload-plugins` to load the plugin without restarting — or start a new
+`claude` session.
 
 `settings.json` is edited as text and never reparsed, so comments and trailing commas survive —
 and it is backed up to `settings.json.bak-<timestamp>` before any change.
@@ -105,7 +116,7 @@ and it is backed up to `settings.json.bak-<timestamp>` before any change.
 
 ```
 $ npx context-plugins doctor
-# example output - versions, paths, and counts will differ on your machine
+# example output from Linux - versions, paths, and counts will differ on your machine
 
 Environment
   ✓   Node.js          v20.11.0
@@ -125,6 +136,14 @@ Local state
   ✓   State directory  ~/.context-plugins (writable)
   ✓   Installed        2 plugins
 ```
+
+The VS Code path on that last `Editors` line is platform-specific:
+
+| Platform | VS Code user directory |
+| --- | --- |
+| macOS | `~/Library/Application Support/Code/User` |
+| Linux | `~/.config/Code/User` (or `$XDG_CONFIG_HOME/Code/User`) |
+| Windows | `%APPDATA%\Code\User` |
 
 `✓` fine, `!` works but worth knowing, `x` blocks an install. It exits non-zero
 only when something blocks, so it can be used in a script; add `--json` for machine-readable

@@ -345,6 +345,85 @@ test('a declined harness is not touched', async () => {
   assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
 });
 
+test('declining an editor it is ALREADY installed in keeps the record and the files', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const d = deps({ repo, srcDir });
+  const args = { brand: brandFor(repo), plugin: 'my-sdk', deps: d, pathOpts: m.pathOpts };
+  const vscodeDest = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk');
+  const settingsFile = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
+
+  // Installed into both to begin with.
+  await quietly(() => installPlugin({ ...args, targets: TARGETS }));
+  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['cursor', 'vscode']);
+
+  // Re-install, saying yes to Cursor and no to VS Code.
+  const result = await quietly(() =>
+    installPlugin({ ...args, targets: null, deps: { ...d, confirm: scriptedConfirm([true, false]) } }),
+  );
+
+  assert.deepEqual(result.targets, ['cursor'], 'only Cursor was installed into this run');
+  assert.deepEqual(result.untouched, ['vscode'], 'VS Code reported as left alone');
+
+  // The record still names VS Code, so `update` keeps refreshing that copy.
+  assert.deepEqual(
+    manifest.list(paths.manifestPath(m.pathOpts))[0].targets,
+    ['cursor', 'vscode'],
+    'the declined editor stays on record',
+  );
+
+  // And the declined copy is genuinely untouched, not removed.
+  assert.ok(fs.existsSync(path.join(vscodeDest, 'plugin.json')), 'VS Code files still there');
+  const settings = parseJsonc(fs.readFileSync(settingsFile, 'utf8'));
+  assert.equal(settings['chat.pluginLocations'][vscodeDest.replace(/\\/g, '/')], true, 'still registered');
+});
+
+test('the declined-but-installed editor is named once, in the summary', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const d = deps({ repo, srcDir });
+  const args = { brand: brandFor(repo), plugin: 'my-sdk', deps: d, pathOpts: m.pathOpts };
+
+  await quietly(() => installPlugin({ ...args, targets: TARGETS }));
+
+  const con = silenceConsole();
+  try {
+    await installPlugin({ ...args, targets: null, deps: { ...d, confirm: scriptedConfirm([true, false]) } });
+  } finally {
+    con.restore();
+  }
+  // Colour is off without a TTY, but strip it anyway so FORCE_COLOR cannot break this.
+  const out = con.lines.join('\n').replace(/\x1b\[\d+m/g, '');
+
+  assert.match(out, /Already installed: VS Code/);
+  // One line, in the summary - nothing up in [Harnesses]. The earlier version said it
+  // twice and ran to four wrapped lines, which buried the install report itself.
+  assert.equal(out.match(/Already installed/g).length, 1, 'said exactly once');
+  assert.doesNotMatch(out, /not removed/);
+  assert.doesNotMatch(out, /--targets vscode/);
+});
+
+test('a fresh install records only what it installed', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null,
+      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([true, false]) },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  // No prior record, so nothing to preserve - the union must not invent a target.
+  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['cursor']);
+});
+
 test('declining everything changes nothing at all', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
@@ -446,6 +525,55 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
 
   assert.deepEqual(confirm.asked, []);
   assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
+});
+
+test('update reads the registry once for the whole run, not once per plugin', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const registry = rawUrl(repo, 'main', '.claude-plugin/marketplace.json');
+  const fetchImpl = stubFetch({
+    [registry]: {
+      body: {
+        name: 'apimatic',
+        plugins: [
+          { name: 'alpha', source: './plugins/alpha' },
+          { name: 'beta', source: './plugins/beta' },
+        ],
+      },
+    },
+  });
+  const d = {
+    fetchImpl,
+    env: {},
+    materialize: async ({ sourcePath }) => ({
+      dir: pluginSource(sourcePath.split('/').pop()),
+      cleanup: () => {},
+      via: 'stub',
+    }),
+  };
+
+  for (const plugin of ['alpha', 'beta']) {
+    await quietly(() =>
+      installPlugin({
+        brand: brandFor(repo),
+        plugin,
+        targets: TARGETS,
+        deps: d,
+        pathOpts: m.pathOpts,
+      }),
+    );
+  }
+
+  const before = fetchImpl.calls.filter((u) => u === registry).length;
+  const { updateAll } = require('../src/install');
+  const result = await quietly(() =>
+    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
+  );
+
+  const during = fetchImpl.calls.filter((u) => u === registry).length - before;
+  assert.deepEqual(result.updated.sort(), ['alpha', 'beta']);
+  assert.deepEqual(result.failed, []);
+  assert.equal(during, 1, `expected one registry read for two plugins, got ${during}`);
 });
 
 /** Like quietly(), but hands back what was printed so wording can be asserted. */
@@ -611,5 +739,33 @@ test('list marks what is installed on this machine', async () => {
   assert.deepEqual(
     listing.plugins.map((p) => [p.name, p.installed]),
     [['my-sdk', true]],
+  );
+});
+
+test('list scopes installed status to the editor it was actually installed into', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const brand = brandFor(repo);
+  const d = deps({ repo, srcDir });
+
+  // Installed into Cursor only - VS Code never got a copy.
+  await quietly(() =>
+    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
+  );
+
+  const unscoped = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
+  assert.deepEqual(unscoped.plugins[0].targets, ['cursor']);
+  assert.equal(unscoped.plugins[0].installed, true, 'installed somewhere');
+
+  const inCursor = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'cursor' });
+  assert.equal(inCursor.plugins[0].installed, true);
+
+  const inVscode = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'vscode' });
+  assert.equal(inVscode.plugins[0].installed, false, 'never installed into VS Code');
+
+  await assert.rejects(
+    () => listPlugins({ brand, deps: d, pathOpts: m.pathOpts, target: 'not-a-real-target' }),
+    UserError,
   );
 });

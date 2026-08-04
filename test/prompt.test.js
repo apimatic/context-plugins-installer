@@ -1,0 +1,110 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert');
+
+const { PassThrough, Writable } = require('stream');
+
+const { glyphs, parseAnswer, isInteractive, createPrompter } = require('../src/prompt');
+
+const ESC = String.fromCharCode(27);
+const UP_AND_CLEAR = `${ESC}[1A${ESC}[2K\r`;
+
+/** A sink that reports itself as a terminal, so the redraw path runs headless. */
+function fakeTty({ isTTY = true, columns = 80 } = {}) {
+  let buf = '';
+  const s = new Writable({
+    write(c, _e, cb) {
+      buf += c.toString();
+      cb();
+    },
+  });
+  s.isTTY = isTTY;
+  s.columns = columns;
+  s.text = () => buf;
+  return s;
+}
+
+/** Asks one question, answering with `keys`. Returns [answer, what was written]. */
+async function askOnce(keys, { out, question = 'Install into VS Code?' } = {}) {
+  const input = new PassThrough();
+  const prompter = createPrompter({ input, out, unicode: true });
+  const pending = prompter.confirm(question, true);
+  input.write(`${keys}\n`);
+  const answer = await pending;
+  prompter.close();
+  input.end();
+  return [answer, out.text()];
+}
+
+test('y, n, and their long forms are all accepted', () => {
+  for (const yes of ['y', 'Y', 'yes', 'YES', ' Yes ']) {
+    assert.equal(parseAnswer(yes, true), true, `${JSON.stringify(yes)} should be yes`);
+  }
+  for (const no of ['n', 'N', 'no', 'NO', ' No ']) {
+    assert.equal(parseAnswer(no, true), false, `${JSON.stringify(no)} should be no`);
+  }
+});
+
+test('bare Enter takes the default, either way round', () => {
+  assert.equal(parseAnswer('', true), true);
+  assert.equal(parseAnswer('', false), false);
+  assert.equal(parseAnswer('   ', true), true);
+});
+
+test('stdin closing mid-question falls back to the default', () => {
+  assert.equal(parseAnswer(undefined, true), true);
+  assert.equal(parseAnswer(null, false), false);
+});
+
+test('anything else is null, so the caller re-asks instead of guessing', () => {
+  for (const junk of ['maybe', 'ye', 'yep', 'nope', '1', 'true']) {
+    assert.equal(parseAnswer(junk, true), null, `${junk} should not be taken as an answer`);
+  }
+});
+
+test('the glyphs fall back to ASCII where box drawing would be mojibake', () => {
+  const uni = glyphs(true);
+  const ascii = glyphs(false);
+  assert.equal(uni.step, String.fromCharCode(0x25c6));
+  assert.equal(uni.bar, String.fromCharCode(0x2502));
+  assert.equal(ascii.step, '*');
+  assert.equal(ascii.bar, '|');
+  // One column each, so the 3-column gutter lines up in both modes.
+  for (const g of [uni, ascii]) {
+    assert.equal(g.step.length, 1);
+    assert.equal(g.bar.length, 1);
+  }
+});
+
+test('the answered row is redrawn with its hint, minus the keystroke', async () => {
+  const out = fakeTty();
+  const [answer, text] = await askOnce('y', { out });
+  const g = glyphs(true);
+
+  assert.equal(answer, true);
+  const at = text.indexOf(UP_AND_CLEAR);
+  assert.ok(at !== -1, 'the row the user typed on is cleared');
+  // What replaces it keeps the question AND the hint - only the keystroke goes.
+  const after = text.slice(at + UP_AND_CLEAR.length);
+  assert.match(after, /^.*Install into VS Code\? \(Y\/n\)\n/);
+  assert.ok(!/\(Y\/n\)\s+y/.test(after), 'the keystroke is not carried into the redraw');
+  // Then the decision, on its own connector row.
+  assert.match(after, new RegExp(`\\${g.bar}\\s+Yes\\n`));
+});
+
+test('no cursor tricks when the row could have wrapped, or off a TTY', async () => {
+  const narrow = fakeTty({ columns: 10 }); // the asked row cannot fit
+  const [, wrapped] = await askOnce('y', { out: narrow });
+  assert.ok(!wrapped.includes(UP_AND_CLEAR), 'a row that may have wrapped is left alone');
+
+  const piped = fakeTty({ isTTY: false });
+  const [, plain] = await askOnce('n', { out: piped });
+  assert.ok(!plain.includes(UP_AND_CLEAR), 'nothing to redraw when there is no terminal');
+  assert.match(plain, /\n.*No\n/, 'the answer still lands on its own row');
+});
+
+test('CI and CP_NO_INPUT both force non-interactive', () => {
+  assert.equal(isInteractive({ CI: '1' }), false);
+  assert.equal(isInteractive({ CP_NO_INPUT: '1' }), false);
+});
