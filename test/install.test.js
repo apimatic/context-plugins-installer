@@ -5,7 +5,13 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 
-const { installPlugin, uninstallPlugin, listPlugins, chooseHarnesses } = require('../src/install');
+const {
+  installPlugin,
+  uninstallPlugin,
+  listPlugins,
+  chooseHarnesses,
+  updateAll,
+} = require('../src/install');
 const { resolveBrand } = require('../src/brand');
 const { rawUrl } = require('../src/catalog');
 const manifest = require('../src/manifest');
@@ -440,6 +446,153 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
 
   assert.deepEqual(confirm.asked, []);
   assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
+});
+
+/** Like quietly(), but hands back what was printed so wording can be asserted. */
+async function capture(fn) {
+  const con = silenceConsole();
+  try {
+    return { result: await fn(), out: con.lines.join('\n') };
+  } finally {
+    con.restore();
+  }
+}
+
+test('update skips a plugin the marketplace no longer lists', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const brand = brandFor(repo);
+
+  await quietly(() =>
+    installPlugin({
+      brand,
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: deps({ repo, srcDir: pluginSource() }),
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  // The marketplace now carries a different plugin under a different id. That is
+  // a new plugin, not the same one renamed, so nothing here can refresh my-sdk.
+  const relisted = deps({ repo, plugin: 'my-sdk-v2', srcDir: pluginSource('my-sdk-v2') });
+  const { result, out } = await capture(() =>
+    updateAll({ brand, deps: relisted, pathOpts: m.pathOpts }),
+  );
+
+  assert.deepEqual(result.failed, [], 'a de-listed plugin is not a failure');
+  assert.deepEqual(result.skipped, ['my-sdk']);
+  assert.deepEqual(result.updated, []);
+  assert.match(out, /no longer supported by Context Plugins/);
+  assert.match(out, /uninstall my-sdk/, 'the way out is named');
+
+  assert.ok(
+    fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')),
+    'the files were left exactly where they were',
+  );
+  assert.equal(
+    manifest.list(paths.manifestPath(m.pathOpts)).length,
+    1,
+    'the record survives, so uninstall still works',
+  );
+});
+
+test('a de-listed plugin does not stop the rest of the run', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const brand = brandFor(repo);
+  const listed = {
+    name: 'apimatic',
+    plugins: [{ name: 'keeper', source: './plugins/keeper' }],
+  };
+
+  for (const plugin of ['gone', 'keeper']) {
+    await quietly(() =>
+      installPlugin({
+        brand,
+        plugin,
+        targets: TARGETS,
+        deps: deps({ repo, plugin, srcDir: pluginSource(plugin) }),
+        pathOpts: m.pathOpts,
+      }),
+    );
+  }
+
+  const after = {
+    ...deps({ repo, srcDir: pluginSource('keeper') }),
+    fetchImpl: stubFetch({
+      [rawUrl(repo, 'main', '.claude-plugin/marketplace.json')]: { body: listed },
+    }),
+  };
+  const { result } = await capture(() => updateAll({ brand, deps: after, pathOpts: m.pathOpts }));
+
+  assert.deepEqual(result.updated, ['keeper']);
+  assert.deepEqual(result.skipped, ['gone']);
+  assert.deepEqual(result.failed, []);
+});
+
+test('an unreachable registry is never reported as unsupported', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const brand = brandFor(repo);
+
+  await quietly(() =>
+    installPlugin({
+      brand,
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: deps({ repo, srcDir: pluginSource() }),
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  const offline = {
+    env: {},
+    fetchImpl: async () => {
+      throw new Error('getaddrinfo ENOTFOUND raw.githubusercontent.com');
+    },
+  };
+  const { result, out } = await capture(() =>
+    updateAll({ brand, deps: offline, pathOpts: m.pathOpts }),
+  );
+
+  assert.deepEqual(result.skipped, [], 'a network failure is not evidence a plugin was dropped');
+  assert.equal(result.failed.length, 1);
+  assert.match(result.failed[0].error, /Could not reach/);
+  assert.doesNotMatch(out, /no longer supported/);
+});
+
+test('a de-listed plugin can still be uninstalled', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const brand = brandFor(repo);
+
+  await quietly(() =>
+    installPlugin({
+      brand,
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: deps({ repo, srcDir: pluginSource() }),
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  // The escape hatch must not need the registry that dropped the plugin.
+  const offline = {
+    env: {},
+    fetchImpl: async () => {
+      throw new Error('getaddrinfo ENOTFOUND raw.githubusercontent.com');
+    },
+  };
+  await quietly(() =>
+    uninstallPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: offline, pathOpts: m.pathOpts }),
+  );
+
+  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 0);
+  assert.ok(
+    !fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')),
+    'the files are gone once the user asks for that',
+  );
 });
 
 test('list marks what is installed on this machine', async () => {

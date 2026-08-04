@@ -6,7 +6,7 @@ const path = require('path');
 const paths = require('./paths');
 const manifest = require('./manifest');
 const { HARNESSES } = require('./harness');
-const { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } = require('./catalog');
+const { loadCatalog, ghHeaders, rawUrl, pluginNames, REGISTRY_FILES } = require('./catalog');
 const { which, run, shortPath, ensureDir, rmrf } = require('./util');
 
 const MIN_NODE = 18;
@@ -78,7 +78,7 @@ function checkEditors(pathOpts) {
   return checks;
 }
 
-async function checkMarketplace(brand, deps) {
+async function checkMarketplace(brand, deps, pathOpts) {
   const fetchImpl = deps.fetchImpl || fetch;
   const env = deps.env || process.env;
   const checks = [];
@@ -107,6 +107,31 @@ async function checkMarketplace(brand, deps) {
           `It must be kebab-case with no spaces. Fix 'name' in ${REGISTRY_FILES[0]}.`,
         ),
   );
+
+  // Installed plugins this registry no longer lists. A warning, not a failure:
+  // the copy on disk still works, it just cannot be refreshed - and `update`
+  // skips it. Surfacing it here means the user does not have to run `update` to
+  // find out.
+  try {
+    const listed = new Set(pluginNames(catalog));
+    const mine = manifest
+      .list(paths.manifestPath(pathOpts))
+      .filter((e) => (e.repo || '') === brand.repo);
+    const gone = mine.filter((e) => !listed.has(e.plugin)).map((e) => e.plugin);
+    if (mine.length) {
+      checks.push(
+        gone.length
+          ? warn(
+              'Supported',
+              `${gone.length} of ${mine.length} installed no longer listed`,
+              `${gone.join(', ')} - update skips these. Remove with \`${brand.bin} uninstall <plugin>\`.`,
+            )
+          : ok('Supported', `all ${mine.length} installed still listed`),
+      );
+    }
+  } catch {
+    /* advisory only */
+  }
 
   // Only meaningful when the API is the download path; with git it is unused.
   try {
@@ -156,7 +181,7 @@ async function diagnose({ brand, deps = {}, pathOpts } = {}) {
   const groups = [
     { title: 'Environment', checks: await checkEnvironment(deps) },
     { title: 'Editors', checks: checkEditors(pathOpts) },
-    { title: 'Marketplace', checks: await checkMarketplace(brand, deps) },
+    { title: 'Marketplace', checks: await checkMarketplace(brand, deps, pathOpts) },
     { title: 'Local state', checks: checkState(pathOpts) },
   ];
   const all = groups.flatMap((g) => g.checks);

@@ -133,6 +133,14 @@ const log = {
     console.log(`${paint('33', BANG)}${first}`);
     for (const line of rest) console.log(paint('33', `      ${line}`));
   },
+  /**
+   * The shape of ok() in warning colour: a per-item status line that is neither
+   * a success nor a failure. Unlike warn() it does not wrap, because these lines
+   * are padded into columns and wrapping would collapse the padding.
+   */
+  note(msg) {
+    if (!state.quiet) console.log(`${paint('33', BANG)}${ascii(msg)}`);
+  },
   error(msg) {
     const [first, ...rest] = wrap(ascii(msg));
     console.error(`${paint('31', CROSS)}${first}`);

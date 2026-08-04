@@ -82,6 +82,12 @@ async function loadCatalog({ repo, ref, deps = {} }) {
 const entryFor = (catalog, plugin) =>
   catalog ? catalog.plugins.find((p) => (typeof p === 'string' ? p : p && p.name) === plugin) : undefined;
 
+/** Every plugin id a registry lists. Entries may be a bare string or an object. */
+const pluginNames = (catalog) =>
+  catalog
+    ? catalog.plugins.map((p) => (typeof p === 'string' ? p : p && p.name)).filter(Boolean)
+    : [];
+
 /** `./plugins/foo` and `plugins/foo` both normalize to the repo-relative `plugins/foo`. */
 function sourcePathFor(entry, plugin) {
   const source = entry && typeof entry === 'object' ? entry.source : undefined;
@@ -109,9 +115,7 @@ async function resolvePlugin({ repo, ref, plugin, marketplace = null, label, dep
   const entry = entryFor(catalog, plugin);
 
   if (catalog && catalog.plugins.length && !entry) {
-    const known = catalog.plugins
-      .map((p) => (typeof p === 'string' ? p : p && p.name))
-      .filter(Boolean);
+    const known = pluginNames(catalog);
     const close = suggest(plugin, known);
     throw new UserError(`Plugin '${plugin}' is not listed in ${shown}.`, {
       hint: close.length
@@ -158,6 +162,7 @@ module.exports = {
   normalize,
   loadCatalog,
   entryFor,
+  pluginNames,
   sourcePathFor,
   resolvePlugin,
 };

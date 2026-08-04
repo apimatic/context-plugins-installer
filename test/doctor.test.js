@@ -8,6 +8,8 @@ const path = require('path');
 const { diagnose } = require('../src/doctor');
 const { resolveBrand } = require('../src/brand');
 const { rawUrl } = require('../src/catalog');
+const manifest = require('../src/manifest');
+const paths = require('../src/paths');
 const { tmpDir, cleanupAll, stubFetch } = require('./helpers');
 
 test.after(cleanupAll);
@@ -125,4 +127,43 @@ test('an unreachable marketplace fails without throwing', async () => {
   });
   assert.equal(report.ok, false);
   assert.equal(find(report, 'Reachable').status, 'fail');
+});
+
+test('doctor names installed plugins the marketplace no longer lists', async () => {
+  const m = machine();
+  const record = (plugin) =>
+    manifest.upsert(paths.manifestPath(m.pathOpts), {
+      plugin,
+      repo: REPO,
+      marketplace: 'context-plugins',
+      ref: 'main',
+      targets: ['cursor'],
+    });
+  record('my-sdk'); // still listed by registry()
+  record('retired-sdk'); // no longer listed
+
+  const report = await diagnose({ brand: brand(), deps: deps(), ...m });
+  const check = find(report, 'Supported');
+
+  assert.equal(check.status, 'warn');
+  assert.equal(check.detail, '1 of 2 installed no longer listed');
+  assert.match(check.hint, /retired-sdk/);
+  assert.match(check.hint, /uninstall/, 'the hint names the way out');
+  assert.equal(report.ok, true, 'a de-listed plugin is a warning, not a failure');
+});
+
+test('doctor says so when every installed plugin is still listed', async () => {
+  const m = machine();
+  manifest.upsert(paths.manifestPath(m.pathOpts), {
+    plugin: 'my-sdk',
+    repo: REPO,
+    marketplace: 'context-plugins',
+    ref: 'main',
+    targets: ['cursor'],
+  });
+
+  const report = await diagnose({ brand: brand(), deps: deps(), ...m });
+  const check = find(report, 'Supported');
+  assert.equal(check.status, 'ok');
+  assert.equal(check.detail, 'all 1 installed still listed');
 });
