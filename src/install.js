@@ -3,7 +3,7 @@
 const log = require('./log');
 const paths = require('./paths');
 const manifest = require('./manifest');
-const { resolvePlugin, loadCatalog } = require('./catalog');
+const { resolvePlugin, loadCatalog, pluginNames } = require('./catalog');
 const { createSession } = require('./session');
 const { byName, resolveTargets, NAMES } = require('./harness');
 const { isInteractive, createPrompter } = require('./prompt');
@@ -283,6 +283,71 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
   return { plugin, targets: removed };
 }
 
+/** "a", "a and b", "a, b and c" - for a sentence, where a comma list reads as a dump. */
+function nameList(names) {
+  if (names.length <= 1) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Split recorded plugins into the ones their marketplace still lists and the
+ * ones it does not.
+ *
+ * A plugin the registry has dropped is not a failure. It was removed or replaced
+ * - and a replacement under a new id is a different plugin, not the same one
+ * renamed - so there is nothing to refresh it from. The copy on disk keeps
+ * working and stays where it is: removing it is the user's call, not ours.
+ *
+ * A registry that could not be read counts as *supported*. Reporting "no longer
+ * supported" because of a network blip would be worse than the stale message it
+ * replaces, so the ordinary install path handles that and reports the real error.
+ *
+ * The registry comes from the run's session, so this classifies off the same one
+ * read per marketplace that the installs use rather than adding a fetch.
+ */
+async function partitionBySupport(entries, brand, session) {
+  const listed = new Map(); // repo@ref -> Set of ids, or null when unreadable
+  const supported = [];
+  const unsupported = [];
+
+  for (const entry of entries) {
+    const repo = entry.repo || brand.repo;
+    const ref = entry.ref || brand.ref;
+    const key = `${repo}@${ref}`;
+    if (!listed.has(key)) {
+      let names = null;
+      try {
+        names = pluginNames(await session.catalog({ repo, ref }));
+      } catch {
+        names = null;
+      }
+      // An empty registry is indistinguishable from a broken one here, and
+      // declaring every installed plugin dead is not a reasonable reading of it.
+      listed.set(key, names && names.length ? new Set(names) : null);
+    }
+    const known = listed.get(key);
+    if (known && !known.has(entry.plugin)) unsupported.push(entry);
+    else supported.push(entry);
+  }
+  return { supported, unsupported };
+}
+
+/**
+ * The closing block. Says what was not done, that nothing was deleted, and the
+ * two commands that move the user forward - because the notice is the only place
+ * they will learn any of it.
+ */
+function reportUnsupported(entries, brand) {
+  const ids = entries.map((e) => e.plugin);
+  const one = ids.length === 1;
+  log.warn(`${nameList(ids)} ${one ? 'is' : 'are'} no longer supported by ${brand.displayName}.`);
+  log.info(
+    `Nothing was removed - ${one ? 'it is' : 'they are'} still on this machine and still ${one ? 'loads' : 'load'} in your editor.`,
+  );
+  log.info(`Run \`${brand.bin} list\` to see the plugins available now.`);
+  log.info(`To remove ${one ? 'it' : 'one'}: ${brand.bin} uninstall ${ids[0]}`);
+}
+
 /** Re-install every recorded plugin, each with the repo/ref/targets it was installed with. */
 async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   const manifestFile = paths.manifestPath(pathOpts);
@@ -296,6 +361,9 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   log.plain('');
   const updated = [];
   const failed = [];
+  // Filled by the partition inside the session, read again by the closing block.
+  let supported = [];
+  let unsupported = [];
   // Each plugin would otherwise print a full install report; at five plugins
   // that is sixty lines of scrollback to find one failure in. Collapse to a
   // line each unless --verbose asked for the detail.
@@ -307,7 +375,15 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
   // instead of all three happening again for every plugin.
   const session = createSession({ deps });
   try {
-    for (const entry of entries) {
+    // Classified up front, off the session's one registry read, so a de-listed
+    // plugin never reaches the install path that would call it an error.
+    // Skipped plugins print after the run: a clean block of what worked, then a
+    // block of what needs the user, beats the two interleaved.
+    const split = await partitionBySupport(entries, brand, session);
+    supported = split.supported;
+    unsupported = split.unsupported;
+
+    for (const entry of supported) {
       const entryBrand = Object.freeze({
         ...brand,
         repo: entry.repo || brand.repo,
@@ -341,15 +417,24 @@ async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
     await session.cleanup();
   }
 
+  for (const entry of unsupported) {
+    log.note(`${entry.plugin.padEnd(idWidth)}  no longer supported by ${brand.displayName} - skipped`);
+  }
+
   log.plain('');
   log.rule();
   if (failed.length) {
-    log.warn(`Updated ${updated.length} of ${entries.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`);
+    log.warn(`Updated ${updated.length} of ${supported.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`);
+  } else if (unsupported.length) {
+    log.ok(`Updated ${log.plural(updated.length, 'plugin')}. ${unsupported.length} skipped.`);
   } else {
     log.ok(`Updated ${log.plural(updated.length, 'plugin')}`);
   }
+  if (unsupported.length) reportUnsupported(unsupported, brand);
   log.plain('');
-  return { updated, failed };
+  // `skipped` is deliberately not folded into `failed`: the exit code is the
+  // difference between "your update did not work" and "these are not ours now".
+  return { updated, failed, skipped: unsupported.map((e) => e.plugin) };
 }
 
 async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
