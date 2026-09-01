@@ -5,3 +5,4 @@ node_modules/
 .contextpluginsrc
 coverage/
 lib/
+.claude/worktrees/
