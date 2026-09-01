@@ -116,8 +116,7 @@ test('an invalid rc file reports the file, not a stack trace', () => {
 
 test('the resolved brand is frozen', () => {
   const brand = resolveBrand(clean());
-  // Object.assign uses a throwing [[Set]], so a frozen target rejects at runtime -
-  // and unlike direct assignment, the type system lets the attempt through.
+  // Object.assign throws on a frozen target, and the type system lets the attempt through.
   assert.throws(() => Object.assign(brand, { repo: 'x/y' }), TypeError);
 });
 

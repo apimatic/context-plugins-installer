@@ -3,9 +3,8 @@ import * as path from 'node:path';
 
 import type { PathOpts } from './types.js';
 
-// Every function takes an optional {platform, env, home} so the cross-platform
-// table can be unit-tested from any host. The joiner is chosen per target
-// platform (not the host), which keeps those assertions exact.
+// The joiner follows the *target* platform, not the host, so the cross-platform
+// table is exactly assertable from any host.
 function ctx(overrides: PathOpts = {}) {
   const platform = overrides.platform || process.platform;
   return {

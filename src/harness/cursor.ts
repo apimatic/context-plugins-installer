@@ -21,8 +21,6 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
     return false;
   }
   if (!srcDir) {
-    // Unreachable through install.ts, which fetches first for every harness
-    // that needs source; kept so the contract holds for any other caller.
     log.warn('No plugin source was fetched - skipping Cursor.');
     return false;
   }

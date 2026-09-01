@@ -1,10 +1,6 @@
 const state = { verbose: false, quiet: false };
 
-/**
- * A check mark reads better than "OK", but legacy Windows consoles run cp437/
- * cp1252 and render it as mojibake. Use it only where the terminal is known to
- * cope, and fall back to ASCII everywhere else.
- */
+// Legacy Windows consoles (cp437/cp1252) render the check mark as mojibake.
 export function unicodeSupported(): boolean {
   if (process.platform !== 'win32') return process.env.TERM !== 'linux';
   return Boolean(
@@ -23,14 +19,10 @@ const TICK = unicodeSupported() ? `  ${String.fromCharCode(0x2713)}   ` : '  OK 
 const BANG = '  !!  ';
 const CROSS = '  XX  ';
 const MARK = unicodeSupported() ? String.fromCharCode(0x2713) : '*';
-// Closes the prompt flow drawn by prompt.ts, so its connector has somewhere to land.
-// Its 3-column gutter matches that flow's, not the 6 of the prefixes above.
+// Closes the prompt flow drawn by prompt.ts; its 3-column gutter matches that flow.
 const GROUP_END = unicodeSupported() ? String.fromCharCode(0x2514) : '+';
 
-/**
- * Terminal width, clamped: prose past ~78 columns is harder to read, not easier.
- * COLUMNS is honoured so redirected output and tests can pin a width.
- */
+/** Terminal width clamped to a readable prose width; COLUMNS lets tests pin it. */
 export function width(max = 78): number {
   const cols = process.stdout.columns || Number(process.env.COLUMNS) || 80;
   return Math.max(40, Math.min(cols - 1, max));
@@ -49,21 +41,18 @@ const ASCII_MAP: Record<string, string> = {
   ' ': ' ',
 };
 
-/**
- * Marketplace descriptions are third-party text and routinely contain em dashes
- * and smart quotes. On a console that cannot render them they arrive as
- * mojibake, so downgrade to ASCII rather than print garbage.
- */
+// Marketplace descriptions are third-party text full of em dashes and smart
+// quotes, which a console that cannot render them shows as mojibake.
 export function toAscii(text: string): string {
   let out = String(text).replace(/[—–‘’“”…•→ ]/g, (c) => ASCII_MAP[c] ?? c);
   out = out.normalize('NFD').replace(/[̀-ͯ]/g, ''); // strip diacritics
-  // ESC is kept: colour codes must survive, they are not text.
+  // ESC is kept: colour codes must survive.
   return out.replace(/[^\x1b\x20-\x7e\t\r\n]/g, '?');
 }
 
 export const ascii = (text: string): string => (unicodeSupported() ? text : toAscii(text));
 
-/** Wrap to the terminal, keeping long unbreakable tokens (paths, URLs) intact. */
+/** Wraps on whitespace, keeping unbreakable tokens (paths, URLs) intact. */
 export function wrap(text: string, indent = INDENT, max = width()): string[] {
   const room = Math.max(20, max - indent);
   const lines: string[] = [];
@@ -125,7 +114,6 @@ export const log = {
   ok(msg: string): void {
     if (!state.quiet) console.log(`${paint('32', TICK)}${ascii(msg)}`);
   },
-  /** Wrapped and indented, so long descriptions stay readable at any width. */
   info(msg: string): void {
     if (state.quiet) return;
     for (const line of wrap(ascii(msg))) console.log(paint('90', `      ${line}`));
@@ -136,7 +124,7 @@ export const log = {
     console.log(`${paint('33', BANG)}${head}`);
     for (const line of tail) console.log(paint('33', `      ${line}`));
   },
-  /** The last line of the prompt flow: `└  <msg>`, closing the connector above it. */
+  /** The last line of the prompt flow, closing the connector above it. */
   groupEnd(msg: string): void {
     if (state.quiet) return;
     const [head = '', ...tail] = wrap(ascii(msg), 3);

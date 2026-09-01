@@ -4,11 +4,8 @@ import * as path from 'node:path';
 import type { AddLocationResult, RemoveLocationResult } from './types.js';
 import { ensureDir, timestamp, stripBom } from './util.js';
 
-/**
- * VS Code's settings.json is JSONC: comments and trailing commas are legal, and
- * users care about their formatting. Parsing and re-serializing would silently
- * destroy both, so every edit here is a targeted string insertion.
- */
+// settings.json is JSONC and users care about its formatting, so every edit is
+// a targeted string splice - parsing and re-serializing would destroy both.
 export const KEY = 'chat.pluginLocations';
 const BOM = String.fromCharCode(0xfeff);
 
@@ -30,10 +27,6 @@ function writeKeepingBom(file: string, text: string, hadBom: boolean): void {
   fs.writeFileSync(file, hadBom ? BOM + text : text, 'utf8');
 }
 
-/**
- * Register a plugin directory. Returns one of:
- * created | reset | already | inserted-empty | inserted-existing | inserted-key
- */
 export function addPluginLocation(settingsPath: string, dir: string): AddLocationResult {
   const key = toKey(dir);
   ensureDir(path.dirname(settingsPath));
@@ -47,8 +40,7 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
   const hadBom = original.charCodeAt(0) === 0xfeff;
   const raw = stripBom(original);
 
-  // Empty or "{}" - write a clean document instead of splicing into nothing
-  // (which is how you end up with a stray leading comma).
+  // Splicing into an empty document leaves a stray leading comma.
   if (/^\s*$/.test(raw) || /^\s*\{\s*\}\s*$/.test(raw)) {
     writeKeepingBom(settingsPath, freshDocument(key, eolOf(raw) || '\n'), hadBom);
     return { action: 'reset', backup: null };
@@ -63,21 +55,19 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
   let out: string;
 
   if (new RegExp(`"${escapeRe(KEY)}"\\s*:\\s*\\{\\s*\\}`).test(raw)) {
-    // key present but empty -> insert the single entry
     out = raw.replace(
       new RegExp(`("${escapeRe(KEY)}"\\s*:\\s*\\{)\\s*\\}`),
       (_m, open: string) => `${open} ${entry} }`,
     );
     action = 'inserted-empty';
   } else if (new RegExp(`"${escapeRe(KEY)}"\\s*:\\s*\\{`).test(raw)) {
-    // key present with entries -> prepend, so we never touch the last one's comma
+    // Prepended, so the last entry's comma is never touched.
     out = raw.replace(
       new RegExp(`("${escapeRe(KEY)}"\\s*:\\s*\\{)`),
       (_m, open: string) => `${open} ${entry},`,
     );
     action = 'inserted-existing';
   } else {
-    // no key at all -> add it right after the opening brace
     out = raw.replace(/^(\s*\{)/, (_m, open: string) => `${open}${eol}    "${KEY}": { ${entry} },`);
     action = 'inserted-key';
   }
@@ -86,7 +76,6 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
   return { action, backup: saved };
 }
 
-/** Remove a plugin directory. Returns missing | absent | removed. */
 export function removePluginLocation(settingsPath: string, dir: string): RemoveLocationResult {
   if (!fs.existsSync(settingsPath)) return { action: 'missing', backup: null };
 
@@ -99,8 +88,7 @@ export function removePluginLocation(settingsPath: string, dir: string): RemoveL
   const saved = backup(settingsPath);
   const esc = escapeRe(key);
 
-  // Order matters: strip the leading comma form first, so removing the last
-  // entry of an object does not leave a dangling comma behind.
+  // Leading-comma form first, so removing the last entry leaves no dangling comma.
   let out = raw.replace(new RegExp(`,\\s*"${esc}"\\s*:\\s*true`), '');
   if (out === raw) out = raw.replace(new RegExp(`"${esc}"\\s*:\\s*true\\s*,\\s*`), '');
   if (out === raw) out = raw.replace(new RegExp(`\\s*"${esc}"\\s*:\\s*true\\s*`), '');

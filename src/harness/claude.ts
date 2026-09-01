@@ -10,36 +10,27 @@ import type {
 } from '../types.js';
 import { which, run, UserError, stripBom, isPlainObject, nonEmptyString } from '../util.js';
 
-// Claude Code installs from the marketplace itself - no local copy needed.
 export const name: HarnessName = 'claude';
 export const title = 'Claude Code';
 export const needsSource = false;
 
-// Honours opts.env like the other harnesses, so a sandboxed test machine can
-// present a PATH without `claude` on it.
 const cli = (opts?: HarnessOpts): string | null => which('claude', opts?.env || process.env);
 export const detect = (opts?: HarnessOpts): boolean => Boolean(cli(opts));
 
-// Tests inject a fake spawner; everything else gets util.run.
 const runner = (opts?: HarnessOpts): RunCommand => opts?.run || run;
 
 const tail = (res: RunResult): string =>
   (res.stderr || res.stdout || '').trim().split('\n').slice(-3).join(' ').trim();
 
-/**
- * Claude reports a missing plugin the same way whether the marketplace is stale
- * or the plugin genuinely does not exist, so this only decides whether a refresh
- * is worth one more attempt.
- */
+// Claude reports a missing plugin the same way whether the marketplace copy is
+// stale or the plugin does not exist; this only decides whether a refresh is
+// worth one retry.
 const LOOKS_STALE = /not found in marketplace|out of date|marketplace update/i;
 
 const REPO_IN = /(?:github\.com[/:]|^)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/i;
 
-/**
- * The owner/repo a registered marketplace came from - null when Claude does not
- * say. The listing has carried the source under different keys across versions,
- * and a marketplace added from a local directory has no repo at all.
- */
+// The listing has carried the source under different keys across CLI versions,
+// and a marketplace added from a local directory has no repo at all.
 function repoOf(entry: MarketplaceListing): string | null {
   const source = isPlainObject(entry.source) ? entry.source : {};
   const fields: unknown[] = [
@@ -59,11 +50,10 @@ function repoOf(entry: MarketplaceListing): string | null {
 const isSameRepo = (entry: MarketplaceListing, repo: string): boolean => {
   const from = repoOf(entry);
   if (from) return from.toLowerCase() === repo.toLowerCase();
-  // Unrecognised shape: fall back to looking for the repo anywhere in the entry.
   return JSON.stringify(entry).toLowerCase().includes(repo.toLowerCase());
 };
 
-/** Registered marketplaces, or null on a CLI too old to list them as JSON. */
+/** null on a CLI too old to list marketplaces as JSON. */
 async function listMarketplaces(
   exec: RunCommand,
   claude: string,
@@ -78,23 +68,15 @@ async function listMarketplaces(
         ? parsed.marketplaces
         : null;
     if (!entries) return null;
-    // This output is another program's contract, and it has already changed
-    // shape across CLI versions. Only object entries can be probed for a
-    // repo; a null or bare string in the list would crash repoOf.
     return entries.filter(isPlainObject);
   } catch {
-    return null; // older CLI without --json
+    return null;
   }
 }
 
-/**
- * The name Claude Code knows this marketplace by.
- *
- * Claude keys a marketplace by the name it carried when it was added, which can
- * drift from the current `name` in marketplace.json. Installing with the name
- * from the file then fails with a bare "plugin not found in marketplace", so ask
- * Claude what it calls the entry for this repository.
- */
+// Claude keys a marketplace by the name it had when added, which drifts from
+// the current `name` in marketplace.json; installing under the file's name
+// then fails with a bare "plugin not found in marketplace".
 async function registeredName(
   exec: RunCommand,
   claude: string,
@@ -127,16 +109,8 @@ interface Registration {
   updated: boolean;
 }
 
-/**
- * Leave Claude with this marketplace registered *and* current, and report the
- * name it is registered under.
- *
- * Users often add the marketplace by hand before they ever run this installer.
- * `marketplace add` then fails, and Claude's local copy - cloned before the
- * plugin existed - makes the install fail with "plugin not found in
- * marketplace". So an entry that is already there gets refreshed rather than
- * assumed good.
- */
+// A marketplace the user added by hand may predate the plugin, so an existing
+// entry is refreshed rather than assumed current.
 async function ensureMarketplace(
   exec: RunCommand,
   claude: string,
@@ -155,10 +129,8 @@ async function ensureMarketplace(
     return { known, updated: true };
   }
 
-  // Nothing registered points at our repo. A same-named entry would swallow the
-  // install and report a missing plugin, so deal with it here: refuse only when
-  // Claude tells us it demonstrably came from somewhere else, and otherwise
-  // treat it as ours and refresh it rather than fail on a guess.
+  // A same-named entry from another repo would swallow the install; refuse only
+  // when Claude can say where it came from, otherwise treat it as ours.
   const clash = entries?.find((e) => e.name === marketplace);
   if (clash) {
     const from = repoOf(clash);
@@ -181,25 +153,16 @@ async function ensureMarketplace(
     return { known: (await registeredName(exec, claude, repo)) || marketplace, updated: false };
   }
 
-  // `add` failing with no entry in sight usually means one exists that we could
-  // not see - an older CLI has no --json listing. Refresh by the configured name
-  // so a stale copy still gets a chance; the install reports the truth either way.
+  // `add` failing with nothing listed usually means an older CLI that cannot
+  // list as JSON; refresh by the configured name and let the install report.
   log.debug(`marketplace add returned ${added.code} (likely already added). ${tail(added)}`);
   const res = await exec(claude, ['plugin', 'marketplace', 'update', marketplace]);
   if (res.code === 0) log.ok(`Updated marketplace '${marketplace}'`);
   return { known: marketplace, updated: true };
 }
 
-/**
- * Registering a marketplace is per-repository work, not per-plugin: it costs two
- * `claude` invocations and a network fetch, and the answer is the same for every
- * plugin that comes from it. During `update` the session remembers it so the
- * second plugin onwards skips straight to installing.
- *
- * The promise is cached rather than its result, so a failure is shared too - if
- * the marketplace cannot be registered, every plugin from it fails the same way
- * instead of retrying a deterministic error N times.
- */
+// Memoized per session, promise rather than result, so a failed registration
+// is shared instead of retried for every plugin from that marketplace.
 export function ensureMarketplaceOnce(
   exec: RunCommand,
   claude: string,
@@ -228,8 +191,6 @@ export async function install(
     return false;
   }
   if (!marketplace) {
-    // Unreachable through install.ts, which resolves the marketplace name
-    // before any harness runs; kept so the contract holds for other callers.
     log.warn('No marketplace name to install from - skipping Claude Code.');
     return false;
   }
@@ -245,8 +206,6 @@ export async function install(
   const args = ['plugin', 'install', target, '--scope', 'user'];
 
   let res = await exec(claude, args);
-  // The marketplace resolved but its local clone predates the plugin: worth one
-  // refresh and a retry, unless an update was already attempted above.
   if (res.code !== 0 && !updated && LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)) {
     log.debug(`'${target}' is not in the local copy - refreshing '${known}' and retrying.`);
     if (await refresh(exec, claude, known)) res = await exec(claude, args);
@@ -275,8 +234,6 @@ export async function uninstall({ plugin, marketplace, repo }: HarnessContext, o
   const exec = runner(opts);
   const known = (await registeredName(exec, claude, repo)) || marketplace;
   if (!known) {
-    // Unreachable through install.ts, which resolves a marketplace name before
-    // this harness is asked; kept so the contract holds for other callers.
     log.warn('No marketplace name to uninstall from - skipping Claude Code.');
     return false;
   }

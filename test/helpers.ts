@@ -22,11 +22,7 @@ export function cleanupAll(): void {
   }
 }
 
-/**
- * Minimal JSONC -> JSON so tests can assert that an edited settings.json is
- * still parseable. String-aware, so "https://x" and Windows paths survive.
- * Returns whatever JSON.parse does; tests index into it freely.
- */
+/** Minimal, string-aware JSONC -> JSON, so an edited settings.json can be asserted on. */
 export function parseJsonc(text: string) {
   let out = '';
   let i = 0;

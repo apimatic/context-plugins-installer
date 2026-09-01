@@ -1,13 +1,11 @@
 {
-  // Typechecks src and test together with no output. The build (tsconfig.build.json)
-  // narrows this to src and emits lib/.
+  // Typechecks src and test with no output; tsconfig.build.json emits lib/ from src.
   "compilerOptions": {
     // Node 18 is the engine floor; @types/node is pinned to 18 for the same reason.
     "target": "es2022",
     "lib": ["es2022"],
     "types": ["node"],
-    // The package is CommonJS (bin/cli.js and the brand wrapper `require` it),
-    // so node16 resolution against a package.json with no "type" emits CJS.
+    // node16 against a package.json with no "type" emits CommonJS.
     "module": "node16",
     "moduleResolution": "node16",
     "strict": true,

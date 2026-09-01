@@ -32,23 +32,15 @@ async function askEach(names: readonly HarnessName[], ask: Ask): Promise<Harness
 }
 
 export interface ChooseOptions {
-  /** --targets was given: the user already decided. */
   explicit?: boolean;
-  /** --yes: take every detected harness without asking. */
   assumeYes?: boolean;
-  /** Headless answers (tests, embedders); bypasses the terminal prompter. */
   confirm?: Ask;
-  /** Called once when the interactive flow is about to be drawn. */
+  /** Called when the interactive flow is about to be drawn. */
   onPrompted?: () => void;
 }
 
-/**
- * Nothing is installed into an assistant the user did not agree to.
- *
- * The question is skipped when the answer is already known: an explicit
- * --targets is a decision, --yes opts out, and a non-interactive shell has
- * nobody to ask (so it uses every detected assistant rather than hanging).
- */
+// An explicit --targets is a decision, --yes opts out, and a non-interactive
+// shell has nobody to ask - so it takes every detected harness rather than hang.
 export async function chooseHarnesses(
   available: HarnessName[],
   { explicit = false, assumeYes = false, confirm, onPrompted }: ChooseOptions = {},
@@ -62,8 +54,6 @@ export async function chooseHarnesses(
     return available;
   }
 
-  // Only this branch draws the prompt flow, so only this branch leaves a connector
-  // for the caller to close with `log.groupEnd`.
   if (onPrompted) onPrompted();
   const prompter = createPrompter();
   try {
@@ -73,11 +63,8 @@ export async function chooseHarnesses(
   }
 }
 
-/**
- * The same plugin id can exist in more than one marketplace, and Cursor/VS Code
- * both place plugins in a flat <plugin>/ directory - so a second install would
- * silently overwrite the first. Refuse instead, unless the user forces it.
- */
+// Cursor and VS Code both keep plugins in a flat <plugin>/ directory, so the
+// same id from a second marketplace would silently overwrite the first.
 function assertNoMarketplaceConflict(
   manifestFile: string,
   { plugin, repo }: { plugin: string; repo: string },
@@ -97,13 +84,10 @@ function assertNoMarketplaceConflict(
 export interface InstallOptions {
   brand: Brand;
   plugin: string;
-  /** Overrides brand.ref for this install. */
   ref?: string;
   /** Harness names, `all`, or nothing for "ask". */
   targets?: readonly string[] | null;
-  /** Replace a plugin installed from another marketplace. */
   force?: boolean;
-  /** Accept every detected harness without asking. */
   assumeYes?: boolean;
   deps?: Deps;
   pathOpts?: PathOpts;
@@ -111,12 +95,6 @@ export interface InstallOptions {
   session?: Session;
 }
 
-/**
- * `session` carries the work that is the same for every plugin in a run (the
- * registry, the clone, the Claude marketplace registration). `update` passes one
- * in so that work happens once; a lone `install` gets a throwaway session and
- * behaves exactly as before.
- */
 export async function installPlugin({
   brand,
   plugin,
@@ -199,9 +177,6 @@ async function runInstall({
     log.info(`${h.title} is not installed (looked in ${h.location(pathOpts)}).`);
   }
 
-  // Nothing to install into is a failure, not a quiet no-op. Saying which
-  // editor was asked for beats a generic "no harness found" when the user
-  // named one explicitly.
   if (!available.length) {
     const names = missing.map((n) => byName(n).title);
     throw new UserError(
@@ -228,8 +203,7 @@ async function runInstall({
       prompted = true;
     },
   });
-  // When the questions were drawn, this line closes their flow; otherwise nothing was
-  // drawn to close and it stays the plain info line it has always been.
+  // Closes the prompt flow's connector when one was drawn.
   const closeGroup = (msg: string) => (prompted ? log.groupEnd(msg) : log.info(msg));
   if (!want.length) {
     if (prompted) log.groupEnd('No harness selected - nothing was installed.');
@@ -241,14 +215,10 @@ async function runInstall({
   }
   closeGroup(`Installing into: ${want.map((n) => byName(n).title).join(', ')}`);
 
-  // Editors this run skipped that an earlier one installed into. Install only ever
-  // adds, so their copies are still on disk untouched - they stay on the record
-  // below (or `update` would never refresh them again) and get a line in the
-  // closing summary, which is where the user looks to see where the plugin lives.
+  // Editors an earlier run installed into that this run skips. Their copies are
+  // still on disk, so they stay on the record or `update` would never refresh them.
   const untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
 
-  // Only pay for the fetch if a chosen harness needs the files. The session
-  // owns the clone, so a second plugin from the same repo checks out locally.
   const needsSource = want.some((name) => byName(name).needsSource);
   let srcDir: string | null = null;
   if (needsSource) {
@@ -280,17 +250,13 @@ async function runInstall({
   }
 
   if (installed.length) {
-    // The record is the union of what is on disk: what this run installed, plus the
-    // editors an earlier run installed into that this one left alone. Writing only
-    // `installed` would drop those, and `update` reads this list to decide what to
-    // refresh - so a dropped editor becomes a copy that is never updated again.
     const keep = new Set<HarnessName>([...untouched, ...installed]);
     manifest.upsert(manifestFile, {
       plugin,
       repo: brand.repo,
       marketplace: resolved.marketplace,
       ref: effectiveRef,
-      targets: NAMES.filter((n) => keep.has(n)), // canonical order, not call order
+      targets: NAMES.filter((n) => keep.has(n)), // canonical order
       installedAt: nowIso(),
     });
   }
@@ -323,13 +289,11 @@ export async function uninstallPlugin({
 }: UninstallOptions): Promise<UninstallResult> {
   assertPlugin(plugin);
   const manifestFile = paths.manifestPath(pathOpts);
-  // The raw view: uninstall must also clear rows the sanitized view hides
-  // (targets recorded by a newer CLI, hand-edited typos), and their recorded
-  // marketplace is what keeps the Claude path below off the network.
+  // The raw row: uninstall must also clear rows the sanitized view hides, and
+  // their recorded marketplace is what keeps the Claude path offline.
   const recorded = manifest.findRaw(manifestFile, { plugin, repo: brand.repo });
   const want = resolveTargets(targets);
 
-  // Prefer the recorded marketplace so uninstall works offline.
   let marketplace: string | null =
     brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
   if (!marketplace && want.includes('claude')) {
@@ -350,8 +314,7 @@ export async function uninstallPlugin({
     }
   }
 
-  // Raw targets pass through untouched: a name this build does not know stays
-  // on the record for whichever tool wrote it.
+  // Foreign target names stay on the record for whichever tool wrote them.
   const recordedTargets: unknown[] =
     recorded && Array.isArray(recorded.targets) ? recorded.targets : [];
   const remaining = recordedTargets.filter((t) => !removed.some((r) => r === t));
@@ -371,7 +334,6 @@ export interface UpdateOptions {
   pathOpts?: PathOpts;
 }
 
-/** Re-install every recorded plugin, each with the repo/ref/targets it was installed with. */
 export async function updateAll({
   brand,
   deps = {},
@@ -388,24 +350,17 @@ export async function updateAll({
   log.plain('');
   const updated: string[] = [];
   const failed: UpdateResult['failed'] = [];
-  // Each plugin would otherwise print a full install report; at five plugins
-  // that is sixty lines of scrollback to find one failure in. Collapse to a
-  // line each unless --verbose asked for the detail.
+  // One line per plugin instead of a full install report each, unless --verbose.
   const collapse = !log.isVerbose && !log.isQuiet;
   const names = [...entries, ...ignored].map((e) => (e.plugin || '').length);
   const idWidth = Math.min(Math.max(...names, 4), 42);
 
-  // A row this build cannot read is a failed update, not an invisible one:
-  // the plugin sits on disk, and this run is not refreshing it.
   for (const skip of ignored) {
     const name = skip.plugin || '(unreadable entry)';
     failed.push({ plugin: name, error: `cannot update - ${skip.reason}` });
     log.error(`${name.padEnd(idWidth)}  cannot update - ${skip.reason}`);
   }
 
-  // One session for the whole run: the registry is read once per marketplace,
-  // each marketplace is cloned once, and Claude Code is told about it once -
-  // instead of all three happening again for every plugin.
   const session = createSession({ deps });
   try {
     for (const entry of entries) {
@@ -422,8 +377,8 @@ export async function updateAll({
           plugin: entry.plugin,
           ref: entry.ref,
           targets: entry.targets,
-          force: true, // the manifest is the source of truth here
-          assumeYes: true, // never re-ask; the user already chose these harnesses
+          force: true,
+          assumeYes: true,
           deps,
           pathOpts,
           session,
@@ -472,9 +427,6 @@ export async function listPlugins({
       hint: 'Check --repo, or the branch you pointed at with --ref.',
     });
   }
-  // Per-plugin, not per-machine: a plugin recorded with targets: ['cursor'] is only
-  // installed in Cursor, so `installed` must read that list rather than "does this
-  // plugin appear anywhere in the manifest".
   const targetsByPlugin = new Map(
     manifest
       .list(paths.manifestPath(pathOpts))
@@ -506,8 +458,6 @@ function summarize(done: HarnessName[], verb: string, unchanged: HarnessName[] =
   } else {
     log.ok(`${verb}: ${done.map((n) => byName(n).title).join(', ')}`);
   }
-  // An editor that already had the plugin and was skipped this run still has it, so
-  // it belongs in the report - otherwise this reads as "it is only in these two".
   if (unchanged.length) {
     log.info(`Already installed: ${unchanged.map((n) => byName(n).title).join(', ')}`);
   }

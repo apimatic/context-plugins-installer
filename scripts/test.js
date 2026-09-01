@@ -1,10 +1,8 @@
 'use strict';
 
-// Runs the suite through tsx, so tests import src/*.ts directly and no build
-// step sits in the loop. The file list is built here because Node 18 and 20
-// cannot expand globs in --test mode, and npm on Windows runs scripts under
-// cmd.exe, which expands none at all. Extra arguments pass through to node
-// (e.g. `npm test -- --test-name-pattern manifest`).
+// Runs the suite through tsx against src/*.ts, so no build sits in the loop.
+// The file list is built here: Node 18/20 cannot glob in --test mode, and npm
+// on Windows runs scripts under cmd.exe, which expands none at all.
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');

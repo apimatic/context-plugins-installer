@@ -432,8 +432,7 @@ test('the declined-but-installed editor is named once, in the summary', async ()
   const out = con.lines.join('\n').replace(/\x1b\[\d+m/g, '');
 
   assert.match(out, /Already installed: VS Code/);
-  // One line, in the summary - nothing up in [Harnesses]. The earlier version said it
-  // twice and ran to four wrapped lines, which buried the install report itself.
+  // Said once, in the summary - not again up in [Harnesses].
   assert.equal(out.match(/Already installed/g)?.length, 1, 'said exactly once');
   assert.doesNotMatch(out, /not removed/);
   assert.doesNotMatch(out, /--targets vscode/);

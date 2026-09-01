@@ -5,22 +5,14 @@ import { NAMES } from './harness/index.js';
 import type { IgnoredManifestEntry, Manifest, ManifestEntry } from './types.js';
 import { ensureDir, stripBom, isPlainObject, nonEmptyString } from './util.js';
 
-/**
- * ~/.context-plugins/installed.json - a single state file, so one update pass
- * covers everything installed on the machine.
- *
- * Entries are keyed by repo + plugin rather than plugin alone, because the same
- * plugin id can legitimately exist in more than one marketplace.
- */
 export const MANIFEST_VERSION = 1;
 
-/** What identifies an entry: the plugin id plus the marketplace repo it came from. */
+// Entries are keyed by repo + plugin: the same id can exist in two marketplaces.
 export interface EntryKey {
   plugin?: unknown;
   repo?: unknown;
 }
 
-/** The file as it sits on disk: entries untouched, shape unchecked. */
 interface RawManifest {
   version: number;
   plugins: unknown[];
@@ -33,14 +25,9 @@ const matches = (p: unknown, key: EntryKey): boolean => isPlainObject(p) && same
 
 const str = (v: unknown): string | undefined => (nonEmptyString(v) ? v : undefined);
 
-/**
- * The file as it sits on disk, entries untouched.
- *
- * The write path works on this view: the manifest is shared with hand edits
- * and with other versions of this tool, so an entry this build cannot read is
- * not this build's to delete. upsert and remove replace exactly the entry
- * they were asked about and carry everything else through verbatim.
- */
+// The write path works on this raw view: the file is shared with hand edits
+// and other versions of this tool, so a row this build cannot read is not its
+// to delete.
 function readRaw(file: string): RawManifest {
   try {
     const data: unknown = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
@@ -53,22 +40,12 @@ function readRaw(file: string): RawManifest {
       plugins: Array.isArray(doc.plugins) ? doc.plugins : [],
     };
   } catch {
-    // Missing or corrupt: start clean rather than block the install.
     return { version: MANIFEST_VERSION, plugins: [] };
   }
 }
 
-/**
- * One recorded install, or null when the entry cannot be acted on.
- *
- * An unknown target name would crash every `byName(...)` lookup downstream,
- * and an entry whose targets all fail that test must not survive as
- * `targets: []` - resolveTargets reads an empty list as "every harness",
- * which would turn a corrupt entry into installs nobody asked for. So an
- * entry keeps the targets this build knows (deduped, canonical order) and
- * falls out of the sanitized view when none remain. It stays on disk either
- * way; read() names it in `ignored` so commands can say so.
- */
+// An entry with no known target is dropped rather than kept as `targets: []`:
+// resolveTargets reads an empty list as "every harness".
 function sanitizeEntry(raw: unknown): ManifestEntry | null {
   if (!isPlainObject(raw)) return null;
   const plugin = raw.plugin;
@@ -87,7 +64,6 @@ function sanitizeEntry(raw: unknown): ManifestEntry | null {
   };
 }
 
-/** Why read() ignored a raw entry - named so the CLI can say it out loud. */
 function describeIgnored(raw: unknown): IgnoredManifestEntry {
   if (!isPlainObject(raw) || !nonEmptyString(raw.plugin)) {
     return { plugin: null, reason: 'not a plugin entry' };
@@ -102,7 +78,6 @@ function describeIgnored(raw: unknown): IgnoredManifestEntry {
   };
 }
 
-/** The entries this build can act on, plus a note of what it had to ignore. */
 export function read(file: string): Manifest {
   const data = readRaw(file);
   const plugins: ManifestEntry[] = [];
@@ -124,11 +99,7 @@ export function write(file: string, data: { plugins?: unknown[] }): RawManifest 
 
 const sortKey = (p: unknown): string => (isPlainObject(p) ? `${p.repo}/${p.plugin}` : '');
 
-/**
- * Writes the entry as given. Typed as the raw record on purpose: install
- * passes a fresh ManifestEntry, while uninstall writes back a row it read
- * raw (foreign targets and all), and both must round-trip untouched.
- */
+/** Takes the raw record type: uninstall writes back rows it read raw, foreign targets and all. */
 export function upsert(file: string, entry: Record<string, unknown>): RawManifest {
   const data = readRaw(file);
   data.plugins = data.plugins.filter((p) => !matches(p, entry));
@@ -149,12 +120,7 @@ export const find = (file: string, { plugin, repo }: EntryKey): ManifestEntry | 
   read(file).plugins.find((p) => (repo ? sameEntry(p, { plugin, repo }) : p.plugin === plugin)) ||
   null;
 
-/**
- * The raw recorded entry, shape unchecked. uninstall reads recorded state -
- * the marketplace name, the target list to shrink - for entries the sanitized
- * view hides, so removing a row this build cannot fully read still works
- * offline and still updates the record.
- */
+/** The raw row, shape unchecked, for entries the sanitized view hides. */
 export const findRaw = (file: string, key: EntryKey): Record<string, unknown> | null =>
   readRaw(file).plugins.find((p): p is Record<string, unknown> => matches(p, key)) || null;
 

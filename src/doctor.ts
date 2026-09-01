@@ -100,7 +100,6 @@ function checkEditors(pathOpts?: PathOpts): DoctorCheck[] {
   return checks;
 }
 
-/** GitHub's rate_limit body is a JSON boundary; read only the two numbers used. */
 function rateLimitOf(body: unknown): { remaining: number; limit: number } | null {
   if (!isPlainObject(body) || !isPlainObject(body.resources)) return null;
   const core = body.resources.core;
@@ -208,7 +207,7 @@ export interface DiagnoseOptions {
   pathOpts?: PathOpts;
 }
 
-/** Collect every check, grouped for display. Never throws: a broken check is a result. */
+/** Never throws: a broken check is a result. */
 export async function diagnose({
   brand,
   deps = {},

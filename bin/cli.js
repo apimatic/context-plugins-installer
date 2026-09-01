@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Checked before anything else loads. Node below 18 has no global fetch and no
-// node:readline/promises, so without this the failure is a bare
-// "fetch is not defined" from somewhere deep in the fetch path.
+// Node below 18 has no global fetch; check before anything else loads.
 require('./require-node')();
 
 require('../lib/cli')

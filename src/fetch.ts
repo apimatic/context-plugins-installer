@@ -21,14 +21,13 @@ import {
 
 export const DOWNLOAD_CONCURRENCY = 8;
 
-/** A throwaway working directory, and a cleanup that never throws. */
 function tempWorkspace(): { work: string; cleanup: () => void } {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'context-plugins-'));
   const cleanup = () => {
     try {
       rmrf(work);
     } catch {
-      /* a locked temp dir is not worth failing the install over */
+      /* a locked temp dir is not worth failing over */
     }
   };
   return { work, cleanup };
@@ -41,10 +40,7 @@ export interface SourceRequest {
   deps?: Deps;
 }
 
-/**
- * Materialize `sourcePath` from `repo@ref` into a temp directory.
- * Returns { dir, cleanup, via }. Callers must call cleanup() in a finally block.
- */
+/** Callers must call cleanup() when done. */
 export async function materialize({
   repo,
   ref,
@@ -54,8 +50,6 @@ export async function materialize({
   const { work, cleanup } = tempWorkspace();
 
   try {
-    // deps.env, like openRepo below - so an injected PATH can force the API
-    // route here too, instead of only on the session path.
     const git = which('git', deps.env || process.env);
     if (git) {
       const dir = await viaGit({ git, repo, ref, sourcePath, work });
@@ -77,7 +71,6 @@ interface CloneRequest {
   work: string;
 }
 
-/** Clone the repository itself, with no plugin folder checked out yet. */
 export async function cloneRepo({ git, repo, ref, work }: CloneRequest): Promise<string> {
   const clone = path.join(work, 'repo');
   const url = `https://github.com/${repo}.git`;
@@ -87,8 +80,7 @@ export async function cloneRepo({ git, repo, ref, work }: CloneRequest): Promise
   const base = ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse'];
 
   if (isSha(ref)) {
-    // --branch does not accept a commit sha, so clone the default branch and
-    // fetch the exact commit.
+    // --branch does not accept a commit sha.
     await expect(run(git, [...base, url, clone]), `git clone ${url}`);
     await expect(
       run(git, ['-C', clone, 'fetch', '--depth', '1', 'origin', ref]),
@@ -115,13 +107,8 @@ interface SparseRequest {
   sourcePath: string;
 }
 
-/**
- * Add one plugin folder to an existing clone's sparse checkout.
- *
- * `add` rather than `set`: a --sparse clone starts with only the root files, so
- * for the first path the two are equivalent, and `add` lets later plugins join
- * the same working tree instead of replacing what is already there.
- */
+// `add` rather than `set`, so later plugins join the same working tree
+// instead of replacing what is already checked out.
 export async function addSparsePath({
   git,
   clone,
@@ -167,13 +154,11 @@ interface TreeNode {
   path: string;
 }
 
-/** The parts of GitHub's git/trees response the download path relies on. */
 export interface GitTree {
   truncated: boolean;
   tree: TreeNode[];
 }
 
-/** The API's answer is a JSON boundary: keep the nodes that have the two fields used. */
 function asTree(data: unknown): GitTree {
   if (!isPlainObject(data)) {
     throw new UserError('GitHub tree response was not a JSON object.', {
@@ -190,7 +175,6 @@ function asTree(data: unknown): GitTree {
   };
 }
 
-/** The repository's file tree. One request, reusable for every plugin in it. */
 export async function fetchTree({
   repo,
   ref,
@@ -230,7 +214,6 @@ interface DownloadRequest extends SourceRequest {
   work: string;
 }
 
-/** Download one plugin folder out of an already-fetched tree. */
 export async function downloadPath({
   tree,
   repo,
@@ -241,7 +224,7 @@ export async function downloadPath({
 }: DownloadRequest): Promise<string> {
   const fetchImpl: FetchLike = deps.fetchImpl || fetch;
   const env = deps.env || process.env;
-  // Mirror the repository layout so two plugins never share a destination.
+  // Mirrors the repository layout so two plugins never share a destination.
   const dest = ensureDir(path.join(work, 'files', ...sourcePath.split('/')));
 
   const prefix = `${sourcePath}/`;
@@ -275,16 +258,7 @@ export async function viaApi({
   return downloadPath({ tree, repo, ref, sourcePath, work, deps });
 }
 
-/**
- * Open `repo@ref` once and check plugin folders out of it on demand.
- *
- * `update` re-installs every recorded plugin, and materializing each one
- * separately meant cloning the whole marketplace once per plugin - work that
- * grows with the marketplace, not with what you asked for. One handle clones (or
- * fetches the API tree) once and every checkout after that is local.
- *
- * Callers must call cleanup() when the run is done.
- */
+/** One clone (or API tree) per repo@ref; every checkout after the first is local. Callers must call cleanup(). */
 export async function openRepo({
   repo,
   ref,
@@ -307,7 +281,7 @@ export async function openRepo({
       async checkout(sourcePath) {
         const cached = done.get(sourcePath);
         if (cached) return cached;
-        // Store the promise, not the result, so concurrent callers share one clone.
+        // The promise is cached, not the result, so concurrent callers share one clone.
         cloning ??= cloneRepo({ git, repo, ref, work });
         const clone = await cloning;
         const dir = await addSparsePath({ git, clone, repo, ref, sourcePath });

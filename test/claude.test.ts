@@ -23,10 +23,7 @@ function withClaude(): Env {
 
 type FakeCli = RunCommand & { calls: string[] };
 
-/**
- * A fake `claude`: `routes` maps a command line to its result, and every call is
- * recorded so a test can assert what the installer decided to run.
- */
+/** A fake `claude`: `routes` maps a command-line prefix to its result; every call is recorded. */
 function fakeCli(routes: Record<string, Partial<RunResult>>): FakeCli {
   const calls: string[] = [];
   const run = async (_file: string, args: string[]): Promise<RunResult> => {
@@ -151,8 +148,7 @@ test('a different marketplace under the same name is reported, not installed int
 });
 
 test('a same-named entry with no visible source is refreshed, not refused', async () => {
-  // A marketplace added from a local directory lists no repo to compare against;
-  // guessing "someone else's" would block an install that is probably fine.
+  // A marketplace added from a local directory lists no repo to compare against.
   const run = fakeCli({
     'plugin marketplace list': listing([
       { name: 'context-plugins', path: 'C:\\Users\\me\\marketplaces\\context-plugins' },

@@ -12,10 +12,9 @@ const BY_NAME: Record<HarnessName, Harness> = { claude, cursor, vscode };
 export const isHarnessName = (name: unknown): name is HarnessName =>
   typeof name === 'string' && Object.prototype.hasOwnProperty.call(BY_NAME, name);
 
-/** Total by construction: every HarnessName has a harness. Narrow strings with isHarnessName first. */
+/** Total over HarnessName; narrow a string with isHarnessName first. */
 export const byName = (name: HarnessName): Harness => BY_NAME[name];
 
-/** Expand `all` / undefined into every harness; validate anything explicit. */
 export function resolveTargets(requested?: readonly string[] | null): HarnessName[] {
   if (!requested || requested.length === 0 || requested.includes('all')) return [...NAMES];
   const unknown = requested.filter((t) => !isHarnessName(t));

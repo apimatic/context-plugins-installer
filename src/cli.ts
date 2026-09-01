@@ -11,11 +11,7 @@ import * as paths from './paths.js';
 import type { Brand, DoctorStatus, Flags, ParsedArgs, Profile } from './types.js';
 import { UserError, isPlainObject, errorMessage } from './util.js';
 
-/**
- * The version comes from package.json, one directory up whether this file runs
- * from src/ (tests) or lib/ (the published package). Our own file, so a shape
- * check is all it needs.
- */
+// package.json is one directory up from both src/ (tests) and lib/ (published).
 function packageVersion(): string {
   const parsed: unknown = JSON.parse(
     fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
@@ -23,9 +19,6 @@ function packageVersion(): string {
   return isPlainObject(parsed) && typeof parsed.version === 'string' ? parsed.version : 'unknown';
 }
 
-// The flag table. A flag is either "takes a value" or "is a switch"; the parser
-// below narrows a kebab-case token to one of these names before it writes into
-// Flags, so an unknown option can never reach the typed result.
 const VALUE_FLAGS = ['repo', 'ref', 'marketplace', 'targets'] as const;
 const BOOL_FLAGS = ['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version'] as const;
 
@@ -35,7 +28,7 @@ type BoolFlag = (typeof BOOL_FLAGS)[number];
 const isValueFlag = (key: string): key is ValueFlag => VALUE_FLAGS.some((f) => f === key);
 const isBoolFlag = (key: string): key is BoolFlag => BOOL_FLAGS.some((f) => f === key);
 
-// A plugin id longer than this is treated as an outlier when sizing the list grid.
+// A plugin id longer than this is ignored when sizing the list grid.
 const OUTLIER_NAME = 36;
 
 const camel = (s: string): string => s.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
@@ -105,7 +98,6 @@ export const parseTargets = (value?: string): string[] | null =>
         .filter(Boolean)
     : null;
 
-/** Only the three brand fields the text actually prints, so callers can pass just those. */
 export function helpText(bin: string, brand: Pick<Brand, 'displayName' | 'label' | 'ref'>): string {
   return `
 ${brand.displayName} - install marketplace plugins into Claude Code, Cursor, and VS Code.
@@ -157,11 +149,7 @@ function report(err: unknown): void {
 
 const DOCTOR_SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
 
-/**
- * @param argv    process.argv.slice(2)
- * @param profile Preset configuration (see run.js)
- * @returns process exit code
- */
+/** Returns the process exit code. */
 export async function run(
   argv: readonly string[] = process.argv.slice(2),
   profile: Profile = {},
@@ -178,9 +166,7 @@ export async function run(
   log.setVerbose(flags.verbose);
   log.setQuiet(flags.quiet);
 
-  // Before configuration resolves: the version is a fact about this binary,
-  // and a broken rc file must not be able to hide it. (--help still needs the
-  // resolved brand - it prints the configured names and defaults.)
+  // Before the brand resolves, so a broken rc file cannot hide the version.
   if (flags.version) {
     log.plain(packageVersion());
     return 0;
@@ -244,9 +230,6 @@ export async function run(
         log.plain('');
 
         if (flags.long) {
-          // Full detail, one plugin per block. The mark answers "installed anywhere?";
-          // the line under it always names the actual editors on record, so it never
-          // reads as installed everywhere.
           for (const p of plugins) {
             const mark = p.installed ? log.MARK : ' ';
             log.plain(`  ${mark} ${log.bold(p.name)}`);
@@ -256,13 +239,8 @@ export async function run(
             }
           }
         } else {
-          // A grid of names. Descriptions in a marketplace are long and largely
-          // boilerplate, so a truncated column of them shows the same prefix on
-          // every row and crowds out the one thing that differs.
-          // Sized to the longest name that is not an outlier. Using the true
-          // maximum lets one very long id set the width for every column and
-          // collapse the grid; using a percentile makes a third of the rows
-          // ragged. Ignoring only the outliers keeps every ordinary row aligned.
+          // A grid sized to the longest non-outlier name: one very long id would
+          // otherwise set the width for every column and collapse the grid.
           const lengths = plugins.map((p) => p.name.length);
           const cell = Math.max(16, ...lengths.filter((l) => l <= OUTLIER_NAME)) + 3;
           const cols = Math.max(1, Math.floor((log.width(120) - 2) / cell));
@@ -321,12 +299,9 @@ export async function run(
       case 'installed': {
         const { plugins: entries, ignored } = manifest.read(paths.manifestPath());
         if (flags.json) {
-          // Schema stability: the output stays the plain entry array.
           log.plain(JSON.stringify(entries, null, 2));
           return 0;
         }
-        // A row this build cannot read still exists on disk; saying so beats
-        // quietly under-reporting what the user knows they installed.
         const warnIgnored = () => {
           for (const skip of ignored) {
             const label = skip.plugin ? `'${skip.plugin}'` : 'an entry';

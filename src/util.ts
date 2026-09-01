@@ -5,10 +5,7 @@ import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from '
 
 import type { Env, RunResult } from './types.js';
 
-/**
- * A problem the user can fix (bad plugin id, missing harness, network refusal).
- * The CLI prints these as a one-line message with no stack trace.
- */
+/** A problem the user can fix; the CLI prints it as one line with no stack trace. */
 export class UserError extends Error {
   hint: string | undefined;
 
@@ -19,21 +16,17 @@ export class UserError extends Error {
   }
 }
 
-// Plugin ids match the generator's contract: kebab-case, <= 64 chars.
 const PLUGIN_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
-// The two shapes every JSON boundary checks for. Shared so the checks cannot
-// drift apart: a refinement made where one boundary surfaced a bug reaches
-// the others too.
 export const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 export const nonEmptyString = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
-// These three values are interpolated into URLs and passed as argv, so they are
-// validated at the edge rather than trusted from flags/env/rc files.
+// These three are interpolated into URLs and passed as argv, so they are
+// validated at the edge rather than trusted from flags, env, or rc files.
 export function assertPlugin(id: unknown): string {
   if (typeof id !== 'string' || !PLUGIN_RE.test(id) || id.length > 64) {
     throw new UserError(`Invalid plugin id: ${JSON.stringify(id)}`, {
@@ -63,16 +56,11 @@ export function assertRef(ref: unknown): string {
 
 export const isSha = (ref: string): boolean => SHA_RE.test(ref);
 
-// ---- errors ----------------------------------------------------------------
-
-/** `catch (err)` hands over `unknown`; these read what a thrown value usually carries. */
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
 
 export const errorCode = (err: unknown): unknown =>
   err instanceof Error && 'code' in err ? err.code : undefined;
-
-// ---- filesystem ------------------------------------------------------------
 
 export function ensureDir(dir: string): string {
   fs.mkdirSync(dir, { recursive: true });
@@ -100,7 +88,7 @@ export function isDirNonEmpty(dir: string): boolean {
   }
 }
 
-/** Recursive copy. Written by hand so we never emit fs.cp's experimental warning. */
+// Hand-written so it never emits fs.cp's experimental warning.
 export function copyDir(src: string, dest: string): void {
   ensureDir(dest);
   for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
@@ -109,14 +97,14 @@ export function copyDir(src: string, dest: string): void {
     if (entry.isDirectory()) {
       copyDir(from, to);
     } else if (entry.isSymbolicLink()) {
-      // Symlinks need elevation on Windows; degrade to a plain copy rather than fail.
+      // Symlinks need elevation on Windows; degrade to a plain copy.
       try {
         fs.symlinkSync(fs.readlinkSync(from), to);
       } catch {
         try {
           fs.copyFileSync(from, to);
         } catch {
-          /* unresolvable link - skip it */
+          /* unresolvable link */
         }
       }
     } else {
@@ -125,7 +113,7 @@ export function copyDir(src: string, dest: string): void {
   }
 }
 
-/** Replace dest wholesale, so a shrinking plugin never leaves orphan files behind. */
+/** Wholesale replace, so a shrinking plugin leaves no orphan files behind. */
 export function replaceDir(src: string, dest: string): string {
   rmrf(dest);
   copyDir(src, dest);
@@ -140,9 +128,7 @@ export function countFiles(dir: string): number {
   return n;
 }
 
-// ---- process ---------------------------------------------------------------
-
-/** PATH lookup that honours PATHEXT, so we can spawn without shell: true. */
+/** PATH lookup that honours PATHEXT, so spawning never needs shell: true. */
 export function which(cmd: string, env: Env = process.env): string | null {
   const raw = env.PATH || env.Path || '';
   const sep = process.platform === 'win32' ? ';' : ':';
@@ -167,13 +153,9 @@ export function which(cmd: string, env: Env = process.env): string | null {
 
 const winQuote = (s: string): string => (/[\s"&|<>^()]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
 
-/**
- * Spawn and capture. Never uses `shell: true`.
- *
- * Windows note: Node refuses to spawn .cmd/.bat directly (CVE-2024-27980 hardening),
- * and npm-installed CLIs like `claude` land as .cmd shims - so those go through
- * cmd.exe with an explicitly quoted command line.
- */
+// Node refuses to spawn .cmd/.bat directly (CVE-2024-27980), and npm-installed
+// CLIs land as .cmd shims on Windows, so those go through cmd.exe with an
+// explicitly quoted command line.
 export function run(file: string, args: string[], opts: SpawnOptions = {}): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const stdio: StdioOptions = ['ignore', 'pipe', 'pipe'];
@@ -190,8 +172,6 @@ export function run(file: string, args: string[], opts: SpawnOptions = {}): Prom
     }
     let stdout = '';
     let stderr = '';
-    // Both streams exist with the 'pipe' stdio above; the optional chaining is
-    // for the type, which only knows spawn *may* have been given 'ignore'.
     child.stdout?.on('data', (d: Buffer | string) => {
       stdout += d;
     });
@@ -205,7 +185,7 @@ export function run(file: string, args: string[], opts: SpawnOptions = {}): Prom
   });
 }
 
-/** Bounded-concurrency map; keeps the API-fallback download from opening 200 sockets. */
+/** Bounded-concurrency map, in input order. */
 export async function pool<T, R>(
   items: readonly T[],
   limit: number,
@@ -224,7 +204,7 @@ export async function pool<T, R>(
   return results;
 }
 
-/** yyyyMMdd-HHmmss, used as the settings.json backup suffix. */
+/** yyyyMMdd-HHmmss */
 export function timestamp(date: Date = new Date()): string {
   const p = (n: number, w = 2) => String(n).padStart(w, '0');
   return (
@@ -235,7 +215,6 @@ export function timestamp(date: Date = new Date()): string {
 
 export const stripBom = (s: string): string => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
 
-/** Display form of a path: `~` beats repeating the user's home directory back at them. */
 export function shortPath(target: string, home: string = os.homedir()): string {
   if (!target || !home) return target;
   const normalized = String(target);
@@ -246,7 +225,6 @@ export function shortPath(target: string, home: string = os.homedir()): string {
   return normalized;
 }
 
-/** Edit distance, capped work for the short strings we compare (plugin ids). */
 export function editDistance(a: string, b: string): number {
   const rows = a.length + 1;
   const cols = b.length + 1;
@@ -271,12 +249,8 @@ const sharedPrefix = (a: string, b: string): number => {
   return i;
 };
 
-/**
- * Closest names to `query`. Substring hits rank first, then names sharing a
- * substantial prefix - plugin ids in a marketplace tend to share a suffix, so
- * plain edit distance alone rates `azure-cognitve` as too far from
- * `azure-cognitive-sdk` to be worth offering.
- */
+// Substring and shared-prefix hits rank before edit distance: plugin ids share
+// suffixes like `-sdk`, which makes a near miss look far away.
 export function suggest(query: string, candidates: readonly string[], limit = 3): string[] {
   const q = String(query).toLowerCase();
   const threshold = Math.max(3, Math.ceil(q.length * 0.4));

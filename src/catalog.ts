@@ -12,7 +12,6 @@ import {
 } from './util.js';
 
 // Claude Code and Cursor read the same registry shape from different folders.
-// We prefer the Claude one and fall back to Cursor's.
 export const REGISTRY_FILES = [
   '.claude-plugin/marketplace.json',
   '.cursor-plugin/marketplace.json',
@@ -34,12 +33,8 @@ export function ghHeaders(env: Env = process.env): Record<string, string> {
   return headers;
 }
 
-/**
- * Node's built-in fetch ignores HTTP_PROXY / HTTPS_PROXY, so on a network that
- * requires a proxy this fails even though `git` - which does read the proxy
- * settings - would succeed. Worth saying, because the raw error is just a
- * connect timeout.
- */
+// Node's fetch ignores HTTP_PROXY/HTTPS_PROXY, so behind a proxy this fails
+// where git would succeed - and the raw error is just a connect timeout.
 function networkHint(env: Env = process.env): string {
   const proxied = env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy;
   if (proxied) {
@@ -48,7 +43,7 @@ function networkHint(env: Env = process.env): string {
   return 'Check your network connection, or whether access to github.com is blocked.';
 }
 
-/** GET JSON, returning null for 404 so a missing registry is not an error. */
+/** null on 404, so a missing registry is not an error. */
 export async function getJson(
   url: string,
   { env = process.env, fetchImpl = fetch }: Deps = {},
@@ -79,12 +74,6 @@ export async function getJson(
   }
 }
 
-/**
- * A registry entry is usable when it can produce a plugin id: the bare-string
- * form, or an object with a string name. Anything else - null, a number, an
- * object with no name - is dropped here, where the registry is read, instead
- * of crashing whichever consumer reaches `p.name` first (`list` did).
- */
 const usableEntry = (p: unknown): p is CatalogPluginEntry =>
   nonEmptyString(p) || (isPlainObject(p) && nonEmptyString(p.name));
 
@@ -94,8 +83,6 @@ export function normalize(data: Record<string, unknown>, from: string): Catalog 
   return {
     marketplace: nonEmptyString(data.name) ? data.name : null,
     plugins,
-    // How many declared entries were unusable. Kept so resolve can tell "the
-    // registry lists nothing" apart from "it lists things we cannot read".
     dropped: declared.length - plugins.length,
     from,
   };
@@ -107,14 +94,12 @@ export interface LoadCatalogOptions {
   deps?: Deps;
 }
 
-/** Load a repo's marketplace registry. Returns null when the repo has none. */
+/** null when the repo has no registry. */
 export async function loadCatalog({ repo, ref, deps = {} }: LoadCatalogOptions) {
   assertRepo(repo);
   assertRef(ref);
   for (const file of REGISTRY_FILES) {
     const data = await getJson(rawUrl(repo, ref, file), deps);
-    // A wrong-shaped document (a bare array, a string) is no registry at all:
-    // fall through to the next file rather than answer with an empty catalog.
     if (isPlainObject(data)) return normalize(data, file);
     if (data !== null) log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
   }
@@ -129,7 +114,6 @@ export const entryFor = (
 ): CatalogPluginEntry | undefined =>
   catalog ? catalog.plugins.find((p) => nameOf(p) === plugin) : undefined;
 
-/** `./plugins/foo` and `plugins/foo` both normalize to the repo-relative `plugins/foo`. */
 export function sourcePathFor(entry: CatalogPluginEntry | undefined, plugin: string): string {
   const source: unknown = entry && typeof entry === 'object' ? entry.source : undefined;
   if (typeof source === 'string' && source.trim()) {
@@ -150,19 +134,14 @@ export interface ResolvePluginOptions {
   repo: string;
   ref: string;
   plugin: string;
-  /** Overrides the registry's name. */
   marketplace?: string | null;
   /** What the user sees in place of the repository. */
   label?: string;
   deps?: Deps;
-  /** A registry already loaded by the session; `null` means the repo has none. */
+  /** A registry the session already loaded; `null` means the repo has none. */
   catalog?: Catalog | null;
 }
 
-/**
- * Resolve everything the installers need for one plugin:
- * the marketplace name (derived unless overridden) and the folder inside the repo.
- */
 export async function resolvePlugin({
   repo,
   ref,
@@ -172,17 +151,12 @@ export async function resolvePlugin({
   deps = {},
   catalog: preloaded,
 }: ResolvePluginOptions): Promise<ResolvedPlugin> {
-  // `label` is what the user sees; the repository stays an internal detail.
   const shown = label || `${repo}@${ref}`;
-  // `undefined` means nobody supplied one; `null` is a valid answer meaning the
-  // repository has no registry, so it must not trigger a second fetch.
   const catalog = preloaded === undefined ? await loadCatalog({ repo, ref, deps }) : preloaded;
   const entry = entryFor(catalog, plugin);
 
-  // Fire when the registry declared entries, even if none were usable -
-  // otherwise a registry of nameless entries reads as "no list published" and
-  // a typo'd id walks past this into prompts, marketplace registration, and a
-  // late "plugin folder is empty or missing" failure.
+  // Also fires when every declared entry was unusable, so a typo does not walk
+  // past this into a late "plugin folder is empty" failure.
   if (catalog && (catalog.plugins.length || catalog.dropped) && !entry) {
     const known = catalog.plugins.map(nameOf);
     const close = suggest(plugin, known);
@@ -203,9 +177,7 @@ export async function resolvePlugin({
     });
   }
 
-  // Claude Code requires a kebab-case marketplace id. Catching it here names the
-  // real problem; otherwise the failure surfaces much later as a bare
-  // "plugin not found in marketplace" from the Claude CLI.
+  // Otherwise the failure surfaces later as a bare "plugin not found" from claude.
   if (!MARKETPLACE_RE.test(resolvedMarketplace)) {
     throw new UserError(`Marketplace name '${resolvedMarketplace}' is not a valid identifier.`, {
       hint: `It must be kebab-case with no spaces (e.g. my-marketplace). Fix 'name' in ${REGISTRY_FILES[0]}.`,
@@ -218,8 +190,6 @@ export async function resolvePlugin({
     ref,
     marketplace: resolvedMarketplace,
     sourcePath: sourcePathFor(entry, plugin),
-    // Coerced here so the declared `description: string` contract holds even
-    // when a registry ships a number or object in the field.
     description: isPlainObject(entry) && nonEmptyString(entry.description) ? entry.description : '',
     catalogFound: Boolean(catalog),
   };
