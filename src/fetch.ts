@@ -236,6 +236,10 @@ export async function downloadPath({
   await pool(blobs, DOWNLOAD_CONCURRENCY, async (blob) => {
     const rel = blob.path.slice(prefix.length);
     const target = path.join(dest, ...rel.split('/'));
+    // A tree entry is remote input, so it does not get to name where we write.
+    if (target !== dest && !target.startsWith(dest + path.sep)) {
+      throw new UserError(`Refusing to write outside the checkout: ${blob.path}`);
+    }
     ensureDir(path.dirname(target));
     const raw = `https://raw.githubusercontent.com/${repo}/${ref}/${blob.path}`;
     const res = await fetchImpl(raw, { headers: ghHeaders(env) });
