@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { UserError, assertRepo, assertRef, stripBom } = require('./util');
+const { UserError, assertRepo, assertRef, stripBom, isPlainObject } = require('./util');
 
 /**
  * Defaults for the marketplace the CLI talks to. Every field can be overridden
@@ -35,16 +35,20 @@ function readRc(dir) {
     if (err instanceof SyntaxError) {
       throw new UserError(`${file} is not valid JSON: ${err.message}`);
     }
-    return null;
+    // A file that exists but cannot be read (a directory, permissions) is a
+    // problem to report, not configuration to silently skip - proceeding on
+    // defaults would install from the wrong marketplace with no message.
+    throw new UserError(`Could not read ${file}: ${err.message}`);
   }
   // The rc file is user-written configuration, so a wrong shape earns an error
   // that names the file - not an "Invalid repo: 123" three calls later with no
   // hint of where the value came from.
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (!isPlainObject(parsed)) {
     throw new UserError(`${file} must be a JSON object.`);
   }
   for (const field of RC_STRING_FIELDS) {
-    if (parsed[field] !== undefined && typeof parsed[field] !== 'string') {
+    // null is "unset", same as the resolution chain below treats it.
+    if (parsed[field] != null && typeof parsed[field] !== 'string') {
       throw new UserError(`${file}: '${field}' must be a string.`);
     }
   }

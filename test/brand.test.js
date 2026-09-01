@@ -141,3 +141,17 @@ test('unknown rc fields are ignored for forward compatibility', () => {
   writeRc(cwd, { repo: 'rc/marketplace', futureOption: { nested: true } });
   assert.equal(resolveBrand(clean({ cwd })).repo, 'rc/marketplace');
 });
+
+test('a null rc field means unset, exactly like the resolution chain treats it', () => {
+  const cwd = tmpDir('cp-cwd-');
+  writeRc(cwd, { repo: null, marketplace: null });
+  const brand = resolveBrand(clean({ cwd }));
+  assert.equal(brand.repo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.id, null);
+});
+
+test('an rc file that exists but cannot be read is reported, not skipped', () => {
+  const cwd = tmpDir('cp-cwd-');
+  fs.mkdirSync(path.join(cwd, '.contextpluginsrc')); // a directory, not a file
+  assert.throws(() => resolveBrand(clean({ cwd })), /Could not read/);
+});
