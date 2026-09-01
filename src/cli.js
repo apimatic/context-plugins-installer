@@ -310,7 +310,7 @@ async function run(argv = process.argv.slice(2), profile = {}) {
     }
   } catch (err) {
     report(err);
-    return err instanceof UserError ? 1 : 1;
+    return 1;
   }
 }
 

@@ -127,14 +127,20 @@ test('session cleanup disposes what an injected fetch handed back', async () => 
   assert.equal(disposed, 2, 'every fetch is disposed at the end of the run');
 });
 
-test('the Claude marketplace is registered once per session, not once per plugin', async () => {
-  const repo = 'acme/plugin-marketplace';
+/** A `claude` CLI stub: records every invocation, reports an empty marketplace list. */
+function recordingExec() {
   const calls = [];
   const exec = async (_bin, args) => {
     calls.push(args.join(' '));
     if (args[2] === 'list') return { code: 0, stdout: '[]', stderr: '' };
     return { code: 0, stdout: '', stderr: '' };
   };
+  return { exec, calls };
+}
+
+test('the Claude marketplace is registered once per session, not once per plugin', async () => {
+  const repo = 'acme/plugin-marketplace';
+  const { exec, calls } = recordingExec();
   const session = createSession({ deps: {} });
 
   await quietly(async () => {
@@ -150,12 +156,7 @@ test('the Claude marketplace is registered once per session, not once per plugin
 
 test('without a session the marketplace is registered per call, as before', async () => {
   const repo = 'acme/plugin-marketplace';
-  const calls = [];
-  const exec = async (_bin, args) => {
-    calls.push(args.join(' '));
-    if (args[2] === 'list') return { code: 0, stdout: '[]', stderr: '' };
-    return { code: 0, stdout: '', stderr: '' };
-  };
+  const { exec, calls } = recordingExec();
 
   await quietly(async () => {
     await claude.ensureMarketplaceOnce(exec, 'claude', { marketplace: 'acme', repo }, null);

@@ -20,11 +20,8 @@ const {
 
 const DOWNLOAD_CONCURRENCY = 8;
 
-/**
- * Materialize `sourcePath` from `repo@ref` into a temp directory.
- * Returns { dir, cleanup, via }. Callers must call cleanup() in a finally block.
- */
-async function materialize({ repo, ref, sourcePath, deps = {} }) {
+/** A throwaway working directory, and a cleanup that never throws. */
+function tempWorkspace() {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'context-plugins-'));
   const cleanup = () => {
     try {
@@ -33,6 +30,15 @@ async function materialize({ repo, ref, sourcePath, deps = {} }) {
       /* a locked temp dir is not worth failing the install over */
     }
   };
+  return { work, cleanup };
+}
+
+/**
+ * Materialize `sourcePath` from `repo@ref` into a temp directory.
+ * Returns { dir, cleanup, via }. Callers must call cleanup() in a finally block.
+ */
+async function materialize({ repo, ref, sourcePath, deps = {} }) {
+  const { work, cleanup } = tempWorkspace();
 
   try {
     const git = which('git');
@@ -177,14 +183,7 @@ async function viaApi({ repo, ref, sourcePath, work, deps = {} }) {
  * Callers must call cleanup() when the run is done.
  */
 async function openRepo({ repo, ref, deps = {} }) {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'context-plugins-'));
-  const cleanup = () => {
-    try {
-      rmrf(work);
-    } catch {
-      /* a locked temp dir is not worth failing the install over */
-    }
-  };
+  const { work, cleanup } = tempWorkspace();
 
   const done = new Map();
   const git = which('git', deps.env || process.env);

@@ -284,7 +284,7 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
 }
 
 /** Re-install every recorded plugin, each with the repo/ref/targets it was installed with. */
-async function updateAll({ brand, force = false, deps = {}, pathOpts } = {}) {
+async function updateAll({ brand, deps = {}, pathOpts } = {}) {
   const manifestFile = paths.manifestPath(pathOpts);
   const entries = manifest.list(manifestFile);
   if (!entries.length) {
