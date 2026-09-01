@@ -119,7 +119,10 @@ test('a second marketplace installs independently', async () => {
 
   assert.equal(result.marketplace, 'acme');
   const recorded = JSON.stringify(manifest.list(paths.manifestPath(m.pathOpts))).toLowerCase();
-  assert.ok(!recorded.includes('apimatic'), `unexpected marketplace value in manifest: ${recorded}`);
+  assert.ok(
+    !recorded.includes('apimatic'),
+    `unexpected marketplace value in manifest: ${recorded}`,
+  );
 });
 
 test('re-installing updates in place rather than duplicating', async () => {
@@ -206,10 +209,22 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
   const brand = brandFor(repo);
 
   await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: deps({ repo, srcDir }), pathOpts: m.pathOpts }),
+    installPlugin({
+      brand,
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: deps({ repo, srcDir }),
+      pathOpts: m.pathOpts,
+    }),
   );
   await quietly(() =>
-    uninstallPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: deps({ repo, srcDir }), pathOpts: m.pathOpts }),
+    uninstallPlugin({
+      brand,
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: deps({ repo, srcDir }),
+      pathOpts: m.pathOpts,
+    }),
   );
 
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')));
@@ -354,7 +369,11 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
 
   // Re-install, saying yes to Cursor and no to VS Code.
   const result = await quietly(() =>
-    installPlugin({ ...args, targets: null, deps: { ...d, confirm: scriptedConfirm([true, false]) } }),
+    installPlugin({
+      ...args,
+      targets: null,
+      deps: { ...d, confirm: scriptedConfirm([true, false]) },
+    }),
   );
 
   assert.deepEqual(result.targets, ['cursor'], 'only Cursor was installed into this run');
@@ -370,7 +389,11 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
   // And the declined copy is genuinely untouched, not removed.
   assert.ok(fs.existsSync(path.join(vscodeDest, 'plugin.json')), 'VS Code files still there');
   const settings = parseJsonc(fs.readFileSync(settingsFile, 'utf8'));
-  assert.equal(settings['chat.pluginLocations'][vscodeDest.replace(/\\/g, '/')], true, 'still registered');
+  assert.equal(
+    settings['chat.pluginLocations'][vscodeDest.replace(/\\/g, '/')],
+    true,
+    'still registered',
+  );
 });
 
 test('the declined-but-installed editor is named once, in the summary', async () => {
@@ -384,7 +407,11 @@ test('the declined-but-installed editor is named once, in the summary', async ()
 
   const con = silenceConsole();
   try {
-    await installPlugin({ ...args, targets: null, deps: { ...d, confirm: scriptedConfirm([true, false]) } });
+    await installPlugin({
+      ...args,
+      targets: null,
+      deps: { ...d, confirm: scriptedConfirm([true, false]) },
+    });
   } finally {
     con.restore();
   }
@@ -515,7 +542,9 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
 
   const confirm = scriptedConfirm([]);
   const { updateAll } = require('../src/install');
-  await quietly(() => updateAll({ brand: brandFor(repo), deps: { ...d, confirm }, pathOpts: m.pathOpts }));
+  await quietly(() =>
+    updateAll({ brand: brandFor(repo), deps: { ...d, confirm }, pathOpts: m.pathOpts }),
+  );
 
   assert.deepEqual(confirm.asked, []);
   assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);

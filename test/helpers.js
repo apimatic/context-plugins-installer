@@ -74,7 +74,14 @@ function stubFetch(routes) {
   const impl = async (url) => {
     calls.push(url);
     const hit = routes[url];
-    if (!hit) return { ok: false, status: 404, statusText: 'Not Found', text: async () => '', json: async () => ({}) };
+    if (!hit)
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: async () => '',
+        json: async () => ({}),
+      };
     const status = hit.status || 200;
     const body = typeof hit.body === 'string' ? hit.body : JSON.stringify(hit.body ?? {});
     return {

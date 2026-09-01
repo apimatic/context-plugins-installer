@@ -42,7 +42,11 @@ async function checkEnvironment(deps) {
     checks.push(ok('git', detail));
   } else {
     checks.push(
-      warn('git', 'not found', 'Plugins download through the GitHub API instead, which is rate limited to 60 requests an hour.'),
+      warn(
+        'git',
+        'not found',
+        'Plugins download through the GitHub API instead, which is rate limited to 60 requests an hour.',
+      ),
     );
   }
 
@@ -116,7 +120,15 @@ async function checkMarketplace(brand, deps) {
       const core = body.resources && body.resources.core;
       if (core) {
         const detail = `${core.remaining} of ${core.limit} requests left`;
-        checks.push(core.remaining > 10 ? ok('API budget', detail) : warn('API budget', detail, 'Set GITHUB_TOKEN, or install git to avoid the API entirely.'));
+        checks.push(
+          core.remaining > 10
+            ? ok('API budget', detail)
+            : warn(
+                'API budget',
+                detail,
+                'Set GITHUB_TOKEN, or install git to avoid the API entirely.',
+              ),
+        );
       }
     }
   } catch {
@@ -136,14 +148,14 @@ function checkState(pathOpts) {
     rmrf(probe);
     checks.push(ok('State directory', `${shortPath(dir)} (writable)`));
   } catch (err) {
-    checks.push(
-      fail('State directory', `${shortPath(dir)} is not writable`, err.message),
-    );
+    checks.push(fail('State directory', `${shortPath(dir)} is not writable`, err.message));
   }
 
   try {
     const entries = manifest.list(paths.manifestPath(pathOpts));
-    const detail = entries.length ? `${entries.length} ${entries.length === 1 ? 'plugin' : 'plugins'}` : 'none yet';
+    const detail = entries.length
+      ? `${entries.length} ${entries.length === 1 ? 'plugin' : 'plugins'}`
+      : 'none yet';
     checks.push(ok('Installed', detail));
   } catch (err) {
     checks.push(warn('Installed', 'could not read installed.json', err.message));

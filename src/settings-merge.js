@@ -64,11 +64,17 @@ function addPluginLocation(settingsPath, dir) {
 
   if (new RegExp(`"${escapeRe(KEY)}"\\s*:\\s*\\{\\s*\\}`).test(raw)) {
     // key present but empty -> insert the single entry
-    out = raw.replace(new RegExp(`("${escapeRe(KEY)}"\\s*:\\s*\\{)\\s*\\}`), (_m, open) => `${open} ${entry} }`);
+    out = raw.replace(
+      new RegExp(`("${escapeRe(KEY)}"\\s*:\\s*\\{)\\s*\\}`),
+      (_m, open) => `${open} ${entry} }`,
+    );
     action = 'inserted-empty';
   } else if (new RegExp(`"${escapeRe(KEY)}"\\s*:\\s*\\{`).test(raw)) {
     // key present with entries -> prepend, so we never touch the last one's comma
-    out = raw.replace(new RegExp(`("${escapeRe(KEY)}"\\s*:\\s*\\{)`), (_m, open) => `${open} ${entry},`);
+    out = raw.replace(
+      new RegExp(`("${escapeRe(KEY)}"\\s*:\\s*\\{)`),
+      (_m, open) => `${open} ${entry},`,
+    );
     action = 'inserted-existing';
   } else {
     // no key at all -> add it right after the opening brace

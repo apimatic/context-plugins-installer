@@ -32,7 +32,10 @@ test('wrap breaks on whitespace and respects the indent', () => {
 test('wrap keeps an unbreakable token intact rather than splitting a path', () => {
   const long = 'C:\\Users\\dev\\.context-plugins\\vscode\\a-very-long-plugin-name-here';
   const lines = log.wrap(`saved to ${long}`, 6, 40);
-  assert.ok(lines.some((l) => l === long), 'the path survives on its own line');
+  assert.ok(
+    lines.some((l) => l === long),
+    'the path survives on its own line',
+  );
 });
 
 test('truncate marks that it cut, and leaves short text alone', () => {
@@ -49,7 +52,7 @@ test('plural only adds the s when it should', () => {
 
 test('toAscii downgrades the punctuation marketplace descriptions actually use', () => {
   assert.equal(log.toAscii('a — b'), 'a - b');
-  assert.equal(log.toAscii('an \u2018arg\u2019 and a \u201Cflag\u201D'), "an 'arg' and a \"flag\"");
+  assert.equal(log.toAscii('an \u2018arg\u2019 and a \u201Cflag\u201D'), 'an \'arg\' and a "flag"');
   assert.equal(log.toAscii('wait\u2026'), 'wait...');
   assert.equal(log.toAscii('caf\u00e9'), 'cafe', 'diacritics stripped, not replaced');
 });

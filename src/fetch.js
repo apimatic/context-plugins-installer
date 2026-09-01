@@ -68,8 +68,14 @@ async function cloneRepo({ git, repo, ref, work }) {
     // --branch does not accept a commit sha, so clone the default branch and
     // fetch the exact commit.
     await expect(run(git, [...base, url, clone]), `git clone ${url}`);
-    await expect(run(git, ['-C', clone, 'fetch', '--depth', '1', 'origin', ref]), `git fetch ${ref}`);
-    await expect(run(git, ['-C', clone, 'checkout', '--quiet', 'FETCH_HEAD']), `git checkout ${ref}`);
+    await expect(
+      run(git, ['-C', clone, 'fetch', '--depth', '1', 'origin', ref]),
+      `git fetch ${ref}`,
+    );
+    await expect(
+      run(git, ['-C', clone, 'checkout', '--quiet', 'FETCH_HEAD']),
+      `git checkout ${ref}`,
+    );
   } else {
     await expect(
       run(git, [...base, '--branch', ref, url, clone]),

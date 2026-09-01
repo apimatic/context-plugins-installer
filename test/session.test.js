@@ -43,7 +43,9 @@ test('one repo handle fetches the API tree once and serves every plugin from it'
     [raw('plugins/beta/plugin.json')]: { body: { name: 'beta' } },
   });
 
-  const handle = await quietly(() => openRepo({ repo, ref: 'main', deps: { fetchImpl, env: NO_GIT } }));
+  const handle = await quietly(() =>
+    openRepo({ repo, ref: 'main', deps: { fetchImpl, env: NO_GIT } }),
+  );
   try {
     const alpha = await quietly(() => handle.checkout('plugins/alpha'));
     const beta = await quietly(() => handle.checkout('plugins/beta'));
@@ -69,7 +71,9 @@ test('checking the same plugin out twice does not download it again', async () =
     [rawBlob]: { body: { name: 'alpha' } },
   });
 
-  const handle = await quietly(() => openRepo({ repo, ref: 'main', deps: { fetchImpl, env: NO_GIT } }));
+  const handle = await quietly(() =>
+    openRepo({ repo, ref: 'main', deps: { fetchImpl, env: NO_GIT } }),
+  );
   try {
     const first = await quietly(() => handle.checkout('plugins/alpha'));
     const second = await quietly(() => handle.checkout('plugins/alpha'));
@@ -101,8 +105,12 @@ test('a session keeps separate registries for separate marketplaces', async () =
   const one = 'acme/plugin-marketplace';
   const two = 'other/plugin-marketplace';
   const fetchImpl = stubFetch({
-    [rawUrl(one, 'main', '.claude-plugin/marketplace.json')]: { body: { name: 'acme', plugins: [] } },
-    [rawUrl(two, 'main', '.claude-plugin/marketplace.json')]: { body: { name: 'other', plugins: [] } },
+    [rawUrl(one, 'main', '.claude-plugin/marketplace.json')]: {
+      body: { name: 'acme', plugins: [] },
+    },
+    [rawUrl(two, 'main', '.claude-plugin/marketplace.json')]: {
+      body: { name: 'other', plugins: [] },
+    },
   });
   const session = createSession({ deps: { fetchImpl, env: {} } });
 
@@ -115,7 +123,13 @@ test('session cleanup disposes what an injected fetch handed back', async () => 
   let disposed = 0;
   const session = createSession({
     deps: {
-      materialize: async () => ({ dir: '/tmp/whatever', cleanup: () => { disposed += 1; }, via: 'stub' }),
+      materialize: async () => ({
+        dir: '/tmp/whatever',
+        cleanup: () => {
+          disposed += 1;
+        },
+        via: 'stub',
+      }),
     },
   });
 

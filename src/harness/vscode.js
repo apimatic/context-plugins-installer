@@ -19,7 +19,9 @@ const destFor = (plugin, opts) => path.join(paths.vscodeStoreDir(opts), plugin);
 
 async function install({ plugin, srcDir }, opts) {
   if (!detect(opts)) {
-    log.warn(`${shortPath(paths.vscodeUserDir(opts))} not found - VS Code not installed, skipping.`);
+    log.warn(
+      `${shortPath(paths.vscodeUserDir(opts))} not found - VS Code not installed, skipping.`,
+    );
     return false;
   }
 
@@ -50,7 +52,8 @@ async function uninstall({ plugin }, opts) {
     return false;
   }
   log.ok(`Removed -> ${shortPath(dest)}`);
-  if (result.action === 'removed') log.info(`Unregistered from chat.pluginLocations (${shortPath(settings)})`);
+  if (result.action === 'removed')
+    log.info(`Unregistered from chat.pluginLocations (${shortPath(settings)})`);
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;

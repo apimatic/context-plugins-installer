@@ -188,12 +188,16 @@ test('an update failure does not stop the install', async () => {
 test('a genuinely missing plugin still fails, with the marketplace named', async () => {
   const run = fakeCli({
     'plugin marketplace list': listing([{ name: 'context-plugins', repo: REPO }]),
-    'plugin install': { code: 1, stderr: 'Plugin "nope" not found in marketplace "context-plugins".' },
+    'plugin install': {
+      code: 1,
+      stderr: 'Plugin "nope" not found in marketplace "context-plugins".',
+    },
   });
 
   await assert.rejects(
     () => quietly(() => claude.install({ ...CTX, plugin: 'nope' }, opts(run))),
-    (err) => err instanceof UserError && /not in marketplace 'context-plugins'/.test(err.hint || ''),
+    (err) =>
+      err instanceof UserError && /not in marketplace 'context-plugins'/.test(err.hint || ''),
   );
 });
 

@@ -28,13 +28,25 @@ test.after(cleanupAll);
 test('plugin ids must be kebab-case', () => {
   assert.equal(assertPlugin('acme-payments-sdk'), 'acme-payments-sdk');
   assert.equal(assertPlugin('sdk1'), 'sdk1');
-  for (const bad of ['', 'Has-Caps', 'trailing-', '-leading', 'has_underscore', 'has space', '../etc', 'a'.repeat(65)]) {
+  for (const bad of [
+    '',
+    'Has-Caps',
+    'trailing-',
+    '-leading',
+    'has_underscore',
+    'has space',
+    '../etc',
+    'a'.repeat(65),
+  ]) {
     assert.throws(() => assertPlugin(bad), UserError, `expected rejection: ${JSON.stringify(bad)}`);
   }
 });
 
 test('repos must be owner/repo', () => {
-  assert.equal(assertRepo('context-plugins/plugin-marketplace'), 'context-plugins/plugin-marketplace');
+  assert.equal(
+    assertRepo('context-plugins/plugin-marketplace'),
+    'context-plugins/plugin-marketplace',
+  );
   for (const bad of ['plugin-marketplace', 'a/b/c', 'a/b;rm -rf /', 'https://github.com/a/b', '']) {
     assert.throws(() => assertRepo(bad), UserError, `expected rejection: ${JSON.stringify(bad)}`);
   }

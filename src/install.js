@@ -254,9 +254,8 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
   // Prefer the recorded marketplace so uninstall works offline.
   let marketplace = brand.id || (recorded && recorded.marketplace) || null;
   if (!marketplace && want.includes('claude')) {
-    marketplace = (
-      await resolvePlugin({ repo: brand.repo, ref: brand.ref, plugin, deps })
-    ).marketplace;
+    marketplace = (await resolvePlugin({ repo: brand.repo, ref: brand.ref, plugin, deps }))
+      .marketplace;
   }
 
   log.banner(`Uninstalling '${plugin}' from ${brand.label}`);
@@ -344,7 +343,9 @@ async function updateAll({ brand, deps = {}, pathOpts } = {}) {
   log.plain('');
   log.rule();
   if (failed.length) {
-    log.warn(`Updated ${updated.length} of ${entries.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`);
+    log.warn(
+      `Updated ${updated.length} of ${entries.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`,
+    );
   } else {
     log.ok(`Updated ${log.plural(updated.length, 'plugin')}`);
   }

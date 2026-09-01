@@ -21,8 +21,7 @@ function settingsWith(content) {
 }
 
 const read = (file) => fs.readFileSync(file, 'utf8');
-const backupsIn = (file) =>
-  fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.bak-'));
+const backupsIn = (file) => fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.bak-'));
 
 // ---- the 8 shapes the PowerShell installer was validated against -------------
 
@@ -68,9 +67,7 @@ test('5. empty chat.pluginLocations object gets the single entry', () => {
 
 test('6. existing entries are preserved when prepending', () => {
   const other = 'C:/other/plugin';
-  const file = settingsWith(
-    `{\n  "chat.pluginLocations": {\n    "${other}": true\n  }\n}\n`,
-  );
+  const file = settingsWith(`{\n  "chat.pluginLocations": {\n    "${other}": true\n  }\n}\n`);
   const result = addPluginLocation(file, PLUGIN_DIR);
   assert.equal(result.action, 'inserted-existing');
   const parsed = parseJsonc(read(file));

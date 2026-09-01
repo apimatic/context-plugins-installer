@@ -101,7 +101,9 @@ test('a mistyped plugin name suggests the closest match', async () => {
       deps: deps({ [CLAUDE_REG]: { body: registry() } }),
     }),
     (err) =>
-      err instanceof UserError && /not listed/.test(err.message) && /Did you mean: my-sdk/.test(err.hint),
+      err instanceof UserError &&
+      /not listed/.test(err.message) &&
+      /Did you mean: my-sdk/.test(err.hint),
   );
 });
 

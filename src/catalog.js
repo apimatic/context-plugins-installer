@@ -80,7 +80,9 @@ async function loadCatalog({ repo, ref, deps = {} }) {
 }
 
 const entryFor = (catalog, plugin) =>
-  catalog ? catalog.plugins.find((p) => (typeof p === 'string' ? p : p && p.name) === plugin) : undefined;
+  catalog
+    ? catalog.plugins.find((p) => (typeof p === 'string' ? p : p && p.name) === plugin)
+    : undefined;
 
 /** `./plugins/foo` and `plugins/foo` both normalize to the repo-relative `plugins/foo`. */
 function sourcePathFor(entry, plugin) {
@@ -141,12 +143,9 @@ async function resolvePlugin({
   // real problem; otherwise the failure surfaces much later as a bare
   // "plugin not found in marketplace" from the Claude CLI.
   if (!MARKETPLACE_RE.test(resolvedMarketplace)) {
-    throw new UserError(
-      `Marketplace name '${resolvedMarketplace}' is not a valid identifier.`,
-      {
-        hint: `It must be kebab-case with no spaces (e.g. my-marketplace). Fix 'name' in ${REGISTRY_FILES[0]}.`,
-      },
-    );
+    throw new UserError(`Marketplace name '${resolvedMarketplace}' is not a valid identifier.`, {
+      hint: `It must be kebab-case with no spaces (e.g. my-marketplace). Fix 'name' in ${REGISTRY_FILES[0]}.`,
+    });
   }
 
   return {

@@ -12,7 +12,12 @@ const { tmpDir, cleanupAll } = require('./helpers');
 test.after(cleanupAll);
 
 // Isolate every case from the developer's real cwd/home rc files.
-const clean = (over = {}) => ({ env: {}, cwd: tmpDir('cp-cwd-'), home: tmpDir('cp-home-'), ...over });
+const clean = (over = {}) => ({
+  env: {},
+  cwd: tmpDir('cp-cwd-'),
+  home: tmpDir('cp-home-'),
+  ...over,
+});
 
 const writeRc = (dir, data) =>
   fs.writeFileSync(path.join(dir, '.contextpluginsrc'), JSON.stringify(data), 'utf8');
@@ -34,7 +39,12 @@ test('the default marketplace name is not hardcoded', () => {
 test('a preset profile overrides the defaults', () => {
   const brand = resolveBrand({
     ...clean(),
-    profile: { id: 'acme', repo: 'acme/plugin-marketplace', displayName: 'Acme AI', bin: 'acme-plugins' },
+    profile: {
+      id: 'acme',
+      repo: 'acme/plugin-marketplace',
+      displayName: 'Acme AI',
+      bin: 'acme-plugins',
+    },
   });
   assert.equal(brand.repo, 'acme/plugin-marketplace');
   assert.equal(brand.id, 'acme');

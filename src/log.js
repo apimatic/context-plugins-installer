@@ -11,11 +11,11 @@ function unicodeSupported() {
   if (process.platform !== 'win32') return process.env.TERM !== 'linux';
   return Boolean(
     process.env.WT_SESSION || // Windows Terminal
-      process.env.TERMINUS_SUBLIME ||
-      process.env.ConEmuTask === '{cmd::Cmd}' ||
-      process.env.TERM_PROGRAM === 'vscode' ||
-      process.env.TERM === 'xterm-256color' ||
-      process.env.TERM === 'alacritty',
+    process.env.TERMINUS_SUBLIME ||
+    process.env.ConEmuTask === '{cmd::Cmd}' ||
+    process.env.TERM_PROGRAM === 'vscode' ||
+    process.env.TERM === 'xterm-256color' ||
+    process.env.TERM === 'alacritty',
   );
 }
 

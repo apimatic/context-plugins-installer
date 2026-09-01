@@ -51,20 +51,26 @@ test('upsert replaces the same repo+plugin rather than duplicating', () => {
 
 test('the same plugin id from two marketplaces coexists', () => {
   const f = file();
-  manifest.upsert(f, entry({ repo: 'context-plugins/plugin-marketplace', marketplace: 'apimatic' }));
+  manifest.upsert(
+    f,
+    entry({ repo: 'context-plugins/plugin-marketplace', marketplace: 'apimatic' }),
+  );
   manifest.upsert(f, entry({ repo: 'acme/plugin-marketplace', marketplace: 'acme' }));
   const plugins = manifest.list(f);
   assert.equal(plugins.length, 2, 'keyed by repo+plugin, not plugin alone');
-  assert.deepEqual(
-    plugins.map((p) => p.repo).sort(),
-    ['acme/plugin-marketplace', 'context-plugins/plugin-marketplace'],
-  );
+  assert.deepEqual(plugins.map((p) => p.repo).sort(), [
+    'acme/plugin-marketplace',
+    'context-plugins/plugin-marketplace',
+  ]);
 });
 
 test('find matches on repo+plugin, and on plugin alone when no repo is given', () => {
   const f = file();
   manifest.upsert(f, entry({ repo: 'acme/plugin-marketplace', marketplace: 'acme' }));
-  assert.equal(manifest.find(f, { plugin: 'my-sdk', repo: 'acme/plugin-marketplace' }).marketplace, 'acme');
+  assert.equal(
+    manifest.find(f, { plugin: 'my-sdk', repo: 'acme/plugin-marketplace' }).marketplace,
+    'acme',
+  );
   assert.equal(manifest.find(f, { plugin: 'my-sdk', repo: 'other/repo' }), null);
   assert.equal(manifest.find(f, { plugin: 'my-sdk' }).marketplace, 'acme');
 });

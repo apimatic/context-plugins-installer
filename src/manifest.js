@@ -52,9 +52,8 @@ function remove(file, { plugin, repo }) {
 }
 
 const find = (file, { plugin, repo }) =>
-  read(file).plugins.find((p) =>
-    repo ? sameEntry(p, { plugin, repo }) : p.plugin === plugin,
-  ) || null;
+  read(file).plugins.find((p) => (repo ? sameEntry(p, { plugin, repo }) : p.plugin === plugin)) ||
+  null;
 
 const list = (file) => read(file).plugins;
 

@@ -37,19 +37,19 @@ context-plugins doctor                         # check this machine can install
 
 ## Options
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `--repo <owner/repo>` | the bundled marketplace | Install from a different marketplace |
-| `--ref <branch\|tag\|sha>` | `main` | Version to install from |
-| `--marketplace <name>` | read from `marketplace.json` | Marketplace name |
-| `--targets <list>` | ask | `claude`, `cursor`, `vscode`, or `all` — skips the prompt |
-| `-y`, `--yes` | off | Accept every detected assistant without asking |
-| `--force` | off | Replace a plugin installed from a different marketplace |
-| `--long` | off | Show plugin descriptions in `list` |
-| `--json` | off | Machine-readable output for `list` / `installed` |
-| `--verbose` / `--quiet` | off | More or less progress detail |
-| `-h`, `--help` | — | Show usage and exit |
-| `-v`, `--version` | — | Print the version and exit |
+| Option                     | Default                      | Description                                               |
+| -------------------------- | ---------------------------- | --------------------------------------------------------- |
+| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                      |
+| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                   |
+| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                          |
+| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, or `all` — skips the prompt |
+| `-y`, `--yes`              | off                          | Accept every detected assistant without asking            |
+| `--force`                  | off                          | Replace a plugin installed from a different marketplace   |
+| `--long`                   | off                          | Show plugin descriptions in `list`                        |
+| `--json`                   | off                          | Machine-readable output for `list` / `installed`          |
+| `--verbose` / `--quiet`    | off                          | More or less progress detail                              |
+| `-h`, `--help`             | —                            | Show usage and exit                                       |
+| `-v`, `--version`          | —                            | Print the version and exit                                |
 
 Environment equivalents: `CP_PLUGIN`, `CP_REPO`, `CP_REF`, `CP_MARKETPLACE`.
 `GITHUB_TOKEN` raises the GitHub API rate limit. `CP_STATE_DIR` moves the state directory.
@@ -73,7 +73,7 @@ directory:
 ```
 
 Only the ones you accept are installed. Assistants that aren't detected are never offered, and
-the plugin is downloaded *after* you answer — decline everything and nothing is fetched, written,
+the plugin is downloaded _after_ you answer — decline everything and nothing is fetched, written,
 or recorded.
 
 Detection is a directory check, not a true install check: Claude Code is found by looking for the
@@ -87,11 +87,11 @@ falls back to every detected assistant rather than waiting on input.
 
 ## What it does per assistant
 
-| Assistant | Mechanism | Location |
-| --- | --- | --- |
-| **Claude Code** | Adds the marketplace, or updates it if you already had it, then `claude plugin install <plugin>@<marketplace> --scope user` | Managed by Claude Code |
-| **Cursor** | Copies the plugin folder into the local-plugin directory | `~/.cursor/plugins/local/<plugin>/` |
-| **VS Code** | Copies the folder to the state directory and registers it in `chat.pluginLocations` | `~/.context-plugins/vscode/<plugin>/` |
+| Assistant       | Mechanism                                                                                                                   | Location                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| **Claude Code** | Adds the marketplace, or updates it if you already had it, then `claude plugin install <plugin>@<marketplace> --scope user` | Managed by Claude Code                |
+| **Cursor**      | Copies the plugin folder into the local-plugin directory                                                                    | `~/.cursor/plugins/local/<plugin>/`   |
+| **VS Code**     | Copies the folder to the state directory and registers it in `chat.pluginLocations`                                         | `~/.context-plugins/vscode/<plugin>/` |
 
 Everything is installed for the current user, so it is available in every project you open.
 
@@ -139,11 +139,11 @@ Local state
 
 The VS Code path on that last `Editors` line is platform-specific:
 
-| Platform | VS Code user directory |
-| --- | --- |
-| macOS | `~/Library/Application Support/Code/User` |
-| Linux | `~/.config/Code/User` (or `$XDG_CONFIG_HOME/Code/User`) |
-| Windows | `%APPDATA%\Code\User` |
+| Platform | VS Code user directory                                  |
+| -------- | ------------------------------------------------------- |
+| macOS    | `~/Library/Application Support/Code/User`               |
+| Linux    | `~/.config/Code/User` (or `$XDG_CONFIG_HOME/Code/User`) |
+| Windows  | `%APPDATA%\Code\User`                                   |
 
 `✓` fine, `!` works but worth knowing, `x` blocks an install. It exits non-zero
 only when something blocks, so it can be used in a script; add `--json` for machine-readable
@@ -152,16 +152,16 @@ The live plugin list and count are at [the Context Plugins directory](https://hu
 
 ## Troubleshooting
 
-| Symptom | Cause / fix |
-| --- | --- |
-| `'claude' CLI not on PATH - skipping` | Claude Code isn't installed, or its CLI isn't on `PATH`. Other assistants still install. |
-| `GitHub API request failed (403)` | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`. |
-| `'<plugin>' is already installed from a different marketplace` | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`. |
-| `Could not determine the marketplace name` | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`. |
-| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run. |
-| `'<plugin>' is not listed in <marketplace>` | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all. |
-| A plugin fails during `update` | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`. |
-| Plugin doesn't appear after install | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`. |
+| Symptom                                                                   | Cause / fix                                                                                                            |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `'claude' CLI not on PATH - skipping`                                     | Claude Code isn't installed, or its CLI isn't on `PATH`. Other assistants still install.                               |
+| `GitHub API request failed (403)`                                         | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`.                     |
+| `'<plugin>' is already installed from a different marketplace`            | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`.                                      |
+| `Could not determine the marketplace name`                                | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`.                                  |
+| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run.    |
+| `'<plugin>' is not listed in <marketplace>`                               | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all.      |
+| A plugin fails during `update`                                            | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`. |
+| Plugin doesn't appear after install                                       | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`.                                      |
 
 ## License
 

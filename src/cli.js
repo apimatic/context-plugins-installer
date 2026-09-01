@@ -75,7 +75,12 @@ function parseArgs(argv) {
 }
 
 const parseTargets = (value) =>
-  value ? value.split(',').map((s) => s.trim()).filter(Boolean) : null;
+  value
+    ? value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : null;
 
 function helpText(bin, brand) {
   return `

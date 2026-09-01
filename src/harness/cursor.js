@@ -20,7 +20,9 @@ async function install({ plugin, srcDir }, opts) {
     return false;
   }
   if (!exists(path.join(srcDir, '.cursor-plugin', 'plugin.json'))) {
-    log.warn('Plugin has no .cursor-plugin/plugin.json - Cursor may not list it. Installing anyway.');
+    log.warn(
+      'Plugin has no .cursor-plugin/plugin.json - Cursor may not list it. Installing anyway.',
+    );
   }
 
   const dest = destFor(plugin, opts);

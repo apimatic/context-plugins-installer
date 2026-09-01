@@ -6,13 +6,20 @@ const assert = require('node:assert');
 const paths = require('../src/paths');
 
 // The cross-platform table from the distribution plan, asserted from any host.
-const WIN = { platform: 'win32', home: 'C:\\Users\\dev', env: { APPDATA: 'C:\\Users\\dev\\AppData\\Roaming' } };
+const WIN = {
+  platform: 'win32',
+  home: 'C:\\Users\\dev',
+  env: { APPDATA: 'C:\\Users\\dev\\AppData\\Roaming' },
+};
 const MAC = { platform: 'darwin', home: '/Users/dev', env: {} };
 const LINUX = { platform: 'linux', home: '/home/dev', env: {} };
 
 test('VS Code user dir: Windows', () => {
   assert.equal(paths.vscodeUserDir(WIN), 'C:\\Users\\dev\\AppData\\Roaming\\Code\\User');
-  assert.equal(paths.vscodeSettingsPath(WIN), 'C:\\Users\\dev\\AppData\\Roaming\\Code\\User\\settings.json');
+  assert.equal(
+    paths.vscodeSettingsPath(WIN),
+    'C:\\Users\\dev\\AppData\\Roaming\\Code\\User\\settings.json',
+  );
 });
 
 test('VS Code user dir: macOS', () => {
@@ -55,6 +62,12 @@ test('CP_STATE_DIR overrides the state dir', () => {
 });
 
 test('CP_VSCODE_USER_DIR and CP_CURSOR_DIR override detection targets', () => {
-  assert.equal(paths.vscodeUserDir({ ...LINUX, env: { CP_VSCODE_USER_DIR: '/tmp/code' } }), '/tmp/code');
-  assert.equal(paths.cursorRoot({ ...LINUX, env: { CP_CURSOR_DIR: '/tmp/cursor' } }), '/tmp/cursor');
+  assert.equal(
+    paths.vscodeUserDir({ ...LINUX, env: { CP_VSCODE_USER_DIR: '/tmp/code' } }),
+    '/tmp/code',
+  );
+  assert.equal(
+    paths.cursorRoot({ ...LINUX, env: { CP_CURSOR_DIR: '/tmp/cursor' } }),
+    '/tmp/cursor',
+  );
 });
