@@ -176,3 +176,41 @@ test('remove: absent key and missing file are both non-destructive', () => {
   const missing = path.join(tmpDir('cp-missing-'), 'settings.json');
   assert.equal(removePluginLocation(missing, PLUGIN_DIR).action, 'missing');
 });
+
+// ---- JSONC comments are text, not structure -----------------------------------
+
+test('a file opening with a comment is spliced, not silently left unchanged', () => {
+  const file = settingsWith('// my settings\n{\n  "editor.tabSize": 2\n}\n');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-key');
+  const raw = read(file);
+  assert.ok(raw.startsWith('// my settings'), 'the header comment survives');
+  assert.equal(parseJsonc(raw)['chat.pluginLocations'][KEY], true);
+});
+
+test('a commented-out registration does not count as already registered', () => {
+  const file = settingsWith(
+    `{\n  // "chat.pluginLocations": { "${KEY}": true }\n  "editor.tabSize": 2\n}\n`,
+  );
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-key');
+  assert.equal(parseJsonc(read(file))['chat.pluginLocations'][KEY], true);
+});
+
+test('a document with no object to splice into fails instead of reporting success', () => {
+  const file = settingsWith('// nothing but a comment\n');
+  const before = read(file);
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'failed');
+  assert.equal(result.backup, null, 'nothing was written, so nothing was backed up');
+  assert.equal(read(file), before);
+  assert.equal(backupsIn(file).length, 0);
+});
+
+test('remove: a commented-out entry is left where it is', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    // "${KEY}": true\n  }\n}\n`;
+  const file = settingsWith(source);
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'absent');
+  assert.equal(read(file), source);
+  assert.equal(backupsIn(file).length, 0);
+});

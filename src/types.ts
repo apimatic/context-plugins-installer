@@ -173,8 +173,15 @@ export interface Session {
 /** `claude plugin marketplace list --json` entries; the shape varies by CLI version. */
 export type MarketplaceListing = Record<string, unknown>;
 
+/** `failed` means the file was left untouched: no object could be spliced into. */
 export type AddLocationAction =
-  'created' | 'reset' | 'already' | 'inserted-empty' | 'inserted-existing' | 'inserted-key';
+  | 'created'
+  | 'reset'
+  | 'already'
+  | 'inserted-empty'
+  | 'inserted-existing'
+  | 'inserted-key'
+  | 'failed';
 
 export type RemoveLocationAction = 'missing' | 'absent' | 'removed';
 

@@ -2,7 +2,7 @@ import * as path from 'node:path';
 
 import { log } from '../log.js';
 import * as paths from '../paths.js';
-import { addPluginLocation, removePluginLocation } from '../settings-merge.js';
+import { addPluginLocation, removePluginLocation, KEY, toKey } from '../settings-merge.js';
 import type { HarnessContext, HarnessName, HarnessOpts } from '../types.js';
 import { replaceDir, rmrf, exists, shortPath } from '../util.js';
 
@@ -36,8 +36,16 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   const result = addPluginLocation(settings, dest);
 
   log.ok(`Installed -> ${shortPath(dest)}`);
-  if (result.action === 'already') log.info(`Already registered in ${shortPath(settings)}`);
-  else log.info(`Registered in chat.pluginLocations (${shortPath(settings)})`);
+  // The files are in place either way, so this stays a success with a caveat -
+  // reporting a skip would leave the copy on disk with nothing recorded to remove it.
+  if (result.action === 'failed') {
+    log.warn(`Could not edit ${shortPath(settings)} - add this entry yourself:`);
+    log.info(`"${KEY}": { "${toKey(dest)}": true }`);
+  } else if (result.action === 'already') {
+    log.info(`Already registered in ${shortPath(settings)}`);
+  } else {
+    log.info(`Registered in chat.pluginLocations (${shortPath(settings)})`);
+  }
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
