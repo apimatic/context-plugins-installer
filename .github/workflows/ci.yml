@@ -23,10 +23,9 @@ jobs:
       - run: npm ci
       - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
 
-  # The one job that needs node_modules; the test matrix below stays
-  # dependency-free so the package keeps running from bare source.
+  # Static checks over src and test: lint, format, and the strict typecheck.
   lint:
-    name: lint and format
+    name: lint, format, typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +36,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+      - run: npm run typecheck
 
   test:
     name: ${{ matrix.os }} / node ${{ matrix.node }}
@@ -51,8 +51,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      # No dependencies to install - that is the point.
+          cache: npm
+      - run: npm ci
       - run: npm run syntax
+      # Tests run the TypeScript sources directly through tsx: no build step
+      # sits between an edit and a red or green result.
       - run: npm test
 
   smoke:
@@ -63,6 +66,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+      - run: npm ci
+      # The published entry point runs the compiled lib/, exactly as npx would.
+      - run: npm run build
       - name: list the default marketplace
         run: node bin/cli.js list --json > /dev/null
       - name: install into a sandboxed machine

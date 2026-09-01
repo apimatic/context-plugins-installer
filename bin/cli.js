@@ -4,9 +4,9 @@
 // Checked before anything else loads. Node below 18 has no global fetch and no
 // node:readline/promises, so without this the failure is a bare
 // "fetch is not defined" from somewhere deep in the fetch path.
-require('../src/require-node')();
+require('./require-node')();
 
-require('../src/cli')
+require('../lib/cli')
   .run(process.argv.slice(2))
   .then((code) => {
     process.exitCode = code;

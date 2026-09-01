@@ -3,9 +3,10 @@
 const js = require('@eslint/js');
 const sonarjs = require('eslint-plugin-sonarjs');
 const globals = require('globals');
+const tseslint = require('typescript-eslint');
 
 module.exports = [
-  { ignores: ['node_modules/', 'coverage/'] },
+  { ignores: ['node_modules/', 'coverage/', 'lib/'] },
   js.configs.recommended,
   sonarjs.configs.recommended,
   {
@@ -23,13 +24,27 @@ module.exports = [
       'no-irregular-whitespace': ['error', { skipRegExps: true }],
     },
   },
+  // TypeScript sources: the TS parser and rules apply only here, so the plain
+  // JavaScript entry points (bin/, run.js, scripts/, this file) stay under the
+  // CommonJS rules above and are never told off for `require`.
+  ...tseslint.configs.recommended.map((config) => ({ ...config, files: ['**/*.ts'] })),
   {
-    // Only the ANSI machinery legitimately matches control characters: log.js
+    files: ['**/*.ts'],
+    languageOptions: { sourceType: 'module' },
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
+  },
+  {
+    // Only the ANSI machinery legitimately matches control characters: log.ts
     // strips escape codes, and tests assert on cursor sequences. Everywhere
-    // else - settings-merge.js does raw-text surgery on the user's
+    // else - settings-merge.ts does raw-text surgery on the user's
     // settings.json - a control character in a regex is a mistake worth
     // catching.
-    files: ['src/log.js', 'test/**'],
+    files: ['src/log.ts', 'test/**'],
     rules: {
       'no-control-regex': 'off',
     },
