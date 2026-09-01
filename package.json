@@ -37,7 +37,10 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./run": "./run.js",
+    "./run": {
+      "types": "./run.d.ts",
+      "default": "./run.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -45,6 +48,7 @@
     "lib/",
     "src/",
     "run.js",
+    "run.d.ts",
     "README.md",
     "LICENSE"
   ],
