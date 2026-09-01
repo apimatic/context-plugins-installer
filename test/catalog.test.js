@@ -185,3 +185,45 @@ test('registry entries that cannot name a plugin are dropped on load', async () 
   });
   assert.deepEqual(catalog.plugins, ['bare-id', { name: 'named-sdk' }]);
 });
+
+test('a typo still fails early when every declared entry was unusable', async () => {
+  await assert.rejects(
+    resolvePlugin({
+      repo: REPO,
+      ref: 'main',
+      plugin: 'my-sdkk',
+      deps: deps({
+        [CLAUDE_REG]: { body: { name: 'acme', plugins: [{ id: 'my-sdk' }] } },
+      }),
+    }),
+    (err) =>
+      err instanceof UserError &&
+      /not listed/.test(err.message) &&
+      /none has a usable/.test(err.hint),
+  );
+});
+
+test('a non-string description is coerced, keeping the string contract', async () => {
+  const resolved = await resolvePlugin({
+    repo: REPO,
+    ref: 'main',
+    plugin: 'my-sdk',
+    deps: deps({
+      [CLAUDE_REG]: { body: { name: 'acme', plugins: [{ name: 'my-sdk', description: 42 }] } },
+    }),
+  });
+  assert.equal(resolved.description, '');
+});
+
+test('a wrong-shaped registry document falls through to the next file', async () => {
+  const catalog = await loadCatalog({
+    repo: REPO,
+    ref: 'main',
+    deps: deps({
+      [CLAUDE_REG]: { body: ['my-sdk'] }, // a bare array, not a registry object
+      [CURSOR_REG]: { body: { name: 'acme', plugins: [{ name: 'my-sdk' }] } },
+    }),
+  });
+  assert.equal(catalog.marketplace, 'acme');
+  assert.equal(catalog.from, '.cursor-plugin/marketplace.json');
+});

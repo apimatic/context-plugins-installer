@@ -394,7 +394,7 @@ async function listPlugins({ brand, deps = {}, pathOpts } = {}) {
       const targets = targetsByPlugin.get(name) || [];
       return {
         name,
-        description: (typeof p === 'object' && p.description) || '',
+        description: typeof p === 'object' && nonEmptyString(p.description) ? p.description : '',
         targets,
         installed: targets.length > 0,
       };

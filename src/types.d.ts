@@ -200,6 +200,8 @@ export interface Catalog {
   /** The registry's `name`, or null when it has none (resolve then requires --marketplace). */
   marketplace: string | null;
   plugins: CatalogPluginEntry[];
+  /** Declared entries that were unusable (no string name) and got dropped. */
+  dropped: number;
   /** Which registry file answered (.claude-plugin/... or .cursor-plugin/...). */
   from: string;
 }

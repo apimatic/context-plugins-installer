@@ -1,6 +1,15 @@
 'use strict';
 
-const { UserError, assertRepo, assertRef, stripBom, suggest } = require('./util');
+const log = require('./log');
+const {
+  UserError,
+  assertRepo,
+  assertRef,
+  stripBom,
+  suggest,
+  isPlainObject,
+  nonEmptyString,
+} = require('./util');
 
 // Claude Code and Cursor read the same registry shape from different folders.
 // We prefer the Claude one and fall back to Cursor's.
@@ -66,14 +75,17 @@ async function getJson(url, { env = process.env, fetchImpl = fetch } = {}) {
  * object with no name - is dropped here, where the registry is read, instead
  * of crashing whichever consumer reaches `p.name` first (`list` did).
  */
-const usableEntry = (p) =>
-  (typeof p === 'string' && p !== '') ||
-  Boolean(p && typeof p === 'object' && !Array.isArray(p) && typeof p.name === 'string' && p.name);
+const usableEntry = (p) => nonEmptyString(p) || Boolean(isPlainObject(p) && nonEmptyString(p.name));
 
 function normalize(data, from) {
+  const declared = Array.isArray(data.plugins) ? data.plugins : [];
+  const plugins = declared.filter(usableEntry);
   return {
-    marketplace: typeof data.name === 'string' && data.name ? data.name : null,
-    plugins: Array.isArray(data.plugins) ? data.plugins.filter(usableEntry) : [],
+    marketplace: nonEmptyString(data.name) ? data.name : null,
+    plugins,
+    // How many declared entries were unusable. Kept so resolve can tell "the
+    // registry lists nothing" apart from "it lists things we cannot read".
+    dropped: declared.length - plugins.length,
     from,
   };
 }
@@ -84,7 +96,10 @@ async function loadCatalog({ repo, ref, deps = {} }) {
   assertRef(ref);
   for (const file of REGISTRY_FILES) {
     const data = await getJson(rawUrl(repo, ref, file), deps);
-    if (data) return normalize(data, file);
+    // A wrong-shaped document (a bare array, a string) is no registry at all:
+    // fall through to the next file rather than answer with an empty catalog.
+    if (isPlainObject(data)) return normalize(data, file);
+    if (data !== null) log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
   }
   return null;
 }
@@ -130,15 +145,20 @@ async function resolvePlugin({
   const catalog = preloaded === undefined ? await loadCatalog({ repo, ref, deps }) : preloaded;
   const entry = entryFor(catalog, plugin);
 
-  if (catalog && catalog.plugins.length && !entry) {
-    const known = catalog.plugins
-      .map((p) => (typeof p === 'string' ? p : p && p.name))
-      .filter(Boolean);
+  // Fire when the registry declared entries, even if none were usable -
+  // otherwise a registry of nameless entries reads as "no list published" and
+  // a typo'd id walks past this into prompts, marketplace registration, and a
+  // late "plugin folder is empty or missing" failure.
+  if (catalog && (catalog.plugins.length || catalog.dropped) && !entry) {
+    const known = catalog.plugins.map((p) => (typeof p === 'string' ? p : p.name));
     const close = suggest(plugin, known);
+    const declared = catalog.dropped === 1 ? 'one entry' : `${catalog.dropped} entries`;
     throw new UserError(`Plugin '${plugin}' is not listed in ${shown}.`, {
       hint: close.length
         ? `Did you mean: ${close.join(', ')}?  Run 'list' to see all ${known.length}.`
-        : `Run 'list' to see the ${known.length} available plugins.`,
+        : known.length
+          ? `Run 'list' to see the ${known.length} available plugins.`
+          : `The registry declares ${declared}, but none has a usable string 'name'.`,
     });
   }
 
@@ -164,7 +184,9 @@ async function resolvePlugin({
     ref,
     marketplace: resolvedMarketplace,
     sourcePath: sourcePathFor(entry, plugin),
-    description: entry && typeof entry === 'object' ? entry.description || '' : '',
+    // Coerced here so the declared `description: string` contract holds even
+    // when a registry ships a number or object in the field.
+    description: isPlainObject(entry) && nonEmptyString(entry.description) ? entry.description : '',
     catalogFound: Boolean(catalog),
   };
 }
