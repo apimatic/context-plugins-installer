@@ -124,4 +124,11 @@ export const find = (file: string, { plugin, repo }: EntryKey): ManifestEntry | 
 export const findRaw = (file: string, key: EntryKey): Record<string, unknown> | null =>
   readRaw(file).plugins.find((p): p is Record<string, unknown> => matches(p, key)) || null;
 
+// Target names this build does not know belong to whichever tool wrote them, so
+// a rewrite has to carry them through: the sanitized read view cannot see them.
+export function foreignTargets(raw: Record<string, unknown> | null): unknown[] {
+  const targets = raw?.targets;
+  return Array.isArray(targets) ? targets.filter((t) => !NAMES.includes(t)) : [];
+}
+
 export const list = (file: string): ManifestEntry[] => read(file).plugins;

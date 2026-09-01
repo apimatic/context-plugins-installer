@@ -717,3 +717,30 @@ test('uninstall still works offline for rows the sanitized view hides', async ()
   const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins;
   assert.deepEqual(after[0].targets, ['zed'], 'the foreign target stays on the record');
 });
+
+test('a row mixing a known target with a foreign one keeps the foreign name', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const brand = brandFor(repo);
+  const d = deps({ repo, srcDir });
+
+  await quietly(() =>
+    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
+  );
+
+  // A newer CLI adds its own harness to the row, and a field this build has
+  // never heard of. Both belong to it, not to us.
+  const file = paths.manifestPath(m.pathOpts);
+  const seeded = JSON.parse(fs.readFileSync(file, 'utf8'));
+  seeded.plugins[0].targets.push('zed');
+  seeded.plugins[0].pinned = true;
+  fs.writeFileSync(file, JSON.stringify(seeded));
+
+  const result = await quietly(() => updateAll({ brand, deps: d, pathOpts: m.pathOpts }));
+  assert.deepEqual(result.updated, ['my-sdk'], 'this build still refreshes what it owns');
+
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins[0];
+  assert.deepEqual(after.targets, [...TARGETS, 'zed'], 'known names canonical, foreign kept');
+  assert.equal(after.pinned, true, 'and so is a field this build does not model');
+});

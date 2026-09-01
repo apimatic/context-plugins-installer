@@ -160,6 +160,9 @@ async function runInstall({
   const requested = resolveTargets(targets);
   assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
   const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
+  // The raw row as well: the rewrite below must not drop what the sanitized view
+  // hides. A row naming a harness only a newer CLI knows still belongs to it.
+  const recordedRaw = manifest.findRaw(manifestFile, { plugin, repo: brand.repo });
 
   const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
   log.banner(`Installing '${plugin}' from ${from}`);
@@ -252,11 +255,15 @@ async function runInstall({
   if (installed.length) {
     const keep = new Set<HarnessName>([...untouched, ...installed]);
     manifest.upsert(manifestFile, {
+      ...recordedRaw, // unknown fields ride along untouched
       plugin,
       repo: brand.repo,
       marketplace: resolved.marketplace,
       ref: effectiveRef,
-      targets: NAMES.filter((n) => keep.has(n)), // canonical order
+      targets: [
+        ...NAMES.filter((n) => keep.has(n)), // canonical order
+        ...manifest.foreignTargets(recordedRaw),
+      ],
       installedAt: nowIso(),
     });
   }
