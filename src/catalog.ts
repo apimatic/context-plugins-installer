@@ -120,8 +120,10 @@ export function sourcePathFor(entry: CatalogPluginEntry | undefined, plugin: str
     const rel = source.trim().replace(/^\.\//, '').replace(/^\/+/, '').replace(/\/+$/, '');
     if (rel && !rel.includes('..')) return rel;
   }
-  if (isPlainObject(source)) {
-    const kind = nonEmptyString(source.source) ? source.source : 'object';
+  // Any non-string object, arrays included: the entry points somewhere this tool
+  // cannot follow, and guessing plugins/<id> would install the wrong thing.
+  if (source !== null && typeof source === 'object') {
+    const kind = isPlainObject(source) && nonEmptyString(source.source) ? source.source : 'object';
     throw new UserError(
       `Plugin '${plugin}' is hosted in another repository (source type '${kind}').`,
       { hint: 'Point --repo at the repository that actually contains the plugin folder.' },

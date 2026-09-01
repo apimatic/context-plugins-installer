@@ -232,3 +232,10 @@ test('a wrong-shaped registry document falls through to the next file', async ()
   assert.equal(catalog.marketplace, 'acme');
   assert.equal(catalog.from, '.cursor-plugin/marketplace.json');
 });
+
+test('an array source is refused, not read as plugins/<id>', () => {
+  assert.throws(
+    () => sourcePathFor({ name: 'x', source: ['other/repo'] }, 'x'),
+    (err) => err instanceof UserError && /another repository/.test(err.message),
+  );
+});
