@@ -40,6 +40,12 @@ jobs:
       - name: Test
         run: npm test
 
+      # semantic-release tags and pushes before `npm publish` ever runs tsc, so a
+      # compile failure would strand a tagged version that was never published.
+      # Declaration emit only happens here: typecheck runs with noEmit.
+      - name: Build
+        run: npm run build
+
       # npm trusted publishing (OIDC) requires npm >= 11.5.1; the runner's bundled
       # npm (shipped with Node 22) is older, so upgrade it before publishing.
       - name: Upgrade npm for OIDC trusted publishing

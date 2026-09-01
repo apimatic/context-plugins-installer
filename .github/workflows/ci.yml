@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The prerelease branches too: Release runs on a direct push to them, and
+    # nothing else would compile the code before it tags.
+    branches: [main, beta, alpha]
   pull_request:
 
 jobs:
@@ -70,6 +72,10 @@ jobs:
       - run: npm ci
       # The published entry point runs the compiled lib/, exactly as npx would.
       - run: npm run build
+      # Every other job installs devDependencies now, so this is the only place
+      # the zero-runtime-dependency claim is still proved: strip the build tooling
+      # and make the shipped binary do real work with nothing but node builtins.
+      - run: npm prune --omit=dev
       - name: list the default marketplace
         run: node bin/cli.js list --json > /dev/null
       - name: install into a sandboxed machine
