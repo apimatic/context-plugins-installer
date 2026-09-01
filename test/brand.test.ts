@@ -151,3 +151,13 @@ test('an rc file that exists but cannot be read is reported, not skipped', () =>
   fs.mkdirSync(path.join(cwd, '.contextpluginsrc')); // a directory, not a file
   assert.throws(() => resolveBrand(clean({ cwd })), /Could not read/);
 });
+
+test('an rc path that runs through a file is absence, not an unreadable rc', () => {
+  const root = tmpDir('cp-home-');
+  const notADir = path.join(root, 'a-file');
+  fs.writeFileSync(notADir, 'x');
+  // ENOTDIR on POSIX, ENOENT on Windows: either way no rc file can be there,
+  // so the CLI carries on rather than aborting every command.
+  const brand = resolveBrand(clean({ cwd: notADir, home: notADir }));
+  assert.equal(brand.repo, DEFAULT_PROFILE.repo);
+});

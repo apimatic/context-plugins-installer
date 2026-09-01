@@ -42,12 +42,15 @@ export function readRc(dir: string | undefined): RcFile | null {
   try {
     parsed = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
   } catch (err) {
-    if (errorCode(err) === 'ENOENT') return null;
+    // ENOTDIR means a component of the path is a file, so no rc file can exist
+    // there - the same proof of absence ENOENT gives. Both are "carry on".
+    if (errorCode(err) === 'ENOENT' || errorCode(err) === 'ENOTDIR') return null;
     if (err instanceof SyntaxError) {
       throw new UserError(`${file} is not valid JSON: ${err.message}`);
     }
-    // A present but unreadable file (a directory, permissions) must not fall
-    // back to defaults silently: that installs from the wrong marketplace.
+    // A file that may well be there and cannot be read (a directory, a
+    // permission wall) must not fall back to defaults silently: that would
+    // install from the wrong marketplace.
     throw new UserError(`Could not read ${file}: ${errorMessage(err)}`);
   }
   if (!isPlainObject(parsed)) {
