@@ -123,3 +123,21 @@ test('the resolved brand is frozen', () => {
     brand.repo = 'x/y';
   }, TypeError);
 });
+
+test('an rc file that is not an object reports the file', () => {
+  const cwd = tmpDir('cp-cwd-');
+  fs.writeFileSync(path.join(cwd, '.contextpluginsrc'), '[1, 2]', 'utf8');
+  assert.throws(() => resolveBrand(clean({ cwd })), /must be a JSON object/);
+});
+
+test('an rc field of the wrong type names the field, not a downstream symptom', () => {
+  const cwd = tmpDir('cp-cwd-');
+  writeRc(cwd, { repo: 123 });
+  assert.throws(() => resolveBrand(clean({ cwd })), /'repo' must be a string/);
+});
+
+test('unknown rc fields are ignored for forward compatibility', () => {
+  const cwd = tmpDir('cp-cwd-');
+  writeRc(cwd, { repo: 'rc/marketplace', futureOption: { nested: true } });
+  assert.equal(resolveBrand(clean({ cwd })).repo, 'rc/marketplace');
+});

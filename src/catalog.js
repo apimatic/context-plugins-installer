@@ -60,10 +60,20 @@ async function getJson(url, { env = process.env, fetchImpl = fetch } = {}) {
   }
 }
 
+/**
+ * A registry entry is usable when it can produce a plugin id: the bare-string
+ * form, or an object with a string name. Anything else - null, a number, an
+ * object with no name - is dropped here, where the registry is read, instead
+ * of crashing whichever consumer reaches `p.name` first (`list` did).
+ */
+const usableEntry = (p) =>
+  (typeof p === 'string' && p !== '') ||
+  Boolean(p && typeof p === 'object' && !Array.isArray(p) && typeof p.name === 'string' && p.name);
+
 function normalize(data, from) {
   return {
     marketplace: typeof data.name === 'string' && data.name ? data.name : null,
-    plugins: Array.isArray(data.plugins) ? data.plugins : [],
+    plugins: Array.isArray(data.plugins) ? data.plugins.filter(usableEntry) : [],
     from,
   };
 }

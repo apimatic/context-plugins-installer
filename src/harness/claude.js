@@ -61,8 +61,16 @@ async function listMarketplaces(exec, claude) {
   if (res.code !== 0) return null;
   try {
     const parsed = JSON.parse(stripBom(res.stdout));
-    if (Array.isArray(parsed)) return parsed;
-    return Array.isArray(parsed.marketplaces) ? parsed.marketplaces : null;
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : parsed && Array.isArray(parsed.marketplaces)
+        ? parsed.marketplaces
+        : null;
+    if (!entries) return null;
+    // This output is another program's contract, and it has already changed
+    // shape across CLI versions. Only object entries can be probed for a
+    // repo; a null or bare string in the list would crash repoOf.
+    return entries.filter((e) => e && typeof e === 'object' && !Array.isArray(e));
   } catch {
     return null; // older CLI without --json
   }
@@ -79,7 +87,7 @@ async function listMarketplaces(exec, claude) {
 async function registeredName(exec, claude, repo) {
   const entries = await listMarketplaces(exec, claude);
   const hit = entries && entries.find((e) => isSameRepo(e, repo));
-  return hit && hit.name ? hit.name : null;
+  return hit && typeof hit.name === 'string' && hit.name ? hit.name : null;
 }
 
 async function refresh(exec, claude, known) {
@@ -109,7 +117,7 @@ async function ensureMarketplace(exec, claude, { marketplace, repo }) {
   const existing = entries && entries.find((e) => isSameRepo(e, repo));
 
   if (existing) {
-    const known = existing.name || marketplace;
+    const known = (typeof existing.name === 'string' && existing.name) || marketplace;
     if (known !== marketplace) {
       log.debug(`Claude knows this marketplace as '${known}', not '${marketplace}'.`);
     }

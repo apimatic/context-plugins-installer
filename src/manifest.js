@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { NAMES } = require('./harness');
 const { ensureDir, stripBom } = require('./util');
 
 /**
@@ -15,12 +16,40 @@ const MANIFEST_VERSION = 1;
 
 const sameEntry = (a, b) => a.plugin === b.plugin && (a.repo || '') === (b.repo || '');
 
+const str = (v) => (typeof v === 'string' ? v : undefined);
+
+/**
+ * One recorded install, or null when the entry cannot be used.
+ *
+ * The manifest is just a file: hand-edited, or written by a different version
+ * of this tool. An unknown target name would crash every `byName(...)` lookup
+ * downstream, and an entry whose targets all fail that test must not survive
+ * as `targets: []` - resolveTargets reads an empty list as "every harness",
+ * which would turn a corrupt entry into installs nobody asked for. So an
+ * entry keeps the targets this build knows and is dropped when none remain -
+ * the same start-clean rule `read` applies to the file as a whole.
+ */
+function sanitizeEntry(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (typeof raw.plugin !== 'string' || !raw.plugin) return null;
+  const targets = (Array.isArray(raw.targets) ? raw.targets : []).filter((t) => NAMES.includes(t));
+  if (!targets.length) return null;
+  return {
+    ...raw,
+    repo: str(raw.repo),
+    marketplace: str(raw.marketplace),
+    ref: str(raw.ref),
+    installedAt: str(raw.installedAt),
+    targets,
+  };
+}
+
 function read(file) {
   try {
     const data = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
     return {
-      version: data.version || MANIFEST_VERSION,
-      plugins: Array.isArray(data.plugins) ? data.plugins.filter((p) => p && p.plugin) : [],
+      version: Number.isInteger(data.version) ? data.version : MANIFEST_VERSION,
+      plugins: Array.isArray(data.plugins) ? data.plugins.map(sanitizeEntry).filter(Boolean) : [],
     };
   } catch {
     // Missing or corrupt: start clean rather than block the install.

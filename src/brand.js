@@ -20,17 +20,35 @@ const DEFAULT_PROFILE = Object.freeze({
 
 const RC_NAME = '.contextpluginsrc';
 
+// The fields resolveBrand reads. Anything else in the file is ignored, so a
+// newer version's rc keys do not break an older CLI.
+const RC_STRING_FIELDS = ['repo', 'ref', 'marketplace', 'displayName', 'marketplaceLabel'];
+
 function readRc(dir) {
   if (!dir) return null;
+  const file = path.join(dir, RC_NAME);
+  let parsed;
   try {
-    return JSON.parse(stripBom(fs.readFileSync(path.join(dir, RC_NAME), 'utf8')));
+    parsed = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
   } catch (err) {
     if (err && err.code === 'ENOENT') return null;
     if (err instanceof SyntaxError) {
-      throw new UserError(`${path.join(dir, RC_NAME)} is not valid JSON: ${err.message}`);
+      throw new UserError(`${file} is not valid JSON: ${err.message}`);
     }
     return null;
   }
+  // The rc file is user-written configuration, so a wrong shape earns an error
+  // that names the file - not an "Invalid repo: 123" three calls later with no
+  // hint of where the value came from.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new UserError(`${file} must be a JSON object.`);
+  }
+  for (const field of RC_STRING_FIELDS) {
+    if (parsed[field] !== undefined && typeof parsed[field] !== 'string') {
+      throw new UserError(`${file}: '${field}' must be a string.`);
+    }
+  }
+  return parsed;
 }
 
 const firstSet = (...values) => values.find((v) => v !== undefined && v !== null && v !== '');

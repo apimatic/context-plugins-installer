@@ -215,3 +215,16 @@ test('no claude on PATH is a skip, not a failure', async () => {
   assert.equal(await quietly(() => claude.install(CTX, { env: { PATH: '' }, run })), false);
   assert.equal(run.calls.length, 0);
 });
+
+test('junk entries in the marketplace listing are ignored, not crashed on', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': listing([null, 'junk', 42, { name: 'context-plugins', repo: REPO }]),
+  });
+
+  assert.equal(await quietly(() => claude.install(CTX, opts(run))), true);
+
+  assert.ok(
+    run.calls.includes('plugin marketplace update context-plugins'),
+    `the real entry is still found among the junk; ran: ${run.calls.join(' | ')}`,
+  );
+});

@@ -169,3 +169,19 @@ test('a token in the environment is sent as a bearer header', () => {
   assert.equal(ghHeaders({}).Authorization, undefined);
   assert.equal(ghHeaders({})['User-Agent'], 'context-plugins-installer');
 });
+
+test('registry entries that cannot name a plugin are dropped on load', async () => {
+  const catalog = await loadCatalog({
+    repo: REPO,
+    ref: 'main',
+    deps: deps({
+      [CLAUDE_REG]: {
+        body: {
+          name: 'apimatic',
+          plugins: [null, 42, { description: 'nameless' }, 'bare-id', { name: 'named-sdk' }],
+        },
+      },
+    }),
+  });
+  assert.deepEqual(catalog.plugins, ['bare-id', { name: 'named-sdk' }]);
+});

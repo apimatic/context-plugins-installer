@@ -106,3 +106,44 @@ test('a manifest written by the PowerShell installer is readable', () => {
   assert.equal(plugins.length, 1);
   assert.equal(plugins[0].plugin, 'legacy-sdk');
 });
+
+test('an unknown target is filtered out on read, keeping the rest', () => {
+  const f = file();
+  fs.writeFileSync(f, JSON.stringify({ plugins: [entry({ targets: ['claude', 'zed'] })] }));
+  assert.deepEqual(manifest.list(f)[0].targets, ['claude']);
+});
+
+test('an entry with no usable target is dropped, never read as "all"', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({
+      plugins: [
+        entry({ targets: ['zed'] }), // every target unknown
+        entry({ targets: [] }), // recorded with none
+        entry({ targets: 'claude' }), // not even an array
+      ],
+    }),
+  );
+  assert.deepEqual(manifest.list(f), []);
+});
+
+test('junk entries do not survive read', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({
+      plugins: [null, 42, 'my-sdk', { targets: ['claude'] }, { plugin: 7, targets: ['claude'] }],
+    }),
+  );
+  assert.deepEqual(manifest.list(f), []);
+});
+
+test('non-string metadata fields are shed instead of passed along', () => {
+  const f = file();
+  fs.writeFileSync(f, JSON.stringify({ plugins: [entry({ ref: 42, marketplace: ['x'] })] }));
+  const read = manifest.list(f)[0];
+  assert.equal(read.ref, undefined);
+  assert.equal(read.marketplace, undefined);
+  assert.equal(read.repo, 'context-plugins/plugin-marketplace', 'valid fields survive');
+});
