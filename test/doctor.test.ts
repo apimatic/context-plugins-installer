@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { resolveBrand } from '../src/brand.js';
 import { rawUrl } from '../src/catalog.js';
 import { diagnose } from '../src/doctor.js';
+import * as paths from '../src/paths.js';
 import type { Deps, DoctorCheck, DoctorReport, Env } from '../src/types.js';
 import { tmpDir, cleanupAll, stubFetch } from './helpers.js';
 
@@ -128,4 +129,23 @@ test('an unreachable marketplace fails without throwing', async () => {
   });
   assert.equal(report.ok, false);
   assert.equal(find(report, 'Reachable').status, 'fail');
+});
+
+test('doctor reports rows installed.json holds that this build cannot read', async () => {
+  const m = machine();
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [{ plugin: 'future-sdk', repo: REPO, targets: ['zed'] }],
+    }),
+  );
+
+  const report = await diagnose({ brand: brand(), deps: deps(), ...m });
+  const check = find(report, 'Installed');
+  assert.equal(check.status, 'warn');
+  assert.match(check.detail, /1 entry ignored/);
+  assert.match(check.hint ?? '', /unknown target\(s\): zed/);
 });

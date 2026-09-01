@@ -33,7 +33,10 @@ async function askOnce(
   const answer = await pending;
   prompter.close();
   input.end();
-  return [answer, out.text()];
+  // Colour follows the real stdout, not this sink, so a developer shell with
+  // FORCE_COLOR set would otherwise redraw these rows in SGR codes and fail.
+  // Only colour is stripped: the cursor moves below are what the assertions read.
+  return [answer, out.text().replace(/\x1b\[\d+m/g, '')];
 }
 
 test('y, n, and their long forms are all accepted', () => {
