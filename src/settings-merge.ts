@@ -27,44 +27,55 @@ function writeKeepingBom(file: string, text: string, hadBom: boolean): void {
   fs.writeFileSync(file, hadBom ? BOM + text : text, 'utf8');
 }
 
-// Comments blanked to spaces, offsets and line breaks preserved. Matching runs
-// over this copy so a commented-out block cannot absorb the new entry or pass
-// for a live one, while the offsets it yields still address the real text.
+// The three scanner steps. Each takes the index of the construct's first
+// character and returns the index just past it; the two comment forms blank
+// what they consume, keeping line breaks so offsets and line numbers hold.
+
+function skipString(text: string, from: number): number {
+  let i = from + 1; // past the opening quote
+  while (i < text.length) {
+    // An escaped quote does not close the string.
+    if (text[i] === '\\') i += 2;
+    else if (text[i] === '"') return i + 1;
+    else i += 1;
+  }
+  return i;
+}
+
+function blankLineComment(text: string, out: string[], from: number): number {
+  let i = from;
+  while (i < text.length && text[i] !== '\n') out[i++] = ' ';
+  return i;
+}
+
+function blankBlockComment(text: string, out: string[], from: number): number {
+  out[from] = ' ';
+  out[from + 1] = ' ';
+  let i = from + 2;
+  while (i < text.length) {
+    if (text[i] === '*' && text[i + 1] === '/') {
+      out[i] = ' ';
+      out[i + 1] = ' ';
+      return i + 2;
+    }
+    if (text[i] !== '\n' && text[i] !== '\r') out[i] = ' ';
+    i += 1;
+  }
+  return i; // unterminated: the rest of the file is comment
+}
+
+// A copy with comments blanked to spaces. Matching runs over this so a
+// commented-out block cannot absorb the new entry or pass for a live one, while
+// the offsets it yields still address the real text.
 function maskComments(text: string): string {
   const out = text.split('');
   let i = 0;
-  let inString = false;
   while (i < text.length) {
     const c = text[i];
-    if (inString) {
-      if (c === '\\') {
-        i += 2;
-        continue;
-      }
-      if (c === '"') inString = false;
-      i += 1;
-      continue;
-    }
-    if (c === '"') {
-      inString = true;
-      i += 1;
-      continue;
-    }
-    if (c === '/' && text[i + 1] === '/') {
-      while (i < text.length && text[i] !== '\n') out[i++] = ' ';
-      continue;
-    }
-    if (c === '/' && text[i + 1] === '*') {
-      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
-        if (text[i] !== '\n' && text[i] !== '\r') out[i] = ' ';
-        i += 1;
-      }
-      if (i < text.length) out[i] = ' ';
-      if (i + 1 < text.length) out[i + 1] = ' ';
-      i += 2;
-      continue;
-    }
-    i += 1;
+    if (c === '"') i = skipString(text, i);
+    else if (c === '/' && text[i + 1] === '/') i = blankLineComment(text, out, i);
+    else if (c === '/' && text[i + 1] === '*') i = blankBlockComment(text, out, i);
+    else i += 1;
   }
   return out.join('');
 }
