@@ -92,14 +92,20 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    - `src/install.ts` - the "No supported editor found" hint and the "Nothing was
      changed. Are ... installed?" warning in `summarize`.
    - `src/doctor.ts` - the "Any editor" failure hint.
-   - `README.md` - the intro sentence, the **Requirements** bullet (each editor's
-     prerequisite is listed there), and the `--targets` row of the options table.
    - `CLAUDE.md` - the "What this is" paragraph.
    - `package.json` - `description` and, if the editor has a well-known name, `keywords`.
    - To find the code and config sites (six today), run
      `grep -rnE "Claude Code, Cursor|Cursor, (and|or) VS Code|Cursor / VS Code" src CLAUDE.md package.json`.
      It does **not** find the README - its editor names are bold-wrapped and backticked -
-     so read the three README places by eye.
+     so work the README by eye, all five places:
+     - the intro sentence;
+     - the **Requirements** bullet, where each editor's prerequisite is listed;
+     - the `--targets` row of the **Options** table;
+     - the detection paragraph in **Choosing where to install**, which says which
+       editors are found on `PATH` and which by their user directory;
+     - a row in the **What it does per assistant** table - the README's only
+       description of what a harness actually does, giving mechanism and install
+       location. A harness missing from it is undocumented for users.
 
 7. **CI smoke test** (`.github/workflows/ci.yml`, job `smoke`). A file-based harness
    should join the real install there: export its `CP_<EDITOR>_DIR`, `mkdir -p` it, add
@@ -115,11 +121,20 @@ Work in this order: the type goes first so the compiler enumerates the rest.
 
 ## Compatibility note for the PR
 
-The manifest records target names. An **older** CLI reading a row that names the new
-harness treats the row as one it cannot act on: it keeps it on disk, reports it as ignored
-in `installed` and `doctor`, and counts it as a failed row in `update`. That is the
-designed behavior (see `src/manifest.ts`), not a bug - but say so in the PR description,
-because it is the one user-visible effect on people who have not upgraded yet.
+The manifest records target names, so a build released before the new harness existed
+meets a name it does not know. What it does depends on the rest of the row, and the two
+cases differ enough that the PR description should say which one applies:
+
+- **Every target on the row is unknown** - someone installed into the new editor only.
+  The row is one that build cannot act on, so it keeps it on disk, reports it as ignored
+  in `installed` and `doctor`, and counts it as a failed row in `update`.
+- **The row mixes the new name with an editor it does know** - the common shape, because
+  a default install records every editor it found. The row is acted on normally for the
+  targets it understands, and the new name rides through the rewrite untouched.
+
+Both are the designed behavior, not a bug: `read()` in `src/manifest.ts` hides what it
+cannot represent, and the upsert in `src/install.ts` puts the foreign names back. Say so
+in the PR description - it is the one user-visible effect on people who have not upgraded.
 
 ## Commit
 

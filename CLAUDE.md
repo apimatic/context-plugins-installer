@@ -13,7 +13,8 @@ only, by explicit decision — contributor and agent knowledge belongs here, not
 
 - `npm test` — full suite; `npx tsx --test test/manifest.test.ts` runs one file
 - `npm run typecheck` — strict `tsc` over `src/` and `test/`, no output
-- `npm run build` — emits `lib/` (gitignored; `prepack` builds it for publish)
+- `npm run build` — emits `lib/` (gitignored; `prepare` builds it for publish, for a
+  git-URL install, and after a plain `npm ci`)
 - `npm run lint` / `npm run lint:fix` — eslint 9 flat config, typescript-eslint, sonarjs bug rules
 - `npm run format:check` / `npm run format` — prettier
 - `npm run syntax` — bare `node --check` of the plain-JS entry points
@@ -37,7 +38,10 @@ that.
   directly since the CVE-2024-27980 hardening).
 - **All terminal output goes through `src/log.ts`** — no `console.log` elsewhere.
   Glyphs are built from char codes with ASCII fallbacks for legacy Windows consoles;
-  keep the source itself ASCII.
+  keep the source itself ASCII, escaping any character that must not be normalised
+  (`\u00a0` in `toAscii` — the port lost that one to an editor once already).
+  `debug` and `warnStderr` write to stderr so `--json` output stays parseable; anything
+  a `--json` path emits alongside the payload has to use them.
 - **Validate at the edges, never cast.** Anything crossing a JSON boundary (manifest,
   registry, rc file, `claude` CLI output, GitHub API responses) or entering argv/URLs
   (plugin, repo, ref) is validated where it enters, with `isPlainObject` /
@@ -85,7 +89,9 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   with reasons); `upsert`/`remove` work on the raw file and carry every other row
   through verbatim. An entry with zero known targets must be _dropped_ from the read
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
-  harness".
+  harness". The same rule holds _within_ a row: writers rebuild from the raw record
+  (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
+  survives a rewrite. Never write a row back from the sanitized view.
 - **VS Code settings** (`src/settings-merge.ts`) are JSONC. Edits are targeted string
   splices, never parse-and-reserialize, so user comments and formatting survive. A
   backup is taken before every mutation.
