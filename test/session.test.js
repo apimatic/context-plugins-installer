@@ -179,3 +179,29 @@ test('without a session the marketplace is registered per call, as before', asyn
 
   assert.equal(calls.filter((c) => c === `plugin marketplace add ${repo}`).length, 2);
 });
+
+test('materialize honours an injected env when probing for git', async () => {
+  const { materialize } = require('../src/fetch');
+  const repo = 'acme/plugin-marketplace';
+  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
+  const blob = 'plugins/alpha/plugin.json';
+  const fetchImpl = stubFetch({
+    [treeUrl]: { body: { tree: [{ type: 'blob', path: blob }] } },
+    [`https://raw.githubusercontent.com/${repo}/main/${blob}`]: { body: { name: 'alpha' } },
+  });
+
+  const result = await quietly(() =>
+    materialize({
+      repo,
+      ref: 'main',
+      sourcePath: 'plugins/alpha',
+      deps: { fetchImpl, env: NO_GIT },
+    }),
+  );
+  try {
+    assert.equal(result.via, 'api', 'an empty PATH must force the API route');
+    assert.ok(fs.existsSync(path.join(result.dir, 'plugin.json')));
+  } finally {
+    result.cleanup();
+  }
+});

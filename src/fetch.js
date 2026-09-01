@@ -41,7 +41,9 @@ async function materialize({ repo, ref, sourcePath, deps = {} }) {
   const { work, cleanup } = tempWorkspace();
 
   try {
-    const git = which('git');
+    // deps.env, like openRepo below - so an injected PATH can force the API
+    // route here too, instead of only on the session path.
+    const git = which('git', deps.env || process.env);
     if (git) {
       const dir = await viaGit({ git, repo, ref, sourcePath, work });
       return { dir, cleanup, via: 'git' };
