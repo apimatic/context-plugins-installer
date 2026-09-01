@@ -149,6 +149,14 @@ async function run(argv = process.argv.slice(2), profile = {}) {
   log.setVerbose(flags.verbose);
   log.setQuiet(flags.quiet);
 
+  // Before configuration resolves: the version is a fact about this binary,
+  // and a broken rc file must not be able to hide it. (--help still needs the
+  // resolved brand - it prints the configured names and defaults.)
+  if (flags.version) {
+    log.plain(pkg.version);
+    return 0;
+  }
+
   let brand;
   try {
     brand = resolveBrand({ flags, profile });
@@ -158,11 +166,6 @@ async function run(argv = process.argv.slice(2), profile = {}) {
   }
 
   const bin = profile.bin || brand.bin;
-
-  if (flags.version) {
-    log.plain(pkg.version);
-    return 0;
-  }
   if (flags.help || !command || command === 'help') {
     log.plain(helpText(bin, brand));
     return command || flags.help ? 0 : 2;

@@ -132,3 +132,22 @@ test('an invalid option exits 2 (usage), not 1 (runtime)', async () => {
     con.restore();
   }
 });
+
+test('--version answers even when the rc file is unusable', async () => {
+  const fs = require('fs');
+  const path = require('path');
+  const { tmpDir } = require('./helpers');
+
+  const cwd = tmpDir('cp-cli-');
+  fs.writeFileSync(path.join(cwd, '.contextpluginsrc'), '[1, 2]', 'utf8');
+  const prev = process.cwd();
+  process.chdir(cwd);
+  const con = silenceConsole();
+  try {
+    assert.equal(await run(['--version']), 0);
+    assert.equal(await run(['install', 'x']), 2, 'a real command still reports the rc problem');
+  } finally {
+    con.restore();
+    process.chdir(prev);
+  }
+});
