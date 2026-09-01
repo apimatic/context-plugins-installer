@@ -17,8 +17,6 @@ module.exports = [
     },
     rules: {
       'no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
-      // toAscii's regex deliberately contains a non-breaking space.
-      'no-irregular-whitespace': ['error', { skipRegExps: true }],
     },
   },
   // TS rules only on .ts, so the plain-JS entry points keep `require`.

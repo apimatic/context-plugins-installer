@@ -28,6 +28,10 @@ export function width(max = 78): number {
   return Math.max(40, Math.min(cols - 1, max));
 }
 
+// Written as an escape at both sites below: a literal U+00A0 is invisible, and
+// the port lost it once already to an editor normalising it to a plain space.
+const NBSP = String.fromCharCode(0xa0);
+
 const ASCII_MAP: Record<string, string> = {
   '—': '-', // em dash
   '–': '-', // en dash
@@ -38,13 +42,13 @@ const ASCII_MAP: Record<string, string> = {
   '…': '...',
   '•': '*',
   '→': '->',
-  ' ': ' ',
+  [NBSP]: ' ',
 };
 
 // Marketplace descriptions are third-party text full of em dashes and smart
 // quotes, which a console that cannot render them shows as mojibake.
 export function toAscii(text: string): string {
-  let out = String(text).replace(/[—–‘’“”…•→ ]/g, (c) => ASCII_MAP[c] ?? c);
+  let out = String(text).replace(/[—–‘’“”…•→\u00a0]/g, (c) => ASCII_MAP[c] ?? c);
   out = out.normalize('NFD').replace(/[̀-ͯ]/g, ''); // strip diacritics
   // ESC is kept: colour codes must survive.
   return out.replace(/[^\x1b\x20-\x7e\t\r\n]/g, '?');
@@ -89,6 +93,13 @@ const ESC = String.fromCharCode(27);
 const paint = (code: string, text: string): string =>
   colorEnabled() ? `${ESC}[${code}m${text}${ESC}[0m` : text;
 
+function emitWarn(emit: (line: string) => void, msg: string): void {
+  if (state.quiet) return;
+  const [head = '', ...tail] = wrap(ascii(msg));
+  emit(`${paint('33', BANG)}${head}`);
+  for (const line of tail) emit(paint('33', `      ${line}`));
+}
+
 export const log = {
   setVerbose(v: unknown): void {
     state.verbose = Boolean(v);
@@ -119,10 +130,11 @@ export const log = {
     for (const line of wrap(ascii(msg))) console.log(paint('90', `      ${line}`));
   },
   warn(msg: string): void {
-    if (state.quiet) return;
-    const [head = '', ...tail] = wrap(ascii(msg));
-    console.log(`${paint('33', BANG)}${head}`);
-    for (const line of tail) console.log(paint('33', `      ${line}`));
+    emitWarn(console.log, msg);
+  },
+  /** For warnings that must not land in a --json payload another tool parses. */
+  warnStderr(msg: string): void {
+    emitWarn(console.error, msg);
   },
   /** The last line of the prompt flow, closing the connector above it. */
   groupEnd(msg: string): void {
@@ -136,8 +148,9 @@ export const log = {
     console.error(`${paint('31', CROSS)}${head}`);
     for (const line of tail) console.error(paint('31', `      ${line}`));
   },
+  // On stderr: --verbose must stay composable with the --json output modes.
   debug(msg: string): void {
-    if (state.verbose && !state.quiet) console.log(paint('90', `  ..  ${ascii(msg)}`));
+    if (state.verbose && !state.quiet) console.error(paint('90', `  ..  ${ascii(msg)}`));
   },
   plain(msg = ''): void {
     if (!state.quiet) console.log(ascii(msg));

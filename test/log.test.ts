@@ -65,3 +65,9 @@ test('the check mark is only used where the console can render it', () => {
   // MARK is chosen once at load; assert it agrees with the detection either way.
   assert.equal(log.MARK, log.unicodeSupported() ? String.fromCharCode(0x2713) : '*');
 });
+
+test('toAscii maps the non-breaking space, which reads as an ordinary space', () => {
+  const nbsp = String.fromCharCode(0x00a0);
+  assert.equal(log.toAscii(`Stripe${nbsp}payments`), 'Stripe payments');
+  assert.equal(log.toAscii('a b'), 'a b', 'an ordinary space is left alone');
+});

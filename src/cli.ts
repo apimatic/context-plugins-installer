@@ -298,18 +298,21 @@ export async function run(
       }
       case 'installed': {
         const { plugins: entries, ignored } = manifest.read(paths.manifestPath());
+        const warnIgnored = (emit: (msg: string) => void) => {
+          for (const skip of ignored) {
+            const label = skip.plugin ? `'${skip.plugin}'` : 'an entry';
+            emit(`Ignoring ${label} in installed.json - ${skip.reason}.`);
+          }
+        };
         if (flags.json) {
+          // Schema stability: the payload stays the plain entry array, so the
+          // rows it cannot represent are reported on stderr instead.
+          warnIgnored(log.warnStderr);
           log.plain(JSON.stringify(entries, null, 2));
           return 0;
         }
-        const warnIgnored = () => {
-          for (const skip of ignored) {
-            const label = skip.plugin ? `'${skip.plugin}'` : 'an entry';
-            log.warn(`Ignoring ${label} in installed.json - ${skip.reason}.`);
-          }
-        };
         if (!entries.length) {
-          warnIgnored();
+          warnIgnored(log.warn);
           log.info('No plugins installed yet.');
           log.info(`Browse what is available with:  ${bin} list`);
           return 0;
@@ -322,7 +325,7 @@ export async function run(
           log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(where.join(', '))}`);
           log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
         }
-        warnIgnored();
+        warnIgnored(log.warn);
         log.plain('');
         return 0;
       }
