@@ -152,11 +152,21 @@ function checkState(pathOpts) {
   }
 
   try {
-    const entries = manifest.list(paths.manifestPath(pathOpts));
+    const { plugins: entries, ignored } = manifest.read(paths.manifestPath(pathOpts));
     const detail = entries.length
       ? `${entries.length} ${entries.length === 1 ? 'plugin' : 'plugins'}`
       : 'none yet';
-    checks.push(ok('Installed', detail));
+    if (ignored.length) {
+      checks.push(
+        warn(
+          'Installed',
+          `${detail}; ${ignored.length} ${ignored.length === 1 ? 'entry' : 'entries'} ignored`,
+          `installed.json holds ${ignored.length === 1 ? 'an entry' : 'entries'} this build cannot read (${ignored[0].reason}). A newer CLI may own ${ignored.length === 1 ? 'it' : 'them'}.`,
+        ),
+      );
+    } else {
+      checks.push(ok('Installed', detail));
+    }
   } catch (err) {
     checks.push(warn('Installed', 'could not read installed.json', err.message));
   }

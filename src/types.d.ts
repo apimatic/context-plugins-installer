@@ -167,11 +167,20 @@ export interface ManifestEntry {
   ref?: string;
   targets: HarnessName[];
   installedAt?: string;
+  /** Unknown fields round-trip through read/write on purpose (forward compat). */
+  [key: string]: unknown;
+}
+
+/** A raw entry read() could not act on, and the reason - for the CLI to surface. */
+export interface IgnoredManifestEntry {
+  plugin: string | null;
+  reason: string;
 }
 
 export interface Manifest {
   version: number;
   plugins: ManifestEntry[];
+  ignored: IgnoredManifestEntry[];
 }
 
 // ---- marketplace registry (src/catalog.js) -----------------------------------

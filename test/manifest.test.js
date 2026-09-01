@@ -147,3 +147,62 @@ test('non-string metadata fields are shed instead of passed along', () => {
   assert.equal(read.marketplace, undefined);
   assert.equal(read.repo, 'context-plugins/plugin-marketplace', 'valid fields survive');
 });
+
+test('targets are deduped into canonical order on read', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({ plugins: [entry({ targets: ['vscode', 'claude', 'claude'] })] }),
+  );
+  assert.deepEqual(manifest.list(f)[0].targets, ['claude', 'vscode']);
+});
+
+test('read names what it ignored instead of hiding it', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({ plugins: [entry(), entry({ plugin: 'future-sdk', targets: ['zed'] }), null] }),
+  );
+  const { plugins, ignored } = manifest.read(f);
+  assert.equal(plugins.length, 1);
+  assert.deepEqual(ignored, [
+    { plugin: 'future-sdk', reason: 'unknown target(s): zed' },
+    { plugin: null, reason: 'not a plugin entry' },
+  ]);
+});
+
+test('an unrelated upsert never deletes entries this build cannot read', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({ plugins: [entry({ plugin: 'future-sdk', targets: ['zed'] }), null] }),
+  );
+  manifest.upsert(f, entry());
+  const onDisk = JSON.parse(fs.readFileSync(f, 'utf8')).plugins;
+  assert.equal(onDisk.length, 3, 'the unreadable entries are still on disk');
+  assert.ok(onDisk.some((p) => p && p.plugin === 'future-sdk' && p.targets.includes('zed')));
+  assert.ok(onDisk.includes(null));
+});
+
+test('remove leaves entries it cannot read alone', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({ plugins: [entry(), entry({ plugin: 'future-sdk', targets: ['zed'] })] }),
+  );
+  manifest.remove(f, { plugin: 'my-sdk', repo: 'context-plugins/plugin-marketplace' });
+  const onDisk = JSON.parse(fs.readFileSync(f, 'utf8')).plugins;
+  assert.equal(onDisk.length, 1);
+  assert.equal(onDisk[0].plugin, 'future-sdk');
+});
+
+test('findRaw returns the rows read hides', () => {
+  const f = file();
+  fs.writeFileSync(
+    f,
+    JSON.stringify({ plugins: [entry({ plugin: 'future-sdk', targets: ['zed'] })] }),
+  );
+  const key = { plugin: 'future-sdk', repo: 'context-plugins/plugin-marketplace' };
+  assert.equal(manifest.find(f, key), null, 'the sanitized view hides it');
+  assert.deepEqual(manifest.findRaw(f, key).targets, ['zed']);
+});

@@ -287,12 +287,22 @@ async function run(argv = process.argv.slice(2), profile = {}) {
         return report.ok ? 0 : 1;
       }
       case 'installed': {
-        const entries = manifest.list(paths.manifestPath());
+        const { plugins: entries, ignored } = manifest.read(paths.manifestPath());
         if (flags.json) {
+          // Schema stability: the output stays the plain entry array.
           log.plain(JSON.stringify(entries, null, 2));
           return 0;
         }
+        // A row this build cannot read still exists on disk; saying so beats
+        // quietly under-reporting what the user knows they installed.
+        const warnIgnored = () => {
+          for (const skip of ignored) {
+            const label = skip.plugin ? `'${skip.plugin}'` : 'an entry';
+            log.warn(`Ignoring ${label} in installed.json - ${skip.reason}.`);
+          }
+        };
         if (!entries.length) {
+          warnIgnored();
           log.info('No plugins installed yet.');
           log.info(`Browse what is available with:  ${bin} list`);
           return 0;
@@ -305,6 +315,7 @@ async function run(argv = process.argv.slice(2), profile = {}) {
           log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(where.join(', '))}`);
           log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
         }
+        warnIgnored();
         log.plain('');
         return 0;
       }

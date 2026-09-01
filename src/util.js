@@ -22,6 +22,12 @@ const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
+// The two shapes every JSON boundary checks for. Shared so the checks cannot
+// drift apart: a refinement made where one boundary surfaced a bug reaches
+// the others too.
+const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const nonEmptyString = (v) => typeof v === 'string' && v !== '';
+
 // These three values are interpolated into URLs and passed as argv, so they are
 // validated at the edge rather than trusted from flags/env/rc files.
 function assertPlugin(id) {
@@ -267,6 +273,8 @@ function suggest(query, candidates, limit = 3) {
 
 module.exports = {
   UserError,
+  isPlainObject,
+  nonEmptyString,
   assertPlugin,
   assertRepo,
   assertRef,

@@ -7,7 +7,7 @@ const { resolvePlugin, loadCatalog } = require('./catalog');
 const { createSession } = require('./session');
 const { byName, resolveTargets, NAMES } = require('./harness');
 const { isInteractive, createPrompter } = require('./prompt');
-const { assertPlugin, UserError } = require('./util');
+const { assertPlugin, nonEmptyString, UserError } = require('./util');
 
 const nowIso = () => new Date().toISOString();
 
@@ -248,11 +248,15 @@ async function runInstall({ brand, plugin, ref, targets, force, assumeYes, deps,
 async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } = {}) {
   assertPlugin(plugin);
   const manifestFile = paths.manifestPath(pathOpts);
-  const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
+  // The raw view: uninstall must also clear rows the sanitized view hides
+  // (targets recorded by a newer CLI, hand-edited typos), and their recorded
+  // marketplace is what keeps the Claude path below off the network.
+  const recorded = manifest.findRaw(manifestFile, { plugin, repo: brand.repo });
   const want = resolveTargets(targets);
 
   // Prefer the recorded marketplace so uninstall works offline.
-  let marketplace = brand.id || (recorded && recorded.marketplace) || null;
+  let marketplace =
+    brand.id || (recorded && nonEmptyString(recorded.marketplace) && recorded.marketplace) || null;
   if (!marketplace && want.includes('claude')) {
     marketplace = (await resolvePlugin({ repo: brand.repo, ref: brand.ref, plugin, deps }))
       .marketplace;
@@ -271,7 +275,10 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
     }
   }
 
-  const remaining = (recorded ? recorded.targets || [] : []).filter((t) => !removed.includes(t));
+  // Raw targets pass through untouched: a name this build does not know stays
+  // on the record for whichever tool wrote it.
+  const recordedTargets = recorded && Array.isArray(recorded.targets) ? recorded.targets : [];
+  const remaining = recordedTargets.filter((t) => !removed.includes(t));
   if (recorded && remaining.length === 0) {
     manifest.remove(manifestFile, { plugin, repo: brand.repo });
   } else if (recorded) {
@@ -285,13 +292,13 @@ async function uninstallPlugin({ brand, plugin, targets, deps = {}, pathOpts } =
 /** Re-install every recorded plugin, each with the repo/ref/targets it was installed with. */
 async function updateAll({ brand, deps = {}, pathOpts } = {}) {
   const manifestFile = paths.manifestPath(pathOpts);
-  const entries = manifest.list(manifestFile);
-  if (!entries.length) {
+  const { plugins: entries, ignored } = manifest.read(manifestFile);
+  if (!entries.length && !ignored.length) {
     log.warn('No plugins installed yet - nothing to update.');
     return { updated: [], failed: [] };
   }
 
-  log.banner(`Updating ${log.plural(entries.length, 'plugin')}`);
+  log.banner(`Updating ${log.plural(entries.length + ignored.length, 'plugin')}`);
   log.plain('');
   const updated = [];
   const failed = [];
@@ -299,7 +306,16 @@ async function updateAll({ brand, deps = {}, pathOpts } = {}) {
   // that is sixty lines of scrollback to find one failure in. Collapse to a
   // line each unless --verbose asked for the detail.
   const collapse = !log.isVerbose && !log.isQuiet;
-  const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
+  const names = [...entries, ...ignored].map((e) => (e.plugin || '').length);
+  const idWidth = Math.min(Math.max(...names, 4), 42);
+
+  // A row this build cannot read is a failed update, not an invisible one:
+  // the plugin sits on disk, and this run is not refreshing it.
+  for (const skip of ignored) {
+    const name = skip.plugin || '(unreadable entry)';
+    failed.push({ plugin: name, error: `cannot update - ${skip.reason}` });
+    log.error(`${name.padEnd(idWidth)}  cannot update - ${skip.reason}`);
+  }
 
   // One session for the whole run: the registry is read once per marketplace,
   // each marketplace is cloned once, and Claude Code is told about it once -
@@ -344,7 +360,7 @@ async function updateAll({ brand, deps = {}, pathOpts } = {}) {
   log.rule();
   if (failed.length) {
     log.warn(
-      `Updated ${updated.length} of ${entries.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`,
+      `Updated ${updated.length} of ${entries.length + ignored.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`,
     );
   } else {
     log.ok(`Updated ${log.plural(updated.length, 'plugin')}`);

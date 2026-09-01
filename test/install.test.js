@@ -634,3 +634,77 @@ test('list reports the editors a plugin was actually installed into', async () =
   assert.deepEqual(listing.plugins[0].targets, ['cursor']);
   assert.equal(listing.plugins[0].installed, true, 'installed somewhere');
 });
+
+test('update fails loudly on rows it cannot read instead of skipping them', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const d = deps({ repo, srcDir });
+
+  // One good install on record, plus a row only a newer CLI understands.
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: d,
+      pathOpts: m.pathOpts,
+    }),
+  );
+  const file = paths.manifestPath(m.pathOpts);
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  raw.plugins.push({ plugin: 'future-sdk', repo, marketplace: 'apimatic', targets: ['zed'] });
+  fs.writeFileSync(file, JSON.stringify(raw));
+
+  const { updateAll } = require('../src/install');
+  const result = await quietly(() =>
+    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
+  );
+
+  assert.deepEqual(result.updated, ['my-sdk']);
+  assert.equal(result.failed.length, 1, 'the unreadable row is a failure, not a silent skip');
+  assert.equal(result.failed[0].plugin, 'future-sdk');
+  assert.match(result.failed[0].error, /unknown target\(s\): zed/);
+
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins;
+  assert.ok(
+    after.some((p) => p.plugin === 'future-sdk'),
+    'the row survives the update rewrite',
+  );
+});
+
+test('uninstall still works offline for rows the sanitized view hides', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [
+        { plugin: 'future-sdk', repo, marketplace: 'apimatic', targets: ['zed', 'cursor'] },
+      ],
+    }),
+  );
+  const cursorCopy = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'future-sdk');
+  fs.mkdirSync(cursorCopy, { recursive: true });
+  fs.writeFileSync(path.join(cursorCopy, 'plugin.json'), '{}');
+
+  // Any fetch is a test failure: the recorded marketplace must keep this offline.
+  const offline = () => {
+    throw new Error('network touched');
+  };
+  const result = await quietly(() =>
+    uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'future-sdk',
+      deps: { fetchImpl: offline, env: {} },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(result.targets, ['cursor']);
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins;
+  assert.deepEqual(after[0].targets, ['zed'], 'the foreign target stays on the record');
+});
