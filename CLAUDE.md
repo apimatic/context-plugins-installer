@@ -62,8 +62,9 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   `needsSource`); `harness/index.ts` is the registry, and `byName` is total over
   `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
-  and VS Code copy files and need the fetched source. Adding an editor = one new
-  module, one registry entry, one test file.
+  and VS Code copy files and need the fetched source. To add an editor, use the
+  `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
+  editor names and CI steps the compiler cannot flag.
 - **Session** (`src/session.ts`): work shared by every plugin in one run — the
   registry fetch, the repo clone, the Claude marketplace registration — each done
   once, keyed `repo@ref`. Promises are cached rather than results, so concurrent
