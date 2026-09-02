@@ -85,16 +85,18 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   exactly assertable from Linux CI.
 - **State** is one file, `~/.context-plugins/installed.json` (`src/manifest.ts`),
   entries keyed repo+plugin because the same plugin id can exist in two marketplaces.
-  `read()` returns the sanitized entries plus `ignored` (what it could not act on,
-  with reasons); `upsert`/`remove` work on the raw file and carry every other row
+  `read()` returns the sanitized entries plus what it could not show: `ignored`
+  (rows it dropped, with reasons) and `elided` (rows it listed without a target name
+  this build does not know); `upsert`/`remove` work on the raw file and carry every other row
   through verbatim. An entry with zero known targets must be _dropped_ from the read
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
   harness". The same rule holds _within_ a row: writers rebuild from the raw record
   (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
-  survives a rewrite. Never write a row back from the sanitized view. Both losses are
-  reported, never silent — `ignored` for a dropped row, `elided` for a row listed
-  without one of its targets — and every command that renders the read view warns
-  about them (on stderr under `--json`, so the payload stays parseable).
+  survives a rewrite. Never write a row back from the sanitized view. `installed` and
+  `doctor` warn about both losses — on stderr under `--json`, so the payload stays
+  parseable, and silenced by `--quiet` like any other warning. `list` and `update`
+  still narrow rows without saying so; both would need the two lists threaded through
+  `listPlugins`/`updateAll`.
 - **VS Code settings** (`src/settings-merge.ts`) are JSONC. Edits are targeted string
   splices, never parse-and-reserialize, so user comments and formatting survive. A
   backup is taken before every mutation.
