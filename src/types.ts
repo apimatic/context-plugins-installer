@@ -120,14 +120,17 @@ export interface ManifestEntry {
   [key: string]: unknown;
 }
 
+/** `repo` completes the entry key: the same plugin id can be in two marketplaces. */
 export interface IgnoredManifestEntry {
   plugin: string | null;
+  repo?: string;
   reason: string;
 }
 
 /** An entry read() listed, minus the target names this build does not know. */
 export interface ElidedTargets {
   plugin: string;
+  repo?: string;
   targets: string[];
 }
 

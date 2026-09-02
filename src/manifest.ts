@@ -81,6 +81,7 @@ function describeIgnored(raw: unknown): IgnoredManifestEntry {
   const unknown = unknownTargetNames(raw);
   return {
     plugin: raw.plugin,
+    repo: str(raw.repo),
     reason: unknown.length ? `unknown target(s): ${unknown.join(', ')}` : 'no recorded targets',
   };
 }
@@ -101,7 +102,7 @@ export function read(file: string): Manifest {
     }
     plugins.push(entry);
     const unknown = unknownTargetNames(raw);
-    if (unknown.length) elided.push({ plugin: entry.plugin, targets: unknown });
+    if (unknown.length) elided.push({ plugin: entry.plugin, repo: entry.repo, targets: unknown });
   }
   return { version: data.version, plugins, ignored, elided };
 }

@@ -561,6 +561,48 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
   assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
 });
 
+test('update names the targets it cannot update, and leaves them recorded', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const d = deps({ repo, srcDir: pluginSource() });
+  const file = paths.manifestPath(m.pathOpts);
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: d,
+      pathOpts: m.pathOpts,
+    }),
+  );
+  // As if a newer CLI had installed the same plugin into an editor this build
+  // knows nothing about.
+  const raw = manifest.findRaw(file, { plugin: 'my-sdk', repo });
+  assert.ok(raw);
+  manifest.upsert(file, { ...raw, targets: [...TARGETS, 'zed'] });
+
+  const con = silenceConsole();
+  try {
+    await updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts });
+  } finally {
+    con.restore();
+  }
+
+  const out = con.lines
+    .join(' ')
+    .replace(/\x1b\[\d+m/g, '')
+    .split(' ')
+    .filter(Boolean)
+    .join(' ');
+  assert.ok(out.includes('not updating unknown target(s): zed'), `no such warning in: ${out}`);
+  assert.deepEqual(
+    manifest.foreignTargets(manifest.findRaw(file, { plugin: 'my-sdk', repo })),
+    ['zed'],
+    'and the update wrote it back untouched',
+  );
+});
+
 test('update reads the registry once for the whole run, not once per plugin', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';

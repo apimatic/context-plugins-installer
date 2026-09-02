@@ -8,7 +8,7 @@ import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './instal
 import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
-import type { Brand, DoctorStatus, Flags, ParsedArgs, Profile } from './types.js';
+import type { Brand, DoctorStatus, Flags, Manifest, ParsedArgs, Profile } from './types.js';
 import { UserError, isPlainObject, errorMessage } from './util.js';
 
 // package.json is one directory up from both src/ (tests) and lib/ (published).
@@ -30,6 +30,33 @@ const isBoolFlag = (key: string): key is BoolFlag => BOOL_FLAGS.some((f) => f ==
 
 // A plugin id longer than this is ignored when sizing the list grid.
 const OUTLIER_NAME = 36;
+
+/**
+ * Every way the read view differs from the file: rows it dropped, and rows it
+ * listed without a target name this build does not know. `scope` limits them to
+ * one marketplace, whose repo is then implied and left out of the label.
+ */
+export function gapWarnings({ ignored, elided }: Manifest, scope?: string): string[] {
+  const inScope = (repo?: string): boolean => !scope || !repo || repo === scope;
+  const label = (plugin: string | null, repo?: string): string => {
+    const name = plugin ? `'${plugin}'` : 'an entry';
+    const where = !scope && repo ? ` (${repo})` : '';
+    return `${name}${where}`;
+  };
+  return [
+    ...ignored
+      .filter((skip) => inScope(skip.repo))
+      .map(
+        (skip) => `Ignoring ${label(skip.plugin, skip.repo)} in installed.json - ${skip.reason}.`,
+      ),
+    ...elided
+      .filter((row) => inScope(row.repo))
+      .map(
+        (row) =>
+          `Listing ${label(row.plugin, row.repo)} without unknown target(s): ${row.targets.join(', ')} - the entry on disk keeps them.`,
+      ),
+  ];
+}
 
 const camel = (s: string): string => s.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
@@ -221,7 +248,11 @@ export async function run(
       }
       case 'list': {
         const result = await listPlugins({ brand });
+        // Read again rather than widen ListResult: the payload shape is a contract,
+        // and the manifest is one small file.
+        const gaps = gapWarnings(manifest.read(paths.manifestPath()), brand.repo);
         if (flags.json) {
+          for (const msg of gaps) log.warnStderr(msg);
           log.payload(JSON.stringify(result, null, 2));
           return 0;
         }
@@ -261,6 +292,7 @@ export async function run(
         if (count) {
           log.info(`${log.MARK} installed on this machine (${count})`);
         }
+        for (const msg of gaps) log.warn(msg);
         if (!flags.long) log.info(`Run \`${bin} list --long\` for descriptions.`);
         log.info(`Install one with \`${bin} install <plugin>\`.`);
         return 0;
@@ -297,20 +329,10 @@ export async function run(
         return report.ok ? 0 : 1;
       }
       case 'installed': {
-        const { plugins: entries, ignored, elided } = manifest.read(paths.manifestPath());
-        // Every way the read view differs from the file: rows it dropped, and
-        // rows it listed without a target name this build does not know.
+        const data = manifest.read(paths.manifestPath());
+        const entries = data.plugins;
         const warnGaps = (emit: (msg: string) => void) => {
-          for (const skip of ignored) {
-            const label = skip.plugin ? `'${skip.plugin}'` : 'an entry';
-            emit(`Ignoring ${label} in installed.json - ${skip.reason}.`);
-          }
-          for (const row of elided) {
-            const names = row.targets.join(', ');
-            emit(
-              `Listing '${row.plugin}' without unknown target(s): ${names} - the entry on disk keeps them.`,
-            );
-          }
+          for (const msg of gapWarnings(data)) emit(msg);
         };
         if (flags.json) {
           // Schema stability: the payload stays the plain entry array, so what it

@@ -347,7 +347,7 @@ export async function updateAll({
   pathOpts,
 }: UpdateOptions): Promise<UpdateResult> {
   const manifestFile = paths.manifestPath(pathOpts);
-  const { plugins: entries, ignored } = manifest.read(manifestFile);
+  const { plugins: entries, ignored, elided } = manifest.read(manifestFile);
   if (!entries.length && !ignored.length) {
     log.warn('No plugins installed yet - nothing to update.');
     return { updated: [], failed: [] };
@@ -366,6 +366,13 @@ export async function updateAll({
     const name = skip.plugin || '(unreadable entry)';
     failed.push({ plugin: name, error: `cannot update - ${skip.reason}` });
     log.error(`${name.padEnd(idWidth)}  cannot update - ${skip.reason}`);
+  }
+  // Not a failure: the row updates for the targets this build knows, and the
+  // ones it does not are written back untouched.
+  for (const row of elided) {
+    log.warn(
+      `${row.plugin.padEnd(idWidth)}  not updating unknown target(s): ${row.targets.join(', ')}`,
+    );
   }
 
   const session = createSession({ deps });

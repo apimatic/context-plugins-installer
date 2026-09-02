@@ -9,11 +9,13 @@ import { tmpDir, cleanupAll } from './helpers.js';
 
 test.after(cleanupAll);
 
+const REPO = 'context-plugins/plugin-marketplace';
+
 const file = (): string => path.join(tmpDir('cp-manifest-'), 'installed.json');
 
 const entry = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   plugin: 'my-sdk',
-  repo: 'context-plugins/plugin-marketplace',
+  repo: REPO,
   marketplace: 'apimatic',
   ref: 'main',
   targets: ['claude'],
@@ -165,7 +167,7 @@ test('read names what it ignored instead of hiding it', () => {
   const { plugins, ignored } = manifest.read(f);
   assert.equal(plugins.length, 1);
   assert.deepEqual(ignored, [
-    { plugin: 'future-sdk', reason: 'unknown target(s): zed' },
+    { plugin: 'future-sdk', repo: REPO, reason: 'unknown target(s): zed' },
     { plugin: null, reason: 'not a plugin entry' },
   ]);
 });
@@ -176,7 +178,7 @@ test('a row listed without one of its targets is reported too, not just dropped 
   const { plugins, ignored, elided } = manifest.read(f);
   assert.deepEqual(plugins[0].targets, ['vscode'], 'the row is still usable');
   assert.deepEqual(ignored, [], 'and it was not ignored');
-  assert.deepEqual(elided, [{ plugin: 'my-sdk', targets: ['zed', '42'] }]);
+  assert.deepEqual(elided, [{ plugin: 'my-sdk', repo: REPO, targets: ['zed', '42'] }]);
 });
 
 test('a fully readable row reports nothing', () => {

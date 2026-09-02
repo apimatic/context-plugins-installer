@@ -6,7 +6,8 @@ import * as path from 'node:path';
 import { parseArgs, parseTargets, helpText, run } from '../src/cli.js';
 import { resolveTargets, NAMES } from '../src/harness/index.js';
 import { UserError } from '../src/util.js';
-import { silenceConsole, tmpDir, cleanupAll } from './helpers.js';
+import { silenceConsole, tmpDir, cleanupAll, stubFetch } from './helpers.js';
+import { rawUrl } from '../src/catalog.js';
 
 test.after(cleanupAll);
 
@@ -150,17 +151,17 @@ test('--version answers even when the rc file is unusable', async () => {
   }
 });
 
+const REPO = 'context-plugins/plugin-marketplace';
+
 const STATE_MANIFEST = {
   version: 1,
   plugins: [
-    { plugin: 'my-sdk', repo: 'context-plugins/plugin-marketplace', targets: ['claude'] },
+    { plugin: 'my-sdk', repo: REPO, targets: ['claude'] },
     // Half readable: listed, but one target belongs to a build that is not this one.
-    {
-      plugin: 'code-review',
-      repo: 'context-plugins/plugin-marketplace',
-      targets: ['vscode', 'zed'],
-    },
-    { plugin: 'future-sdk', repo: 'context-plugins/plugin-marketplace', targets: ['zed'] },
+    { plugin: 'code-review', repo: REPO, targets: ['vscode', 'zed'] },
+    { plugin: 'future-sdk', repo: REPO, targets: ['zed'] },
+    // Another marketplace entirely: `list` must not warn about it.
+    { plugin: 'other-sdk', repo: 'acme/marketplace', targets: ['zed'] },
   ],
 };
 
@@ -169,8 +170,8 @@ const AMBIENT = ['CP_STATE_DIR', 'CP_REPO', 'CP_REF', 'CP_MARKETPLACE', 'HOME', 
 
 const noAnsi = (text: string): string => text.replace(/\x1b\[\d+m/g, '');
 
-/** Runs `installed` against a manifest - and a brand - only this test can see. */
-async function installedWith(manifestDoc: unknown, args: string[]) {
+/** Runs one command against a manifest - and a brand - only this test can see. */
+async function runWith(args: string[], manifestDoc: unknown, env: Record<string, string> = {}) {
   const root = tmpDir('cp-installed-');
   const state = path.join(root, 'state');
   fs.mkdirSync(state, { recursive: true });
@@ -186,11 +187,16 @@ async function installedWith(manifestDoc: unknown, args: string[]) {
   process.env.USERPROFILE = root;
   process.chdir(root);
 
+  Object.assign(process.env, env);
+
   const con = silenceConsole();
   try {
-    const code = await run(['installed', ...args]);
-    const err = noAnsi(con.err.join(' ')).split(' ').filter(Boolean).join(' ');
-    return { code, out: con.out.join('\n'), err };
+    const code = await run(args);
+    // `out` stays verbatim for JSON.parse; `text` is the same lines rewrapped, so a
+    // wrapped warning can be matched as the one sentence it is.
+    const flatten = (lines: string[]) =>
+      noAnsi(lines.join(' ')).split(' ').filter(Boolean).join(' ');
+    return { code, out: con.out.join('\n'), text: flatten(con.out), err: flatten(con.err) };
   } finally {
     con.restore();
     process.chdir(prevCwd);
@@ -202,7 +208,7 @@ async function installedWith(manifestDoc: unknown, args: string[]) {
 }
 
 test('installed --json leaves stdout to the payload and puts the warnings on stderr', async () => {
-  const { code, out, err } = await installedWith(STATE_MANIFEST, ['--json']);
+  const { code, out, err } = await runWith(['installed', '--json'], STATE_MANIFEST);
   assert.equal(code, 0);
 
   const payload: { plugin: string; targets: string[] }[] = JSON.parse(out);
@@ -213,24 +219,26 @@ test('installed --json leaves stdout to the payload and puts the warnings on std
   );
   assert.deepEqual(payload[1]?.targets, ['vscode'], 'the row is listed without the zed target');
   assert.ok(
-    err.includes("Ignoring 'future-sdk' in installed.json - unknown target(s): zed."),
+    err.includes(`Ignoring 'future-sdk' (${REPO}) in installed.json - unknown target(s): zed.`),
     `the dropped row is named on stderr, got: ${err}`,
   );
   assert.ok(
-    err.includes("Listing 'code-review' without unknown target(s): zed - the entry on disk"),
+    err.includes(
+      `Listing 'code-review' (${REPO}) without unknown target(s): zed - the entry on disk`,
+    ),
     `so is the target the listed row lost, got: ${err}`,
   );
 });
 
 test('the human listing warns about the same gaps, on stdout', async () => {
-  const { out, err } = await installedWith(STATE_MANIFEST, []);
+  const { text, err } = await runWith(['installed'], STATE_MANIFEST);
   assert.equal(err, '', 'without --json there is no payload to keep clean');
-  assert.ok(out.includes('future-sdk'));
-  assert.ok(out.includes("Listing 'code-review' without unknown target(s): zed"));
+  assert.ok(text.includes(`Ignoring 'future-sdk' (${REPO}) in installed.json`));
+  assert.ok(text.includes(`Listing 'code-review' (${REPO}) without unknown target(s): zed`));
 });
 
 test('--quiet silences the warnings, never the payload --json was run for', async () => {
-  const { code, out, err } = await installedWith(STATE_MANIFEST, ['--json', '--quiet']);
+  const { code, out, err } = await runWith(['installed', '--json', '--quiet'], STATE_MANIFEST);
   assert.equal(code, 0);
   const payload: { plugin: string }[] = JSON.parse(out);
   assert.deepEqual(
@@ -238,4 +246,52 @@ test('--quiet silences the warnings, never the payload --json was run for', asyn
     ['my-sdk', 'code-review'],
   );
   assert.equal(err, '', 'the warnings are what --quiet is for');
+});
+
+/** `list` fetches the registry and run() has no deps seam, so pin the global fetch. */
+async function listWith(args: string[], manifestDoc: unknown) {
+  const saved = globalThis.fetch;
+  globalThis.fetch = stubFetch({
+    [rawUrl(REPO, 'main', '.claude-plugin/marketplace.json')]: {
+      body: {
+        name: 'context-plugins',
+        plugins: [
+          { name: 'code-review', source: './plugins/code-review' },
+          { name: 'future-sdk', source: './plugins/future-sdk' },
+        ],
+      },
+    },
+  }) as unknown as typeof globalThis.fetch;
+  try {
+    return await runWith(args, manifestDoc, { CP_REPO: REPO });
+  } finally {
+    globalThis.fetch = saved;
+  }
+}
+
+test('list --json warns about the rows behind its installed marks, scoped to the marketplace', async () => {
+  const { code, out, err } = await listWith(['list', '--json'], STATE_MANIFEST);
+  assert.equal(code, 0);
+
+  const payload: { plugins: { name: string; targets: string[]; installed: boolean }[] } =
+    JSON.parse(out);
+  const codeReview = payload.plugins.find((p) => p.name === 'code-review');
+  assert.deepEqual(codeReview?.targets, ['vscode'], 'the row is listed without the zed target');
+  assert.equal(
+    payload.plugins.find((p) => p.name === 'future-sdk')?.installed,
+    false,
+    'and a row it cannot read at all reads as not installed - which is why it warns',
+  );
+
+  assert.ok(err.includes("Ignoring 'future-sdk' in installed.json - unknown target(s): zed."));
+  assert.ok(err.includes("Listing 'code-review' without unknown target(s): zed"));
+  assert.ok(!err.includes(REPO), 'the repo is implied by the listing, so it is left out');
+  assert.ok(!err.includes('other-sdk'), 'another marketplace is not this listing to explain');
+});
+
+test('the human list puts those warnings on stdout with the listing', async () => {
+  const { text, err } = await listWith(['list'], STATE_MANIFEST);
+  assert.equal(err, '');
+  assert.ok(text.includes("Listing 'code-review' without unknown target(s): zed"));
+  assert.ok(!text.includes('other-sdk'));
 });
