@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import { log } from '../src/log.js';
+import { silenceConsole } from './helpers.js';
 
 test('width honours COLUMNS and stays within sane bounds', () => {
   const saved = process.env.COLUMNS;
@@ -70,4 +71,39 @@ test('toAscii maps the non-breaking space, which reads as an ordinary space', ()
   const nbsp = String.fromCharCode(0x00a0);
   assert.equal(log.toAscii(`Stripe${nbsp}payments`), 'Stripe payments');
   assert.equal(log.toAscii('a b'), 'a b', 'an ordinary space is left alone');
+});
+
+test('the stderr writers stay off stdout, so a --json payload parses alone', () => {
+  const con = silenceConsole();
+  log.setVerbose(true);
+  try {
+    log.warnStderr('a warning no parser should have to skip');
+    log.debug('verbose detail');
+    log.error('a failure');
+    log.plain('{"payload":true}');
+  } finally {
+    log.setVerbose(false);
+    con.restore();
+  }
+
+  assert.deepEqual(con.out, ['{"payload":true}'], 'stdout carries the payload and nothing else');
+  // ANSI codes wrap each line but never split the message text itself.
+  const err = con.err.join(' ');
+  assert.match(err, /no parser should have to skip/);
+  assert.match(err, /verbose detail/);
+  assert.match(err, /a failure/);
+});
+
+test('the human writers stay on stdout', () => {
+  const con = silenceConsole();
+  try {
+    log.warn('a warning');
+    log.info('an aside');
+    log.ok('done');
+  } finally {
+    con.restore();
+  }
+
+  assert.deepEqual(con.err, [], 'nothing was diverted to stderr');
+  assert.match(con.out.join(' '), /a warning/);
 });

@@ -111,13 +111,34 @@ export function stubFetch(routes: Record<string, StubRoute>): StubFetch {
   return Object.assign(impl, { calls });
 }
 
-export function silenceConsole(): { lines: string[]; restore(): void } {
+/**
+ * `lines` is both streams in the order they were written; `out` and `err` keep
+ * them apart, so a test can hold --json stdout to the payload alone.
+ */
+export function silenceConsole(): {
+  lines: string[];
+  out: string[];
+  err: string[];
+  restore(): void;
+} {
   const original = { log: console.log, error: console.error };
   const lines: string[] = [];
-  console.log = (...a: unknown[]) => lines.push(a.join(' '));
-  console.error = (...a: unknown[]) => lines.push(a.join(' '));
+  const out: string[] = [];
+  const err: string[] = [];
+  console.log = (...a: unknown[]) => {
+    const line = a.join(' ');
+    lines.push(line);
+    out.push(line);
+  };
+  console.error = (...a: unknown[]) => {
+    const line = a.join(' ');
+    lines.push(line);
+    err.push(line);
+  };
   return {
     lines,
+    out,
+    err,
     restore() {
       console.log = original.log;
       console.error = original.error;
