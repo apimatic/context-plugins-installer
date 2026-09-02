@@ -297,22 +297,30 @@ export async function run(
         return report.ok ? 0 : 1;
       }
       case 'installed': {
-        const { plugins: entries, ignored } = manifest.read(paths.manifestPath());
-        const warnIgnored = (emit: (msg: string) => void) => {
+        const { plugins: entries, ignored, elided } = manifest.read(paths.manifestPath());
+        // Every way the read view differs from the file: rows it dropped, and
+        // rows it listed without a target name this build does not know.
+        const warnGaps = (emit: (msg: string) => void) => {
           for (const skip of ignored) {
             const label = skip.plugin ? `'${skip.plugin}'` : 'an entry';
             emit(`Ignoring ${label} in installed.json - ${skip.reason}.`);
           }
+          for (const row of elided) {
+            const names = row.targets.join(', ');
+            emit(
+              `Listing '${row.plugin}' without unknown target(s): ${names} - the entry on disk keeps them.`,
+            );
+          }
         };
         if (flags.json) {
-          // Schema stability: the payload stays the plain entry array, so the
-          // rows it cannot represent are reported on stderr instead.
-          warnIgnored(log.warnStderr);
+          // Schema stability: the payload stays the plain entry array, so what it
+          // cannot represent is reported on stderr instead.
+          warnGaps(log.warnStderr);
           log.plain(JSON.stringify(entries, null, 2));
           return 0;
         }
         if (!entries.length) {
-          warnIgnored(log.warn);
+          warnGaps(log.warn);
           log.info('No plugins installed yet.');
           log.info(`Browse what is available with:  ${bin} list`);
           return 0;
@@ -325,7 +333,7 @@ export async function run(
           log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(where.join(', '))}`);
           log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
         }
-        warnIgnored(log.warn);
+        warnGaps(log.warn);
         log.plain('');
         return 0;
       }

@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { NAMES } from './harness/index.js';
-import type { IgnoredManifestEntry, Manifest, ManifestEntry } from './types.js';
+import type { ElidedTargets, IgnoredManifestEntry, Manifest, ManifestEntry } from './types.js';
 import { ensureDir, stripBom, isPlainObject, nonEmptyString } from './util.js';
 
 export const MANIFEST_VERSION = 1;
@@ -64,30 +64,42 @@ function sanitizeEntry(raw: unknown): ManifestEntry | null {
   };
 }
 
+// The same names foreignTargets keeps for the write path, rendered for a message.
+const unknownTargetNames = (raw: unknown): string[] =>
+  foreignTargets(isPlainObject(raw) ? raw : null).map((t) =>
+    nonEmptyString(t) ? t : JSON.stringify(t),
+  );
+
 function describeIgnored(raw: unknown): IgnoredManifestEntry {
   if (!isPlainObject(raw) || !nonEmptyString(raw.plugin)) {
     return { plugin: null, reason: 'not a plugin entry' };
   }
-  const rawTargets = raw.targets;
-  const unknown: unknown[] = Array.isArray(rawTargets)
-    ? rawTargets.filter((t) => !NAMES.includes(t))
-    : [];
+  const unknown = unknownTargetNames(raw);
   return {
     plugin: raw.plugin,
     reason: unknown.length ? `unknown target(s): ${unknown.join(', ')}` : 'no recorded targets',
   };
 }
 
+// A row can be lossy without being dropped: one known target and one this build
+// does not know reads as a shorter targets list than the file holds. That gap is
+// reported too, so the display layer never quietly narrows a row.
 export function read(file: string): Manifest {
   const data = readRaw(file);
   const plugins: ManifestEntry[] = [];
   const ignored: IgnoredManifestEntry[] = [];
+  const elided: ElidedTargets[] = [];
   for (const raw of data.plugins) {
     const entry = sanitizeEntry(raw);
-    if (entry) plugins.push(entry);
-    else ignored.push(describeIgnored(raw));
+    if (!entry) {
+      ignored.push(describeIgnored(raw));
+      continue;
+    }
+    plugins.push(entry);
+    const unknown = unknownTargetNames(raw);
+    if (unknown.length) elided.push({ plugin: entry.plugin, targets: unknown });
   }
-  return { version: data.version, plugins, ignored };
+  return { version: data.version, plugins, ignored, elided };
 }
 
 export function write(file: string, data: { plugins?: unknown[] }): RawManifest {

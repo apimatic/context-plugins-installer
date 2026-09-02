@@ -149,3 +149,58 @@ test('--version answers even when the rc file is unusable', async () => {
     process.chdir(prev);
   }
 });
+
+const STATE_MANIFEST = {
+  version: 1,
+  plugins: [
+    { plugin: 'my-sdk', repo: 'context-plugins/plugin-marketplace', targets: ['claude'] },
+    // Half readable: listed, but one target belongs to a build that is not this one.
+    {
+      plugin: 'code-review',
+      repo: 'context-plugins/plugin-marketplace',
+      targets: ['vscode', 'zed'],
+    },
+    { plugin: 'future-sdk', repo: 'context-plugins/plugin-marketplace', targets: ['zed'] },
+  ],
+};
+
+/** Runs `installed` against a manifest only this test can see. */
+async function installedWith(manifestDoc: unknown, args: string[]) {
+  const state = tmpDir('cp-state-');
+  fs.writeFileSync(path.join(state, 'installed.json'), JSON.stringify(manifestDoc), 'utf8');
+  const saved = process.env.CP_STATE_DIR;
+  process.env.CP_STATE_DIR = state;
+  const con = silenceConsole();
+  try {
+    const code = await run(['installed', ...args]);
+    const err = con.err.join(' ').split(' ').filter(Boolean).join(' ');
+    return { code, out: con.out.join('\n'), err };
+  } finally {
+    con.restore();
+    if (saved === undefined) delete process.env.CP_STATE_DIR;
+    else process.env.CP_STATE_DIR = saved;
+  }
+}
+
+test('installed --json leaves stdout to the payload and puts the warnings on stderr', async () => {
+  const { code, out, err } = await installedWith(STATE_MANIFEST, ['--json']);
+  assert.equal(code, 0);
+
+  const payload: { plugin: string; targets: string[] }[] = JSON.parse(out);
+  assert.deepEqual(
+    payload.map((e) => e.plugin),
+    ['my-sdk', 'code-review'],
+    'stdout parses on its own - no warning line reached it',
+  );
+  assert.deepEqual(payload[1]?.targets, ['vscode'], 'the row is listed without the zed target');
+  assert.ok(err.includes('future-sdk'), 'the dropped row is named on stderr');
+  assert.ok(err.includes("'code-review'"), 'so is the row that lost a target');
+  assert.ok(err.includes('zed'));
+});
+
+test('the human listing warns about the same gaps, on stdout', async () => {
+  const { out, err } = await installedWith(STATE_MANIFEST, []);
+  assert.equal(err, '', 'without --json there is no payload to keep clean');
+  assert.ok(out.includes('future-sdk'));
+  assert.ok(out.includes("'code-review'"));
+});

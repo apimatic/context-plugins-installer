@@ -125,10 +125,17 @@ export interface IgnoredManifestEntry {
   reason: string;
 }
 
+/** An entry read() listed, minus the target names this build does not know. */
+export interface ElidedTargets {
+  plugin: string;
+  targets: string[];
+}
+
 export interface Manifest {
   version: number;
   plugins: ManifestEntry[];
   ignored: IgnoredManifestEntry[];
+  elided: ElidedTargets[];
 }
 
 /** Only `name` is checked on read; other fields are read through type checks. */

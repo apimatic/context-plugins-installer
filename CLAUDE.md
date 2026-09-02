@@ -91,7 +91,10 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
   harness". The same rule holds _within_ a row: writers rebuild from the raw record
   (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
-  survives a rewrite. Never write a row back from the sanitized view.
+  survives a rewrite. Never write a row back from the sanitized view. Both losses are
+  reported, never silent — `ignored` for a dropped row, `elided` for a row listed
+  without one of its targets — and every command that renders the read view warns
+  about them (on stderr under `--json`, so the payload stays parseable).
 - **VS Code settings** (`src/settings-merge.ts`) are JSONC. Edits are targeted string
   splices, never parse-and-reserialize, so user comments and formatting survive. A
   backup is taken before every mutation.

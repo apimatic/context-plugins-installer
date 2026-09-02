@@ -179,17 +179,32 @@ function checkState(pathOpts?: PathOpts): DoctorCheck[] {
   }
 
   try {
-    const { plugins: entries, ignored } = manifest.read(paths.manifestPath(pathOpts));
+    const { plugins: entries, ignored, elided } = manifest.read(paths.manifestPath(pathOpts));
     const detail = entries.length
       ? `${entries.length} ${entries.length === 1 ? 'plugin' : 'plugins'}`
       : 'none yet';
-    const first = ignored[0];
-    if (first) {
+    const counts: string[] = [];
+    const hints: string[] = [];
+    const unreadable = ignored[0];
+    const partial = elided[0];
+    if (unreadable) {
+      counts.push(`${ignored.length} ${ignored.length === 1 ? 'entry' : 'entries'} ignored`);
+      hints.push(
+        `installed.json holds ${ignored.length === 1 ? 'an entry' : 'entries'} this build cannot read (${unreadable.reason}).`,
+      );
+    }
+    if (partial) {
+      counts.push(`${elided.length} listed in part`);
+      hints.push(
+        `'${partial.plugin}' records target(s) this build does not know (${partial.targets.join(', ')}).`,
+      );
+    }
+    if (counts.length) {
       checks.push(
         warn(
           'Installed',
-          `${detail}; ${ignored.length} ${ignored.length === 1 ? 'entry' : 'entries'} ignored`,
-          `installed.json holds ${ignored.length === 1 ? 'an entry' : 'entries'} this build cannot read (${first.reason}). A newer CLI may own ${ignored.length === 1 ? 'it' : 'them'}.`,
+          `${detail}; ${counts.join(', ')}`,
+          `${hints.join(' ')} A newer CLI may own them.`,
         ),
       );
     } else {

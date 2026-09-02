@@ -52,7 +52,9 @@ context-plugins doctor                         # check this machine can install
 | `-v`, `--version`          | —                            | Print the version and exit                                  |
 
 With `--json`, stdout carries the payload and nothing else — warnings and `--verbose` detail go
-to stderr, so `... --json | jq` is safe to script against.
+to stderr, so `... --json | jq` is safe to script against. `installed` shows only what this version
+understands: anything in `installed.json` it cannot read — a whole entry, or a single target of
+one — is named in a warning on stderr and left on disk for the version that owns it.
 
 Environment equivalents: `CP_PLUGIN`, `CP_REPO`, `CP_REF`, `CP_MARKETPLACE`.
 `GITHUB_TOKEN` raises the GitHub API rate limit. `CP_STATE_DIR` moves the state directory.

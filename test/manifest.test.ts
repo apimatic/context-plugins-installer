@@ -170,6 +170,22 @@ test('read names what it ignored instead of hiding it', () => {
   ]);
 });
 
+test('a row listed without one of its targets is reported too, not just dropped rows', () => {
+  const f = file();
+  fs.writeFileSync(f, JSON.stringify({ plugins: [entry({ targets: ['vscode', 'zed', 42] })] }));
+  const { plugins, ignored, elided } = manifest.read(f);
+  assert.deepEqual(plugins[0].targets, ['vscode'], 'the row is still usable');
+  assert.deepEqual(ignored, [], 'and it was not ignored');
+  assert.deepEqual(elided, [{ plugin: 'my-sdk', targets: ['zed', '42'] }]);
+});
+
+test('a fully readable row reports nothing', () => {
+  const f = file();
+  fs.writeFileSync(f, JSON.stringify({ plugins: [entry()] }));
+  const { ignored, elided } = manifest.read(f);
+  assert.deepEqual([ignored, elided], [[], []]);
+});
+
 test('an unrelated upsert never deletes entries this build cannot read', () => {
   const f = file();
   fs.writeFileSync(

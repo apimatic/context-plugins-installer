@@ -149,3 +149,25 @@ test('doctor reports rows installed.json holds that this build cannot read', asy
   assert.match(check.detail, /1 entry ignored/);
   assert.match(check.hint ?? '', /unknown target\(s\): zed/);
 });
+
+test('doctor reports a row it can only read in part, rather than calling it healthy', async () => {
+  const m = machine();
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [{ plugin: 'code-review', repo: REPO, targets: ['vscode', 'zed'] }],
+    }),
+  );
+
+  const report = await diagnose({ brand: brand(), deps: deps(), ...m });
+  const check = find(report, 'Installed');
+  assert.equal(check.status, 'warn');
+  assert.match(check.detail, /1 plugin; 1 listed in part/);
+  assert.match(
+    check.hint ?? '',
+    /'code-review' records target\(s\) this build does not know \(zed\)/,
+  );
+});
