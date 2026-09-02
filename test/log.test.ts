@@ -107,3 +107,44 @@ test('the human writers stay on stdout', () => {
   assert.deepEqual(con.err, [], 'nothing was diverted to stderr');
   assert.match(con.out.join(' '), /a warning/);
 });
+
+/** Forces the legacy-console path, the one where log.plain rewrites its text. */
+function withLegacyConsole<T>(fn: () => T): T {
+  const keys = ['WT_SESSION', 'TERMINUS_SUBLIME', 'ConEmuTask', 'TERM_PROGRAM', 'TERM'];
+  const saved = keys.map((k) => [k, process.env[k]] as const);
+  for (const key of keys) delete process.env[key];
+  process.env.TERM = 'linux';
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test('the --json payload skips the console formatter and --quiet alike', () => {
+  const text = '{"marketplace":"m\u00e9tro \u2014 x"}';
+  const con = silenceConsole();
+  try {
+    withLegacyConsole(() => {
+      log.setQuiet(true);
+      log.payload(text);
+      log.plain(text);
+      log.setQuiet(false);
+      log.payload(text);
+      log.plain(text);
+    });
+  } finally {
+    log.setQuiet(false);
+    con.restore();
+  }
+
+  assert.notEqual(log.toAscii(text), text, 'the formatter really would have rewritten this');
+  assert.deepEqual(
+    con.out,
+    [text, text, log.toAscii(text)],
+    'the payload survives --quiet and the ASCII downgrade; plain obeys both',
+  );
+});

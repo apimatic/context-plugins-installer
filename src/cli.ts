@@ -222,7 +222,7 @@ export async function run(
       case 'list': {
         const result = await listPlugins({ brand });
         if (flags.json) {
-          log.plain(JSON.stringify(result, null, 2));
+          log.payload(JSON.stringify(result, null, 2));
           return 0;
         }
         const plugins = [...result.plugins].sort((a, b) => a.name.localeCompare(b.name));
@@ -268,7 +268,7 @@ export async function run(
       case 'doctor': {
         const report = await diagnose({ brand });
         if (flags.json) {
-          log.plain(JSON.stringify(report, null, 2));
+          log.payload(JSON.stringify(report, null, 2));
           return report.ok ? 0 : 1;
         }
 
@@ -316,7 +316,7 @@ export async function run(
           // Schema stability: the payload stays the plain entry array, so what it
           // cannot represent is reported on stderr instead.
           warnGaps(log.warnStderr);
-          log.plain(JSON.stringify(entries, null, 2));
+          log.payload(JSON.stringify(entries, null, 2));
           return 0;
         }
         if (!entries.length) {

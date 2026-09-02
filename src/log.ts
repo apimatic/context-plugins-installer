@@ -155,6 +155,14 @@ export const log = {
   plain(msg = ''): void {
     if (!state.quiet) console.log(ascii(msg));
   },
+  /**
+   * Machine-readable output: written verbatim, because ascii() would rewrite the
+   * payload's own content on a legacy console, and --quiet asks for less progress
+   * detail, not for the thing the caller ran --json to get.
+   */
+  payload(text: string): void {
+    console.log(text);
+  },
   dim(msg: string): string {
     return paint('90', msg);
   },
