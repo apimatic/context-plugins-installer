@@ -188,25 +188,20 @@ function checkState(pathOpts?: PathOpts): DoctorCheck[] {
     const unreadable = ignored[0];
     const partial = elided[0];
     if (unreadable) {
-      counts.push(`${ignored.length} ${ignored.length === 1 ? 'entry' : 'entries'} ignored`);
+      const one = ignored.length === 1;
+      counts.push(`${ignored.length} ${one ? 'entry' : 'entries'} ignored`);
       hints.push(
-        `installed.json holds ${ignored.length === 1 ? 'an entry' : 'entries'} this build cannot read (${unreadable.reason}).`,
+        `installed.json holds ${one ? 'an entry' : 'entries'} this build cannot read (${unreadable.reason}); a newer CLI may own ${one ? 'it' : 'them'}.`,
       );
     }
     if (partial) {
       counts.push(`${elided.length} listed in part`);
       hints.push(
-        `'${partial.plugin}' records target(s) this build does not know (${partial.targets.join(', ')}).`,
+        `'${partial.plugin}' records target(s) this build does not know (${partial.targets.join(', ')}), which stay in installed.json.`,
       );
     }
     if (counts.length) {
-      checks.push(
-        warn(
-          'Installed',
-          `${detail}; ${counts.join(', ')}`,
-          `${hints.join(' ')} A newer CLI may own them.`,
-        ),
-      );
+      checks.push(warn('Installed', `${detail}; ${counts.join(', ')}`, hints.join(' ')));
     } else {
       checks.push(ok('Installed', detail));
     }

@@ -64,11 +64,15 @@ function sanitizeEntry(raw: unknown): ManifestEntry | null {
   };
 }
 
-// The same names foreignTargets keeps for the write path, rendered for a message.
-const unknownTargetNames = (raw: unknown): string[] =>
-  foreignTargets(isPlainObject(raw) ? raw : null).map((t) =>
-    nonEmptyString(t) ? t : JSON.stringify(t),
-  );
+// The same names foreignTargets keeps for the write path, rendered for a message
+// and deduped the way sanitizeEntry dedupes the ones this build does know.
+const unknownTargetNames = (raw: unknown): string[] => [
+  ...new Set(
+    foreignTargets(isPlainObject(raw) ? raw : null).map((t) =>
+      nonEmptyString(t) ? t : JSON.stringify(t),
+    ),
+  ),
+];
 
 function describeIgnored(raw: unknown): IgnoredManifestEntry {
   if (!isPlainObject(raw) || !nonEmptyString(raw.plugin)) {
