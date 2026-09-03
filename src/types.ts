@@ -119,6 +119,16 @@ export interface HarnessContext {
   session?: Session;
 }
 
+/**
+ * `absent` is what keeps a drifted record from sticking: the harness looked and
+ * positively established there is nothing to remove, so the row is wrong rather
+ * than the run, and it is cleared. `skipped` is "could not look" - the editor is
+ * not installed here, or there is no name to address it by - and `failed` is
+ * "looked and it went wrong". Both keep the row; only `failed` fails the run.
+ * Note every one of these is a truthy string: never test the result for truth.
+ */
+export type UninstallOutcome = 'removed' | 'absent' | 'skipped' | 'failed';
+
 export interface Harness {
   name: HarnessName;
   title: string;
@@ -129,7 +139,7 @@ export interface Harness {
   location(opts?: HarnessOpts): string;
   /** false means "skipped", not failed. */
   install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean>;
-  uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean>;
+  uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome>;
 }
 
 /** An entry read() could act on: at least one target this build knows. */
@@ -215,9 +225,17 @@ export type AddLocationAction =
   | 'inserted-empty'
   | 'inserted-existing'
   | 'inserted-key'
+  /** The path is already a key, but not the `"<key>": true` this tool writes. */
+  | 'conflict'
   | 'failed';
 
-export type RemoveLocationAction = 'missing' | 'absent' | 'removed';
+/**
+ * `absent` is a positive answer - the file does not name this path at all.
+ * `unremovable` is not: the path IS named, in a form the splice does not
+ * recognise, so VS Code may still be loading it. Callers must not read the two
+ * as the same thing.
+ */
+export type RemoveLocationAction = 'missing' | 'absent' | 'unremovable' | 'removed';
 
 export interface AddLocationResult {
   action: AddLocationAction;
@@ -282,7 +300,10 @@ export interface InstallResult {
 
 export interface UninstallResult {
   plugin: string;
+  /** Editors something was actually removed from - not editors whose record was corrected. */
   targets: HarnessName[];
+  /** Editors that were asked and went wrong. Non-empty means the run failed. */
+  failed: HarnessName[];
 }
 
 export interface UpdateResult {

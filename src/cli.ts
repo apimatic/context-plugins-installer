@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
-import { NAMES, byName } from './harness/index.js';
+import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
@@ -134,7 +134,7 @@ export const parseTargets = (value?: string): string[] | null =>
 
 export function helpText(bin: string, brand: Pick<Brand, 'displayName' | 'label' | 'ref'>): string {
   return `
-${brand.displayName} - install marketplace plugins into Claude Code, Cursor, and VS Code.
+${brand.displayName} - install marketplace plugins into ${everyEditor('and')}.
 
 Usage
   ${bin} install <plugin> [options]
@@ -149,9 +149,12 @@ Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
   --ref <branch|tag|sha> Version to install from       (default: ${brand.ref})
   --marketplace <name>  Marketplace name              (default: read from the marketplace)
-  --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (skips the prompt)
+  --targets <list>      Comma-separated: ${NAMES.join(', ')}, all
+                        install/uninstall: which editors (skips the prompt)
+                        installed: list only what is recorded for them
   -y, --yes             Accept every detected harness without asking
-  --force               Replace a plugin installed from another marketplace
+  --force               install: replace a plugin from another marketplace
+                        uninstall: drop a record nothing could confirm
   --long                Show plugin descriptions (list)
   --json                Machine-readable output (list, installed)
   --verbose             Show underlying git / CLI detail
@@ -183,6 +186,9 @@ function report(err: unknown): void {
   log.error(errorMessage(err));
   if (log.isVerbose && err instanceof Error && err.stack) log.plain(err.stack);
 }
+
+/** Commands that read `--targets`; anywhere else it is a no-op worth saying so. */
+const TARGET_AWARE = new Set(['install', 'uninstall', 'remove', 'installed']);
 
 const TELEMETRY_ACTIONS = ['status', 'enable', 'disable'];
 
@@ -263,6 +269,12 @@ export async function run(
   const targets = parseTargets(flags.targets);
   const plugin = args[0] || process.env.CP_PLUGIN || null;
 
+  // Silently ignoring it is how `installed --targets vscode` came to answer as
+  // though the flag were absent. On stderr, so a `--json` payload stays clean.
+  if (targets?.length && command && !TARGET_AWARE.has(command)) {
+    log.warnStderr(`--targets does nothing for \`${command}\` - ignoring it.`);
+  }
+
   // One instance per run: install and uninstall report into it, and whatever
   // they reported leaves in a single request once the command is done. `remove`
   // is the same operation as `uninstall`, so it reports as one.
@@ -297,7 +309,7 @@ export async function run(
         if (!plugin) {
           throw new UserError('No plugin specified.', { hint: `Usage: ${bin} uninstall <plugin>` });
         }
-        await uninstallPlugin({ brand, plugin, targets, deps });
+        await uninstallPlugin({ brand, plugin, targets, force: flags.force, deps });
         return 0;
       }
       case 'update': {
@@ -324,7 +336,7 @@ export async function run(
             log.plain(`  ${mark} ${log.bold(p.name)}`);
             if (p.description) log.info(p.description);
             if (p.targets.length) {
-              log.info(`Installed into: ${p.targets.map((n) => byName(n).title).join(', ')}`);
+              log.info(`Installed into: ${titlesOf(p.targets)}`);
             }
           }
         } else {
@@ -388,7 +400,14 @@ export async function run(
       }
       case 'installed': {
         const data = manifest.read(paths.manifestPath());
-        const entries = data.plugins;
+        // `--targets` selects which plugins are listed, not what is said about
+        // them: each one still shows every editor it is recorded for. Filtering
+        // is unconditional because `resolveTargets` reads "nothing asked for" as
+        // every editor, and `read()` never yields a row with no known target.
+        const want = resolveTargets(targets);
+        // Naming every editor adds nothing, so `--targets all` reads as no scope.
+        const scope = want.length < NAMES.length ? ` in ${titlesOf(want)}` : '';
+        const entries = data.plugins.filter((e) => e.targets.some((t) => want.includes(t)));
         const warnGaps = (emit: (msg: string) => void) => {
           for (const msg of gapWarnings(data)) emit(msg);
         };
@@ -401,11 +420,11 @@ export async function run(
         }
         if (!entries.length) {
           warnGaps(log.warn);
-          log.info('No plugins installed yet.');
+          log.info(scope ? `No plugins installed${scope}.` : 'No plugins installed yet.');
           log.info(`Browse what is available with:  ${bin} list`);
           return 0;
         }
-        log.banner(`${log.plural(entries.length, 'plugin')} installed`);
+        log.banner(`${log.plural(entries.length, 'plugin')} installed${scope}`);
         log.plain('');
         const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
         for (const e of entries) {

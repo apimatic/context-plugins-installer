@@ -11,6 +11,14 @@ const BOM = String.fromCharCode(0xfeff);
 
 export const toKey = (dir: string): string => dir.replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// As a key: a bare quoted match also hits the path used as another setting's value.
+const namedAsKey = (mask: string, key: string): boolean =>
+  new RegExp(`"${escapeRe(key)}"\\s*:`).test(mask);
+
+/** The `"<key>": true` entry this tool writes, as opposed to any other shape. */
+const entryFor = (mask: string, key: string): boolean =>
+  new RegExp(`"${escapeRe(key)}"\\s*:\\s*true\\b`).test(mask);
 const eolOf = (text: string): string => (text.includes('\r\n') ? '\r\n' : '\n');
 
 export function freshDocument(key: string, eol = '\n'): string {
@@ -101,7 +109,10 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
   }
 
   const mask = maskComments(raw);
-  if (mask.includes(`"${key}"`)) return { action: 'already', backup: null };
+  if (entryFor(mask, key)) return { action: 'already', backup: null };
+  // A key, but not the `"<key>": true` this tool writes; a second entry would
+  // only leave a duplicate key.
+  if (namedAsKey(mask, key)) return { action: 'conflict', backup: null };
 
   const eol = eolOf(raw);
   const entry = `"${key}": true`;
@@ -139,7 +150,7 @@ export function removePluginLocation(settingsPath: string, dir: string): RemoveL
   const hadBom = original.charCodeAt(0) === 0xfeff;
   const raw = stripBom(original);
   const mask = maskComments(raw);
-  if (!mask.includes(`"${key}"`)) return { action: 'absent', backup: null };
+  if (!namedAsKey(mask, key)) return { action: 'absent', backup: null };
 
   const esc = escapeRe(key);
   // Leading-comma form first, so removing the last entry leaves no dangling comma.
@@ -150,9 +161,8 @@ export function removePluginLocation(settingsPath: string, dir: string): RemoveL
   ]
     .map((re) => re.exec(mask))
     .find((m): m is RegExpExecArray => m !== null);
-  // The path is named in the file but not as an entry this tool wrote, so there
-  // is nothing here to take out.
-  if (!hit) return { action: 'absent', backup: null };
+  // Named, but not as an entry this tool wrote - which is not absence.
+  if (!hit) return { action: 'unremovable', backup: null };
 
   const saved = backup(settingsPath);
   const out = raw.slice(0, hit.index) + raw.slice(hit.index + hit[0].length);

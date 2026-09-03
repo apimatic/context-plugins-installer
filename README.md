@@ -38,19 +38,19 @@ context-plugins telemetry [status|enable|disable]   # anonymous usage data, see 
 
 ## Options
 
-| Option                     | Default                      | Description                                                 |
-| -------------------------- | ---------------------------- | ----------------------------------------------------------- |
-| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                        |
-| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                     |
-| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                            |
-| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, or `all` — skips the prompt   |
-| `-y`, `--yes`              | off                          | Accept every detected assistant without asking              |
-| `--force`                  | off                          | Replace a plugin installed from a different marketplace     |
-| `--long`                   | off                          | Show plugin descriptions in `list`                          |
-| `--json`                   | off                          | Machine-readable output for `list` / `installed` / `doctor` |
-| `--verbose` / `--quiet`    | off                          | More or less progress detail                                |
-| `-h`, `--help`             | —                            | Show usage and exit                                         |
-| `-v`, `--version`          | —                            | Print the version and exit                                  |
+| Option                     | Default                      | Description                                                                                                                                                    |
+| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                                                                                                                           |
+| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                                                                                                                        |
+| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                                                                                                                               |
+| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, or `all`. On install/uninstall it picks the editors and skips the prompt; on `installed` it lists only what is recorded for them |
+| `-y`, `--yes`              | off                          | Accept every detected assistant without asking                                                                                                                 |
+| `--force`                  | off                          | Replace a plugin from a different marketplace; on `uninstall`, drop an unconfirmed record                                                                      |
+| `--long`                   | off                          | Show plugin descriptions in `list`                                                                                                                             |
+| `--json`                   | off                          | Machine-readable output for `list` / `installed` / `doctor`                                                                                                    |
+| `--verbose` / `--quiet`    | off                          | More or less progress detail                                                                                                                                   |
+| `-h`, `--help`             | —                            | Show usage and exit                                                                                                                                            |
+| `-v`, `--version`          | —                            | Print the version and exit                                                                                                                                     |
 
 With `--json`, stdout carries the payload and nothing else — warnings and `--verbose` detail go
 to stderr, so `... --json | jq` is safe to script against. The commands that read `installed.json` show only what
@@ -194,17 +194,20 @@ The live plugin list and count are at [the Context Plugins directory](https://hu
 
 ## Troubleshooting
 
-| Symptom                                                                   | Cause / fix                                                                                                                     |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `'claude' CLI not on PATH - skipping`                                     | Claude Code isn't installed, or its CLI isn't on `PATH`. Other assistants still install.                                        |
-| `GitHub API request failed (403)`                                         | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`.                              |
-| `'<plugin>' is already installed from a different marketplace`            | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`.                                               |
-| `Could not determine the marketplace name`                                | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`.                                           |
-| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run.             |
-| `'<plugin>' is not listed in <marketplace>`                               | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all.               |
-| A plugin fails during `update`                                            | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`.          |
-| Plugin doesn't appear after install                                       | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`.                                               |
-| `Could not edit <settings.json> - add this entry yourself`                | The file has no JSON object to splice into. Paste the printed line into `settings.json`; the plugin files are already in place. |
+| Symptom                                                                   | Cause / fix                                                                                                                                                 |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'claude' CLI not on PATH - skipping`                                     | Claude Code isn't installed, or its CLI isn't on `PATH`. Other assistants still install.                                                                    |
+| `GitHub API request failed (403)`                                         | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`.                                                          |
+| `'<plugin>' is already installed from a different marketplace`            | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`.                                                                           |
+| `Could not determine the marketplace name`                                | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`.                                                                       |
+| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run.                                         |
+| `'<plugin>' is not listed in <marketplace>`                               | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all.                                           |
+| A plugin fails during `update`                                            | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`.                                      |
+| `Nothing was installed in <assistant> - cleared that from the record`     | The record claimed an assistant that no longer had the plugin (removed by hand, or renamed upstream). The record is now correct.                            |
+| `Still recorded for <assistant>`                                          | Nothing on this machine could confirm either way - usually the assistant is not installed here. Re-run with `--force` to drop it from the record anyway.    |
+| `<settings.json> names <path> in a form this tool did not write`          | A `chat.pluginLocations` entry was hand-edited, so it cannot be spliced out safely. Delete that line yourself - the uninstall did everything else it could. |
+| Plugin doesn't appear after install                                       | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`.                                                                           |
+| `Could not edit <settings.json> - add this entry yourself`                | The file has no JSON object to splice into. Paste the printed line into `settings.json`; the plugin files are already in place.                             |
 
 ## License
 

@@ -207,6 +207,38 @@ test('a document with no object to splice into fails instead of reporting succes
   assert.equal(backupsIn(file).length, 0);
 });
 
+// The path used as some other setting's VALUE is not a plugin entry, and telling
+// the user to hand-edit one that is not there is worse than saying nothing.
+test("remove: the path as another setting's value is absence, not an entry", () => {
+  const source = `{\n  "myTool.pluginDir": "${KEY}"\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'absent');
+  assert.equal(read(file), source);
+});
+
+// The mirror of the uninstall-side warning: reporting "already registered" for
+// an entry that does not load the plugin is a green install of a broken state.
+test('add: a key that is not the entry this tool writes is a conflict, not "already"', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    "${KEY}": false\n  }\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(addPluginLocation(file, PLUGIN_DIR).action, 'conflict');
+  assert.equal(read(file), source, 'and no duplicate key is spliced in');
+  assert.equal(backupsIn(file).length, 0);
+});
+
+// 'absent' would say the file does not name this path at all; a caller has to be
+// able to tell that apart and report the leftover entry.
+test('remove: a path named in a form this tool did not write is not absence', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    "${KEY}": false\n  }\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'unremovable');
+  assert.equal(read(file), source, 'and the file is left exactly as it was');
+  assert.equal(backupsIn(file).length, 0);
+});
+
 test('remove: a commented-out entry is left where it is', () => {
   const source = `{\n  "chat.pluginLocations": {\n    // "${KEY}": true\n  }\n}\n`;
   const file = settingsWith(source);

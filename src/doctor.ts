@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } from './catalog.js';
-import { HARNESSES } from './harness/index.js';
+import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import { describeTelemetry, telemetryStatus } from './telemetry.js';
@@ -94,7 +94,7 @@ function checkEditors(pathOpts?: PathOpts): DoctorCheck[] {
       fail(
         'Any editor',
         'none found',
-        'Install Claude Code, Cursor, or VS Code - there is nowhere to install a plugin.',
+        `Install ${everyEditor('or')} - there is nowhere to install a plugin.`,
       ),
     );
   }

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { log } from '../log.js';
 import * as paths from '../paths.js';
-import type { HarnessContext, HarnessName, HarnessOpts } from '../types.js';
+import type { HarnessContext, HarnessName, HarnessOpts, UninstallOutcome } from '../types.js';
 import { replaceDir, rmrf, exists, shortPath } from '../util.js';
 
 export const name: HarnessName = 'cursor';
@@ -17,7 +17,9 @@ export const destFor = (plugin: string, opts?: HarnessOpts): string =>
 
 export async function install({ plugin, srcDir }: HarnessContext, opts?: HarnessOpts) {
   if (!detect(opts)) {
-    log.warn('~/.cursor not found - Cursor not installed, skipping.');
+    log.warn(
+      `${shortPath(paths.cursorRoot(opts), opts?.home)} not found - Cursor not installed, skipping.`,
+    );
     return false;
   }
   if (!srcDir) {
@@ -34,21 +36,33 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   replaceDir(srcDir, dest);
 
-  log.ok(`Installed -> ${shortPath(dest)}`);
+  log.ok(`Installed -> ${shortPath(dest, opts?.home)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
 
-export async function uninstall({ plugin }: HarnessContext, opts?: HarnessOpts) {
+export async function uninstall(
+  { plugin }: HarnessContext,
+  opts?: HarnessOpts,
+): Promise<UninstallOutcome> {
+  // The plugin dir lives under Cursor's own root, so a missing root makes the
+  // path unverifiable rather than empty.
+  if (!detect(opts)) {
+    log.warn(
+      `${shortPath(paths.cursorRoot(opts), opts?.home)} not found - Cursor not installed, skipping.`,
+    );
+    return 'skipped';
+  }
   const dest = destFor(plugin, opts);
   if (!exists(dest)) {
-    log.info(`Nothing to remove at ${shortPath(dest)}`);
-    return false;
+    log.info(`Nothing to remove at ${shortPath(dest, opts?.home)}`);
+    return 'absent';
   }
   rmrf(dest);
-  log.ok(`Removed -> ${shortPath(dest)}`);
+  log.ok(`Removed -> ${shortPath(dest, opts?.home)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
-  return true;
+  return 'removed';
 }
 
-export const location = (opts?: HarnessOpts): string => shortPath(paths.cursorRoot(opts));
+export const location = (opts?: HarnessOpts): string =>
+  shortPath(paths.cursorRoot(opts), opts?.home);
