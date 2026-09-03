@@ -186,7 +186,15 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   installed?" is the one question it may only ask when nothing changed, nothing
   failed, and no row survived to explain itself. The `--force` hint names the
   stuck targets themselves rather than echoing the run's `--targets`, so it can
-  never widen what the user asked for. Editor names in prose come from `everyEditor()`, never a
+  never widen what the user asked for. Both the record write and every line of
+  that summary come from one pure `decideUninstall` over `UninstallFacts`, and
+  `test/uninstall-decision.test.ts` walks the whole space it is defined over -
+  every row shape x every outcome for every editor (including "not asked") x
+  `--force` - asserting the invariants rather than a handful of cases. That test
+  is the reason this stopped being a bug a review round rediscovers in a new
+  shape: add an outcome or a row shape and it will tell you which invariant the
+  new combination breaks. Keep new reporting logic inside `uninstallLines` so it
+  stays covered. Editor names in prose come from `everyEditor()`, never a
   literal. `titlesOf` and `everyEditor` live in `harness/index.ts`, next to
   `NAMES` and `byName`, and `install.ts`, `cli.ts` and `doctor.ts` all use them,
   so adding a harness leaves only `CLAUDE.md` and `package.json` to edit by hand.

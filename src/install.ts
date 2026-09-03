@@ -53,6 +53,181 @@ function rowShape(recorded: Record<string, unknown> | null | undefined): RowShap
   return targets.some(isHarnessName) ? 'list' : 'foreign';
 }
 
+/** Everything the record and the summary are derived from. */
+export interface UninstallFacts {
+  /** The raw recorded row, exactly as it is on disk, or null for no row. */
+  recorded: Record<string, unknown> | null;
+  /** What each editor this run asked answered. */
+  outcomes: ReadonlyMap<HarnessName, UninstallOutcome>;
+  /** The editors this run asked. */
+  want: readonly HarnessName[];
+  force: boolean;
+}
+
+export interface UninstallDecision {
+  /** Editors something was actually removed from. */
+  removed: HarnessName[];
+  /** Editors that were asked and went wrong. Non-empty means the run failed. */
+  failed: HarnessName[];
+  /** Recorded targets taken off the row because nothing was there. */
+  cleared: HarnessName[];
+  /** Recorded targets dropped by `--force` with nothing confirming them. */
+  forced: HarnessName[];
+  /** Known targets still on the row afterwards, however they got there. */
+  stuck: HarnessName[];
+  /** Target names this build cannot act on that went with the row anyway. */
+  droppedUnknown: string[];
+  write: 'none' | 'remove' | 'shorten';
+  /** The `targets` a `shorten` writes back. */
+  targets: unknown[];
+  /** What the row looks like after the write; `none` once it is gone. */
+  rowLeft: RowShape;
+}
+
+/**
+ * What to write, and what to say about it. These used to be derived separately
+ * from the same facts, and four review rounds each found another combination
+ * where they disagreed or where the prose asserted something no editor had
+ * established. One pure function now, over a state space small enough to
+ * enumerate - `test/uninstall-decision.test.ts` asserts the invariants over all
+ * of it, so a bad combination is a failing test rather than a later finding.
+ */
+export function decideUninstall({
+  recorded,
+  outcomes,
+  want,
+  force,
+}: UninstallFacts): UninstallDecision {
+  const of = (...kinds: UninstallOutcome[]): HarnessName[] =>
+    [...outcomes].filter(([, o]) => kinds.includes(o)).map(([n]) => n);
+
+  const row = rowShape(recorded);
+  const listed: unknown[] = Array.isArray(recorded?.targets) ? recorded.targets : [];
+  const onRow = (names: HarnessName[]): HarnessName[] => names.filter((n) => listed.includes(n));
+
+  // `absent` clears too: the row is what drifted, not the run, and leaving it
+  // would strand the plugin - unremovable, and failing every `update`.
+  const clear = force ? [...outcomes.keys()] : of('removed', 'absent');
+  // Foreign target names stay on the record for whichever tool wrote them.
+  const remaining = listed.filter((t) => !clear.some((c) => c === t));
+
+  // A row with no per-target list to shorten can only be dropped or kept whole,
+  // so the bar is higher. `targets: []` reads as "every harness", which means
+  // only a run that asked every harness - and got an answer from each - may
+  // conclude the whole row is stale. A `targets` some other tool wrote is never
+  // dropped on an inference at all; only an explicit `--force` may.
+  const askedEveryEditor = NAMES.every((n) => want.includes(n));
+  const answeredAll = of('failed', 'skipped').length === 0;
+  let dropWhole = false;
+  if (row === 'foreign') dropWhole = force;
+  else if (row === 'unusable') dropWhole = force || (askedEveryEditor && answeredAll);
+
+  const emptied = row === 'list' && remaining.length === 0;
+  // A row `--force` would leave naming nothing this build can act on takes a
+  // second, identical `--force` to go. One is enough: `--force` is already the
+  // switch that accepts losing record fidelity, and it drops a row that arrived
+  // in that state, so it should not stop half way to one.
+  const strandedByForce = force && row === 'list' && !remaining.some(isHarnessName);
+  const rowGone = Boolean(recorded) && (emptied || dropWhole || strandedByForce);
+  const shorten = Boolean(recorded) && row === 'list' && remaining.length < listed.length;
+
+  return {
+    removed: of('removed'),
+    failed: of('failed'),
+    // What came off because an editor said there was nothing there. Under
+    // --force it is not this: --force is then the reason any of it came off,
+    // and only `forced` may speak for it.
+    cleared: force ? [] : onRow(of('absent')),
+    forced: force ? onRow([...outcomes.keys()]) : [],
+    // Whatever this build still recognises on the row after the write, however
+    // it got there - a target this run could not settle, or one it never asked
+    // because `--targets` scoped it out.
+    stuck: rowGone ? [] : remaining.filter(isHarnessName),
+    // Named, never silent: this is another tool's data going out with the row.
+    droppedUnknown: rowGone ? listed.filter((t) => !isHarnessName(t)).map(String) : [],
+    write: rowGone ? 'remove' : shorten ? 'shorten' : 'none',
+    targets: remaining,
+    rowLeft:
+      !recorded || rowGone
+        ? 'none'
+        : rowShape({ ...recorded, targets: row === 'list' ? remaining : recorded.targets }),
+  };
+}
+
+export interface SummaryLine {
+  level: 'ok' | 'warn' | 'info';
+  text: string;
+}
+
+/**
+ * One line per thing that actually happened, and nothing that did not. Pure, so
+ * the exhaustive test reads what the user would be told for every reachable
+ * combination rather than the handful someone thought to try.
+ */
+export function uninstallLines(
+  { removed, cleared, forced, failed, stuck, rowLeft, write, droppedUnknown }: UninstallDecision,
+  { plugin, bin }: { plugin: string; bin: string },
+): SummaryLine[] {
+  const lines: SummaryLine[] = [];
+  if (removed.length) lines.push({ level: 'ok', text: `Uninstalled from: ${titlesOf(removed)}` });
+  if (cleared.length) {
+    lines.push({
+      level: 'ok',
+      text: `Nothing was installed in ${titlesOf(cleared)} - cleared that from the record.`,
+    });
+  }
+  if (forced.length) {
+    lines.push({
+      level: 'warn',
+      text: `Dropped from the record without confirming removal: ${titlesOf(forced)}`,
+    });
+  }
+  // A row that went for a reason none of the lines above covers: it named
+  // nothing this build could act on, and every editor answered.
+  if (write === 'remove' && !removed.length && !cleared.length && !forced.length) {
+    lines.push({ level: 'ok', text: `Dropped the stale record for '${plugin}'.` });
+  }
+  if (droppedUnknown.length) {
+    lines.push({
+      level: 'warn',
+      text: `Dropped target name(s) this version cannot act on: ${droppedUnknown.join(', ')}`,
+    });
+  }
+
+  // A row this build can no longer act on at all. It has to be named: left
+  // unmentioned, `read()` files it under `ignored` and `update` fails on it on
+  // every future run, and clearing it takes a `--force` nothing asked for.
+  const stranded = rowLeft === 'foreign' || rowLeft === 'unusable';
+  // The scope is the stuck targets themselves, never the `--targets` of the run
+  // that printed it: naming them exactly cannot widen what the user asked for.
+  const scope = stuck.length ? ` --targets ${stuck.join(',')}` : '';
+  const forceLine = `\`${bin} uninstall ${plugin}${scope} --force\` drops it without confirming.`;
+  if (stranded) {
+    lines.push({
+      level: 'warn',
+      text:
+        rowLeft === 'foreign'
+          ? `The record for '${plugin}' has a target list this version cannot read.`
+          : `The record for '${plugin}' names no editor to remove from.`,
+    });
+    lines.push({ level: 'info', text: forceLine });
+  } else if (stuck.length) {
+    lines.push({
+      level: 'info',
+      text: `Still recorded for ${titlesOf(stuck)} - nothing here could confirm otherwise.`,
+    });
+    lines.push({ level: 'info', text: forceLine });
+  }
+
+  // "Are they installed?" is only the right question when nothing happened and
+  // there is nothing else to say. A failure is a different answer, and the
+  // thrown error names it, so no line here repeats it.
+  if (!lines.length && !failed.length) {
+    lines.push({ level: 'warn', text: `Nothing was changed. Are ${everyEditor()} installed?` });
+  }
+  return lines;
+}
+
 const noTrack: TrackFn = () => {};
 
 // A sink listens; it never takes part. Whatever it throws stays out of the run,
@@ -455,11 +630,9 @@ async function runUninstall({
   log.info(`Removing from: ${titlesOf(want)}`);
   log.rule();
 
-  // One entry per editor visited. Every question the record and the summary ask
-  // is a filter over this, so the three cannot drift apart.
+  // One entry per editor visited. `decideUninstall` derives everything the
+  // record and the summary say from exactly this, so the two cannot disagree.
   const outcomes = new Map<HarnessName, UninstallOutcome>();
-  const of = (...kinds: UninstallOutcome[]): HarnessName[] =>
-    [...outcomes].filter(([, o]) => kinds.includes(o)).map(([n]) => n);
 
   for (const name of want) {
     const harness = byName(name);
@@ -478,64 +651,24 @@ async function runUninstall({
     }
   }
 
-  // `absent` clears too: the row is what drifted, not the run, and leaving it
-  // would strand the plugin - unremovable, and failing every `update`.
-  const clear = force ? [...outcomes.keys()] : of('removed', 'absent');
-  const removed = of('removed');
-  const failed = of('failed');
-  const row = rowShape(recorded);
-  const listed: unknown[] = Array.isArray(recorded?.targets) ? recorded.targets : [];
-  const onRow = (names: HarnessName[]): HarnessName[] => names.filter((n) => listed.includes(n));
-  // Foreign target names stay on the record for whichever tool wrote them.
-  const remaining = listed.filter((t) => !clear.some((c) => c === t));
+  const decision = decideUninstall({ recorded: recorded ?? null, outcomes, want, force });
 
-  // A row with no per-target list to shorten can only be dropped or kept whole,
-  // so the bar is higher. `targets: []` reads as "every harness", which means
-  // only a run that actually asked every harness - and got an answer from each -
-  // may conclude the whole row is stale. A `targets` some other tool wrote is
-  // never dropped on an inference at all; only an explicit --force may.
-  const askedEveryEditor = NAMES.every((n) => want.includes(n));
-  const answeredAll = of('failed', 'skipped').length === 0;
-  let dropWhole = false;
-  if (row === 'foreign') dropWhole = force;
-  else if (row === 'unusable') dropWhole = force || (askedEveryEditor && answeredAll);
-
-  const emptied = row === 'list' && remaining.length === 0;
-  const rowGone = Boolean(recorded) && (emptied || dropWhole);
-  if (rowGone) manifest.remove(manifestFile, { plugin, repo: brand.repo });
-  else if (recorded && row === 'list' && remaining.length < listed.length) {
-    manifest.upsert(manifestFile, { ...recorded, targets: remaining });
+  if (decision.write === 'remove') manifest.remove(manifestFile, { plugin, repo: brand.repo });
+  else if (decision.write === 'shorten' && recorded) {
+    manifest.upsert(manifestFile, { ...recorded, targets: decision.targets });
   }
 
-  // What the row is NOW, which is what the summary has to speak about. A `list`
-  // shortened down to names this build does not know is stranded exactly like a
-  // row that arrived that way - `read()` files it under `ignored` and `update`
-  // fails on it forever - and saying nothing about it left the user needing a
-  // second --force run that nothing had mentioned.
-  const rowLeft: RowShape =
-    !recorded || rowGone
-      ? 'none'
-      : rowShape({ ...recorded, targets: row === 'list' ? remaining : recorded.targets });
+  // No lines means the only thing that happened was a failure, which the thrown
+  // error below reports - so the framing is skipped rather than drawn empty.
+  const lines = uninstallLines(decision, { plugin, bin: brand.bin });
+  if (lines.length) {
+    log.plain('');
+    log.rule();
+    for (const line of lines) log[line.level](line.text);
+    log.plain('');
+  }
 
-  summarizeUninstall({
-    removed,
-    plugin,
-    // Only what this run took off the row, and only if it was on it.
-    cleared: onRow(of('absent')),
-    // Dropped on --force alone: no editor confirmed these, so nothing else in
-    // the summary may imply one did.
-    forced: force ? onRow(of('failed', 'skipped')) : [],
-    failed,
-    // Whatever this build still recognises on the row after the write, however
-    // it got there - a target this run could not settle, or one it never asked
-    // because --targets scoped it out. Both are "still recorded", and naming
-    // them is what makes the --force hint honest under --force too.
-    stuck: remaining.filter(isHarnessName),
-    rowLeft,
-    bin: brand.bin,
-  });
-
-  return { plugin, targets: removed, failed };
+  return { plugin, targets: decision.removed, failed: decision.failed };
 }
 
 export interface UpdateOptions {
@@ -674,80 +807,6 @@ export async function listPlugins({
       };
     }),
   };
-}
-
-interface UninstallSummary {
-  removed: HarnessName[];
-  plugin: string;
-  /** Recorded targets taken off the row because nothing was there. */
-  cleared: HarnessName[];
-  /** Dropped by --force without any editor confirming it. */
-  forced: HarnessName[];
-  /** Editors that were asked and went wrong. */
-  failed: HarnessName[];
-  /** Known targets this build still sees on the row after the write. */
-  stuck: HarnessName[];
-  /** What the row looks like now: `none` once it is gone. */
-  rowLeft: RowShape;
-  bin: string;
-}
-
-/**
- * One line per thing that actually happened, and nothing that did not. Every
- * earlier shape of this asserted a finding somewhere - "cleared the stale
- * record" over a --force that confirmed nothing, "nothing was changed" over a
- * row it had just shortened, and once over a demonstrable failure - so no line
- * here may stand in for another.
- */
-function summarizeUninstall({
-  removed,
-  plugin,
-  cleared,
-  forced,
-  failed,
-  stuck,
-  rowLeft,
-  bin,
-}: UninstallSummary): void {
-  log.plain('');
-  log.rule();
-  if (removed.length) log.ok(`Uninstalled from: ${titlesOf(removed)}`);
-  if (cleared.length) {
-    log.ok(`Nothing was installed in ${titlesOf(cleared)} - cleared that from the record.`);
-  }
-  if (forced.length) {
-    log.warn(`Dropped from the record without confirming removal: ${titlesOf(forced)}`);
-  }
-
-  // A row this build can no longer act on at all. It has to be named: left
-  // unmentioned, `read()` files it under `ignored` and `update` fails on it on
-  // every future run, and clearing it takes a --force nothing asked for.
-  const stranded = rowLeft === 'foreign' || rowLeft === 'unusable';
-  // The scope is the stuck targets themselves, never the --targets of the run
-  // that printed it: naming them exactly cannot widen what the user asked for.
-  const scope = stuck.length ? ` --targets ${stuck.join(',')}` : '';
-  const forceLine = `\`${bin} uninstall ${plugin}${scope} --force\` drops it without confirming.`;
-  if (stranded) {
-    log.warn(
-      rowLeft === 'foreign'
-        ? `The record for '${plugin}' has a target list this version cannot read.`
-        : `The record for '${plugin}' names no editor to remove from.`,
-    );
-    log.info(forceLine);
-  } else if (stuck.length) {
-    log.info(`Still recorded for ${titlesOf(stuck)} - nothing here could confirm otherwise.`);
-    log.info(forceLine);
-  }
-
-  // "Are they installed?" is only the right question when every editor asked was
-  // simply not there and there is nothing else to say. A failure is a different
-  // answer (and the thrown error names it, so no line here repeats it), a change
-  // is another, and a row that survived has just explained itself.
-  const changed = removed.length || cleared.length || forced.length || rowLeft === 'none';
-  if (!changed && !failed.length && !stranded && !stuck.length) {
-    log.warn(`Nothing was changed. Are ${everyEditor()} installed?`);
-  }
-  log.plain('');
 }
 
 function summarize(done: HarnessName[], verb: string, unchanged: HarnessName[] = []): void {
