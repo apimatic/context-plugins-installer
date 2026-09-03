@@ -8,8 +8,15 @@ import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './instal
 import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
-import type { Brand, DoctorStatus, Flags, Manifest, ParsedArgs, Profile } from './types.js';
-import { UserError, isPlainObject, errorMessage } from './util.js';
+import {
+  COLLECTED,
+  createTelemetry,
+  describeTelemetry,
+  setTelemetryEnabled,
+  telemetryStatus,
+} from './telemetry.js';
+import type { Brand, Deps, DoctorStatus, Flags, Manifest, ParsedArgs, Profile } from './types.js';
+import { UserError, isPlainObject, errorMessage, shortPath } from './util.js';
 
 // package.json is one directory up from both src/ (tests) and lib/ (published).
 function packageVersion(): string {
@@ -136,6 +143,7 @@ Usage
   ${bin} list
   ${bin} installed
   ${bin} doctor
+  ${bin} telemetry [status|enable|disable]
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
@@ -155,6 +163,8 @@ Environment
   CP_PLUGIN, CP_REPO, CP_REF, CP_MARKETPLACE   Defaults for the options above
   GITHUB_TOKEN                                  Raises the GitHub API rate limit
   CP_STATE_DIR                                  Override ~/.context-plugins
+  CP_TELEMETRY=off, DO_NOT_TRACK=1              Send no anonymous usage data
+  CP_TELEMETRY=log                              Print it to stderr instead of sending
 
 Examples
   ${bin} install paypal
@@ -172,6 +182,43 @@ function report(err: unknown): void {
   }
   log.error(errorMessage(err));
   if (log.isVerbose && err instanceof Error && err.stack) log.plain(err.stack);
+}
+
+const TELEMETRY_ACTIONS = ['status', 'enable', 'disable'];
+
+function telemetryCommand(action: string | undefined, brand: Brand, bin: string): number {
+  const verb = action ?? 'status';
+  if (!TELEMETRY_ACTIONS.includes(verb)) {
+    throw new UserError(`Unknown telemetry action: ${verb}`, {
+      hint: `Usage: ${bin} telemetry [status|enable|disable]`,
+    });
+  }
+  if (verb !== 'status') {
+    const enabled = verb === 'enable';
+    if (!setTelemetryEnabled(enabled)) {
+      throw new UserError(`Could not write ${shortPath(paths.telemetryPath())}.`, {
+        hint: enabled
+          ? 'Check the permissions on the state directory, or point CP_STATE_DIR somewhere writable.'
+          : 'CP_TELEMETRY=off in the environment needs no file.',
+      });
+    }
+    log.ok(`Telemetry ${enabled ? 'enabled' : 'disabled'}.`);
+  }
+
+  const status = telemetryStatus({ brand });
+  const effective = describeTelemetry(status, bin);
+  if (verb === 'status') {
+    log.plain(`Telemetry is ${effective}.`);
+  } else if (status.mode !== (verb === 'enable' ? 'on' : 'off')) {
+    // The choice is saved, but a broader switch still decides what happens.
+    log.info(`Right now it is ${effective}; that setting takes precedence.`);
+  }
+  if (status.id) log.info(`Anonymous machine id: ${status.id} (${shortPath(status.file)})`);
+  log.info(`Collected: ${COLLECTED}.`);
+  log.info(
+    `Change it with '${bin} telemetry enable|disable', CP_TELEMETRY=off, or DO_NOT_TRACK=1.`,
+  );
+  return 0;
 }
 
 const DOCTOR_SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
@@ -216,6 +263,16 @@ export async function run(
   const targets = parseTargets(flags.targets);
   const plugin = args[0] || process.env.CP_PLUGIN || null;
 
+  // One instance per run: install and uninstall report into it, and whatever
+  // they reported leaves in a single request once the command is done. `remove`
+  // is the same operation as `uninstall`, so it reports as one.
+  const telemetry = createTelemetry({
+    brand,
+    command: command === 'remove' ? 'uninstall' : command,
+    version: packageVersion,
+  });
+  const deps: Deps = { track: telemetry.track };
+
   try {
     switch (command) {
       case 'install': {
@@ -231,6 +288,7 @@ export async function run(
           targets,
           force: flags.force,
           assumeYes: flags.yes,
+          deps,
         });
         return 0;
       }
@@ -239,11 +297,11 @@ export async function run(
         if (!plugin) {
           throw new UserError('No plugin specified.', { hint: `Usage: ${bin} uninstall <plugin>` });
         }
-        await uninstallPlugin({ brand, plugin, targets });
+        await uninstallPlugin({ brand, plugin, targets, deps });
         return 0;
       }
       case 'update': {
-        const result = await updateAll({ brand });
+        const result = await updateAll({ brand, deps });
         return result.failed.length ? 1 : 0;
       }
       case 'list': {
@@ -359,6 +417,8 @@ export async function run(
         log.plain('');
         return 0;
       }
+      case 'telemetry':
+        return telemetryCommand(args[0], brand, bin);
       default:
         throw new UserError(`Unknown command: ${command}`, {
           hint: `Run \`${bin} --help\` for usage.`,
@@ -367,5 +427,7 @@ export async function run(
   } catch (err) {
     report(err);
     return 1;
+  } finally {
+    await telemetry.flush();
   }
 }

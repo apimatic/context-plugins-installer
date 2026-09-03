@@ -24,6 +24,10 @@ export function manifestPath(o?: PathOpts): string {
   return ctx(o).p.join(stateDir(o), 'installed.json');
 }
 
+export function telemetryPath(o?: PathOpts): string {
+  return ctx(o).p.join(stateDir(o), 'telemetry.json');
+}
+
 export function vscodeStoreDir(o?: PathOpts): string {
   return ctx(o).p.join(stateDir(o), 'vscode');
 }

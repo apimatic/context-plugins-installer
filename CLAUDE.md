@@ -54,6 +54,28 @@ that.
 - **TypeScript stays on 6.x** until typescript-eslint's peer range admits 7 (`<6.1`
   today). TypeScript 7 is also what breaks eslint-plugin-sonarjs v2+, which is why
   sonarjs is pinned to v1.
+- **Telemetry is anonymous, flat, and optional.** Events leave only through
+  `src/telemetry.ts`, in one POST to Mixpanel's `/track` at the end of `cli.run`
+  (`ip=0`, so no geolocation), bounded by a timeout and never allowed to fail or hold
+  a run. The project token in `brand.ts` is a public routing key, not a secret; the
+  project is US-resident, so the host stays `api.mixpanel.com`. Properties are
+  primitives only, and `COLLECTED` in `telemetry.ts` is the one prose inventory the
+  notice and `telemetry status` print; keep it, `common`, and install.ts's per-event
+  properties (`plugin` once validated, `harness`, `marketplace` as the built-in repo or
+  `custom`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step. Never send
+  a path, hostname, username, error message, env var, or a user-supplied `--repo`.
+  Opt-out precedence is `DO_NOT_TRACK`, `CP_TELEMETRY=off`, rc `"telemetry": false` in
+  _either_ rc file, then the state file, which fails closed: a `telemetry.json` that
+  exists but cannot be read or parsed disables telemetry rather than being replaced, and
+  `enabled: false` is honoured even without an id. If the state directory cannot be
+  written, nothing is sent (no stable id, and the notice would repeat).
+  `CP_TELEMETRY=log` prints the payload instead of sending it. The one-time notice and
+  the log mode go to stderr through `log.notice`, which ignores `--quiet` on purpose.
+  `createTelemetry` does no I/O and never dereferences global `fetch`; everything is
+  resolved in `flush`, only once something was tracked. Tests never reach the network:
+  `scripts/test.js` sets `CP_TELEMETRY=off`, the CI smoke job does too, and
+  install/uninstall report through the `deps.track` seam, wrapped so a throwing sink
+  cannot fail a run.
 
 ## Architecture
 
@@ -103,7 +125,17 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   backup is taken before every mutation.
 - **Configuration** resolves flag → `CP_*` env → `.contextpluginsrc` (cwd, then home)
   → preset profile → defaults (`src/brand.ts`). `run.js` exists so another brand can
-  ship this CLI preconfigured.
+  ship this CLI preconfigured. The Mixpanel token and host are profile fields
+  (`telemetryToken`, `telemetryHost`). Telemetry is opt-in for brands: a profile that
+  names its own `repo` gets no token unless it also sets one, because the default token
+  is this project's and must not collect on another's behalf. A profile that keeps the
+  default marketplace inherits it.
+- **Telemetry** (`src/telemetry.ts`): `createTelemetry` queues, `flush` sends once.
+  `install.ts` reports through `deps.track`, so library callers never phone home and a
+  test captures events with an array. `cli.run` owns the one instance per process and
+  flushes in a `finally`, which makes a whole `update` one request. `telemetryStatus`
+  and `describeTelemetry` back both `doctor` and `telemetry status`; the id file is
+  minted lazily, so read-only commands leave nothing behind.
 
 ## Decisions already made
 

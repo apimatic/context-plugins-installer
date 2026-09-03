@@ -14,7 +14,7 @@ import {
 } from '../src/install.js';
 import * as manifest from '../src/manifest.js';
 import * as paths from '../src/paths.js';
-import type { Deps, HarnessName } from '../src/types.js';
+import type { Brand, Deps, HarnessName } from '../src/types.js';
 import { UserError, isPlainObject } from '../src/util.js';
 import { tmpDir, cleanupAll, stubFetch, silenceConsole, parseJsonc } from './helpers.js';
 
@@ -785,4 +785,182 @@ test('a row mixing a known target with a foreign one keeps the foreign name', as
   const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins[0];
   assert.deepEqual(after.targets, [...TARGETS, 'zed'], 'known names canonical, foreign kept');
   assert.equal(after.pinned, true, 'and so is a field this build does not model');
+});
+
+interface Tracked {
+  name: string;
+  properties: Record<string, unknown>;
+}
+
+/** The deps for an install, plus a track seam that collects into `events`. */
+function tracking(spec: DepsSpec, events: Tracked[]): Deps {
+  return {
+    ...deps(spec),
+    track: (name, properties = {}) => {
+      events.push({ name, properties });
+    },
+  };
+}
+
+test('install reports one event per editor through the track seam, flat and without paths', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const events: Tracked[] = [];
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: tracking({ repo, srcDir: pluginSource() }, events),
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(
+    events.map((e) => [e.name, e.properties.harness]),
+    [
+      ['Context Plugin Installed', 'cursor'],
+      ['Context Plugin Installed', 'vscode'],
+    ],
+  );
+  for (const e of events) {
+    assert.equal(e.properties.plugin, 'my-sdk');
+    assert.equal(e.properties.marketplace, repo, 'the built-in marketplace is named');
+    assert.equal(e.properties.targets_explicit, true);
+    assert.equal(typeof e.properties.duration_ms, 'number');
+    const serialized = JSON.stringify(e);
+    const escapedRoot = JSON.stringify(m.root).slice(1, -1);
+    assert.ok(!serialized.includes(escapedRoot), 'no path from this machine');
+    for (const value of Object.values(e.properties)) {
+      assert.ok(value === null || typeof value !== 'object', 'every property is a primitive');
+    }
+  }
+});
+
+test('a custom marketplace is reported as "custom"; a failure as its stage and kind, never its message', async () => {
+  const m = machine();
+  const repo = 'acme/plugin-marketplace';
+  const events: Tracked[] = [];
+  const spec = { repo, marketplace: 'acme', plugin: 'acme-sdk', srcDir: pluginSource('acme-sdk') };
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'acme-sdk',
+      targets: TARGETS,
+      deps: tracking(spec, events),
+      pathOpts: m.pathOpts,
+    }),
+  );
+  assert.equal(events[0]?.properties.marketplace, 'custom');
+
+  events.length = 0;
+  await assert.rejects(
+    quietly(() =>
+      installPlugin({
+        brand: brandFor(repo),
+        plugin: 'missing-sdk',
+        targets: TARGETS,
+        deps: tracking(spec, events),
+        pathOpts: m.pathOpts,
+      }),
+    ),
+    UserError,
+  );
+  assert.deepEqual(
+    events.map((e) => e.name),
+    ['Context Plugin Install Failed'],
+  );
+  assert.equal(events[0]?.properties.plugin, 'missing-sdk');
+  assert.equal(events[0]?.properties.stage, 'resolve');
+  assert.equal(events[0]?.properties.error_kind, 'user');
+  assert.ok(!JSON.stringify(events[0]).includes('not listed'), 'the message stays home');
+
+  // An id that failed validation is not echoed back either.
+  events.length = 0;
+  await assert.rejects(
+    quietly(() =>
+      installPlugin({
+        brand: brandFor(repo),
+        plugin: '../etc',
+        targets: TARGETS,
+        deps: tracking(spec, events),
+        pathOpts: m.pathOpts,
+      }),
+    ),
+    UserError,
+  );
+  assert.equal(events[0]?.properties.plugin, null);
+});
+
+test('uninstall reports one event per editor it removed', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const events: Tracked[] = [];
+  const d = tracking({ repo, srcDir: pluginSource() }, events);
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: d,
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  events.length = 0;
+  await quietly(() =>
+    uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: d,
+      pathOpts: m.pathOpts,
+    }),
+  );
+  assert.deepEqual(
+    events.map((e) => [e.name, e.properties.harness, e.properties.plugin]),
+    [
+      ['Context Plugin Uninstalled', 'cursor', 'my-sdk'],
+      ['Context Plugin Uninstalled', 'vscode', 'my-sdk'],
+    ],
+  );
+});
+
+test('a throwing track sink, or a Brand without telemetry config, never fails an install', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const spec = { repo, srcDir: pluginSource() };
+  const throwing: Deps = {
+    ...deps(spec),
+    track: () => {
+      throw new Error('sink is down');
+    },
+  };
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: throwing,
+      pathOpts: m.pathOpts,
+    }),
+  );
+  assert.deepEqual(result.targets, ['cursor', 'vscode']);
+
+  // A Brand built by an older caller has no telemetry field at all.
+  const legacy = { ...brandFor(repo), telemetry: undefined } as unknown as Brand;
+  const events: Tracked[] = [];
+  const again = await quietly(() =>
+    installPlugin({
+      brand: legacy,
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      force: true,
+      deps: tracking(spec, events),
+      pathOpts: m.pathOpts,
+    }),
+  );
+  assert.deepEqual(again.targets, ['cursor', 'vscode']);
+  assert.equal(events[0]?.properties.marketplace, 'custom');
 });

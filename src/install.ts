@@ -5,6 +5,7 @@ import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import { isInteractive, createPrompter } from './prompt.js';
 import { createSession } from './session.js';
+import { EVENTS, marketplaceLabel } from './telemetry.js';
 import type {
   Brand,
   Deps,
@@ -14,12 +15,47 @@ import type {
   ListResult,
   PathOpts,
   Session,
+  TrackFn,
   UninstallResult,
   UpdateResult,
 } from './types.js';
-import { assertPlugin, nonEmptyString, UserError, errorMessage } from './util.js';
+import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } from './util.js';
 
 const nowIso = (): string => new Date().toISOString();
+
+const noTrack: TrackFn = () => {};
+
+// A sink listens; it never takes part. Whatever it throws stays out of the run,
+// which has already written its files by the time the success events fire.
+function sinkOf(deps: Deps | undefined): TrackFn {
+  const track = deps?.track;
+  if (!track) return noTrack;
+  return (name, properties) => {
+    try {
+      track(name, properties);
+    } catch (err) {
+      log.debug(`telemetry: ${errorMessage(err)}`);
+    }
+  };
+}
+
+/** How far a run got before it threw; coarse on purpose, so no message travels. */
+type Stage = 'resolve' | 'harnesses' | 'fetch' | 'install';
+
+// An error message can quote a path or a marketplace name, so only its class
+// goes out - and the plugin id only once it has passed validation.
+function trackFailure(
+  track: TrackFn,
+  event: string,
+  { plugin, brand, stage, err }: { plugin: string; brand: Brand; stage?: Stage; err: unknown },
+): void {
+  track(event, {
+    plugin: isPluginId(plugin) ? plugin : null,
+    marketplace: marketplaceLabel(brand),
+    stage: stage ?? null,
+    error_kind: err instanceof UserError ? 'user' : 'unexpected',
+  });
+}
 
 type Ask = (question: string, defaultYes: boolean) => boolean | Promise<boolean>;
 
@@ -108,6 +144,7 @@ export async function installPlugin({
 }: InstallOptions): Promise<InstallResult> {
   const ownSession = !session;
   const run = session || createSession({ deps });
+  const progress = { stage: 'resolve' as Stage };
   try {
     return await runInstall({
       brand,
@@ -119,7 +156,16 @@ export async function installPlugin({
       deps,
       pathOpts,
       run,
+      progress,
     });
+  } catch (err) {
+    trackFailure(sinkOf(deps), EVENTS.installFailed, {
+      plugin,
+      brand,
+      stage: progress.stage,
+      err,
+    });
+    throw err;
   } finally {
     if (ownSession) await run.cleanup();
   }
@@ -130,6 +176,8 @@ interface RunInstallArgs extends InstallOptions {
   assumeYes: boolean;
   deps: Deps;
   run: Session;
+  /** Written as the run advances, so the wrapper can say where a throw came from. */
+  progress: { stage: Stage };
 }
 
 async function runInstall({
@@ -142,8 +190,11 @@ async function runInstall({
   deps,
   pathOpts,
   run,
+  progress,
 }: RunInstallArgs): Promise<InstallResult> {
   assertPlugin(plugin);
+  const track = sinkOf(deps);
+  const startedAt = Date.now();
   const effectiveRef = ref || brand.ref;
   const manifestFile = paths.manifestPath(pathOpts);
 
@@ -157,6 +208,7 @@ async function runInstall({
     catalog: await run.catalog({ repo: brand.repo, ref: effectiveRef }),
   });
 
+  progress.stage = 'harnesses';
   const requested = resolveTargets(targets);
   assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
   const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
@@ -225,6 +277,7 @@ async function runInstall({
   const needsSource = want.some((name) => byName(name).needsSource);
   let srcDir: string | null = null;
   if (needsSource) {
+    progress.stage = 'fetch';
     log.step('[Fetch]');
     srcDir = await run.source({
       repo: brand.repo,
@@ -234,6 +287,7 @@ async function runInstall({
     log.ok('Plugin source ready');
   }
 
+  progress.stage = 'install';
   const installed: HarnessName[] = [];
   for (const name of want) {
     const harness = byName(name);
@@ -268,6 +322,16 @@ async function runInstall({
     });
   }
 
+  for (const name of installed) {
+    track(EVENTS.installed, {
+      plugin,
+      harness: name,
+      marketplace: marketplaceLabel(brand),
+      targets_explicit: explicit,
+      duration_ms: Date.now() - startedAt,
+    });
+  }
+
   summarize(installed, 'Installed into', untouched);
 
   return {
@@ -287,7 +351,29 @@ export interface UninstallOptions {
   pathOpts?: PathOpts;
 }
 
-export async function uninstallPlugin({
+export async function uninstallPlugin(options: UninstallOptions): Promise<UninstallResult> {
+  const track = sinkOf(options.deps);
+  try {
+    const result = await runUninstall(options);
+    for (const name of result.targets) {
+      track(EVENTS.uninstalled, {
+        plugin: result.plugin,
+        harness: name,
+        marketplace: marketplaceLabel(options.brand),
+      });
+    }
+    return result;
+  } catch (err) {
+    trackFailure(track, EVENTS.uninstallFailed, {
+      plugin: options.plugin,
+      brand: options.brand,
+      err,
+    });
+    throw err;
+  }
+}
+
+async function runUninstall({
   brand,
   plugin,
   targets,

@@ -11,18 +11,26 @@ export const DEFAULT_PROFILE: Readonly<{
   repo: string;
   ref: string;
   bin: string;
+  telemetryToken: string | null;
+  telemetryHost: string;
 }> = Object.freeze({
   id: null, // null => read the name from the repo's marketplace.json
   displayName: 'Context Plugins',
   repo: 'context-plugins/plugin-marketplace',
   ref: 'main',
   bin: 'context-plugins',
+  // A Mixpanel project token is a routing key meant for untrusted clients, not
+  // a secret; the project is US-resident, hence the default host.
+  telemetryToken: 'c20ead2eb17ee9ae6aad08545e86c00d',
+  telemetryHost: 'https://api.mixpanel.com',
 });
 
 export const RC_NAME = '.contextpluginsrc';
 
+type RcStringField = Exclude<keyof RcFile, 'telemetry'>;
+
 // Unknown rc keys are ignored, so a newer version's file does not break an older CLI.
-const RC_STRING_FIELDS: readonly (keyof RcFile)[] = [
+const RC_STRING_FIELDS: readonly RcStringField[] = [
   'repo',
   'ref',
   'marketplace',
@@ -65,6 +73,12 @@ export function readRc(dir: string | undefined): RcFile | null {
     }
     if (typeof value === 'string') rc[field] = value;
   }
+  if (parsed.telemetry != null) {
+    if (typeof parsed.telemetry !== 'boolean') {
+      throw new UserError(`${file}: 'telemetry' must be true or false.`);
+    }
+    rc.telemetry = parsed.telemetry;
+  }
   return rc;
 }
 
@@ -88,10 +102,33 @@ export function resolveBrand({
   cwd = process.cwd(),
   home = os.homedir(),
 }: ResolveBrandOptions = {}): Brand {
-  const rc = readRc(cwd) || readRc(home) || {};
+  // Both files are read: the first found sets the defaults, but an opt-out in
+  // either is honoured, or a project rc that only names a repo would silence the
+  // one in the home directory.
+  const cwdRc = readRc(cwd);
+  const homeRc = readRc(home);
+  const rc = cwdRc || homeRc || {};
 
   const displayName =
     pick(env.CP_DISPLAY_NAME, rc.displayName, profile.displayName) ?? DEFAULT_PROFILE.displayName;
+
+  // Telemetry is the brand's to configure and the user's to refuse. A brand with
+  // its own marketplace opts in by naming a token: the default token belongs to
+  // this project, and must not collect on another's behalf. The env switches are
+  // read where the event is sent.
+  const ownRepo = pick(profile.repo);
+  const inherits = !ownRepo || ownRepo === DEFAULT_PROFILE.repo;
+  const telemetry = Object.freeze({
+    token:
+      profile.telemetryToken === undefined
+        ? inherits
+          ? DEFAULT_PROFILE.telemetryToken
+          : null
+        : profile.telemetryToken || null,
+    host: pick(profile.telemetryHost) ?? DEFAULT_PROFILE.telemetryHost,
+    defaultRepo: assertRepo(ownRepo ?? DEFAULT_PROFILE.repo),
+    rcOptOut: cwdRc?.telemetry === false || homeRc?.telemetry === false,
+  });
 
   const brand: Brand = {
     repo: assertRepo(pick(flags.repo, env.CP_REPO, rc.repo, profile.repo) ?? DEFAULT_PROFILE.repo),
@@ -103,6 +140,7 @@ export function resolveBrand({
       pick(env.CP_MARKETPLACE_LABEL, rc.marketplaceLabel, profile.label) ??
       `${displayName} Marketplace`,
     bin: pick(profile.bin) ?? DEFAULT_PROFILE.bin,
+    telemetry,
   };
 
   return Object.freeze(brand);

@@ -70,3 +70,11 @@ test('CP_VSCODE_USER_DIR and CP_CURSOR_DIR override detection targets', () => {
     '/tmp/cursor',
   );
 });
+
+test('telemetry state sits next to the manifest and follows CP_STATE_DIR', () => {
+  assert.equal(paths.telemetryPath(LINUX), '/home/dev/.context-plugins/telemetry.json');
+  assert.equal(
+    paths.telemetryPath({ ...WIN, env: { ...WIN.env, CP_STATE_DIR: 'D:\\state' } }),
+    'D:\\state\\telemetry.json',
+  );
+});

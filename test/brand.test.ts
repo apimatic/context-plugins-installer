@@ -161,3 +161,66 @@ test('an rc path that runs through a file is absence, not an unreadable rc', () 
   const brand = resolveBrand(clean({ cwd: notADir, home: notADir }));
   assert.equal(brand.repo, DEFAULT_PROFILE.repo);
 });
+
+test('telemetry defaults: the built-in token and US host, the built-in repo, no rc opt-out', () => {
+  const brand = resolveBrand(clean());
+  assert.equal(brand.telemetry.token, DEFAULT_PROFILE.telemetryToken);
+  assert.equal(brand.telemetry.host, 'https://api.mixpanel.com');
+  assert.equal(brand.telemetry.defaultRepo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.telemetry.rcOptOut, false);
+});
+
+test('a brand with its own marketplace opts in to telemetry; the default brand inherits', () => {
+  const acme = { repo: 'acme/plugin-marketplace', displayName: 'Acme AI', bin: 'acme-plugins' };
+  const silent = resolveBrand({ ...clean(), profile: acme });
+  assert.equal(silent.telemetry.token, null, 'no token unless the brand names one');
+  assert.equal(silent.telemetry.defaultRepo, 'acme/plugin-marketplace');
+
+  const own = resolveBrand({
+    ...clean(),
+    profile: { ...acme, telemetryToken: 'abc', telemetryHost: 'https://api-eu.mixpanel.com' },
+  });
+  assert.equal(own.telemetry.token, 'abc');
+  assert.equal(own.telemetry.host, 'https://api-eu.mixpanel.com');
+
+  const mirror = resolveBrand({ ...clean(), profile: { displayName: 'Mirror' } });
+  assert.equal(
+    mirror.telemetry.token,
+    DEFAULT_PROFILE.telemetryToken,
+    'same marketplace, same data',
+  );
+
+  assert.equal(
+    resolveBrand({ ...clean(), profile: { telemetryToken: null } }).telemetry.token,
+    null,
+  );
+  assert.equal(resolveBrand({ ...clean(), profile: { telemetryToken: '' } }).telemetry.token, null);
+});
+
+test('an empty profile repo falls back to the default, as it did before telemetry', () => {
+  const brand = resolveBrand({ ...clean(), profile: { repo: '' } });
+  assert.equal(brand.repo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.telemetry.defaultRepo, DEFAULT_PROFILE.repo);
+});
+
+test('a telemetry opt-out in the home rc survives a project rc that only names a repo', () => {
+  const cwd = tmpDir('cp-cwd-');
+  const home = tmpDir('cp-home-');
+  writeRc(home, { telemetry: false });
+  writeRc(cwd, { repo: 'acme/plugin-marketplace' });
+  const brand = resolveBrand(clean({ cwd, home }));
+  assert.equal(brand.repo, 'acme/plugin-marketplace', 'the project rc still sets the defaults');
+  assert.equal(brand.telemetry.rcOptOut, true);
+});
+
+test('"telemetry": false in the rc file opts out; anything but a boolean is an error', () => {
+  const cwd = tmpDir('cp-cwd-');
+  writeRc(cwd, { telemetry: false });
+  assert.equal(resolveBrand(clean({ cwd })).telemetry.rcOptOut, true);
+
+  writeRc(cwd, { telemetry: 'no' });
+  assert.throws(
+    () => resolveBrand(clean({ cwd })),
+    (err) => err instanceof UserError && /'telemetry' must be true or false/.test(err.message),
+  );
+});

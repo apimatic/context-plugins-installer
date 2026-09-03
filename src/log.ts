@@ -136,6 +136,14 @@ export const log = {
   warnStderr(msg: string): void {
     emitWarn(console.error, msg);
   },
+  /**
+   * A disclosure, not progress: on stderr so a payload stays clean, and shown
+   * under --quiet too, because the reader has to be told what is collected.
+   */
+  notice(msg: string, { verbatim = false } = {}): void {
+    const lines = verbatim ? [ascii(msg)] : wrap(ascii(msg));
+    for (const line of lines) console.error(paint('90', `      ${line}`));
+  },
   /** The last line of the prompt flow, closing the connector above it. */
   groupEnd(msg: string): void {
     if (state.quiet) return;
