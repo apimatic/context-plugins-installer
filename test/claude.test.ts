@@ -288,13 +288,20 @@ test('absence falls back to the message when the CLI cannot list plugins', async
 
 // The fallback pattern has to be about a plugin. A bare "is not installed" also
 // matches a marketplace's own failure, which would clear a record off a real error.
-test('a failure about something other than the plugin is not absence', async () => {
-  const run = fakeCli({
-    'plugin uninstall': { code: 1, stderr: "marketplace 'context-plugins' is not installed" },
-    'plugin list': { code: 1 },
-  });
-
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+// The message that broke the previous pattern: `plugin\b` was satisfied by the
+// hyphen in `plugin-marketplace`, and the plugin id is in the text too, so
+// neither the regex nor the id guard held. Nothing about "is not installed" can
+// be trusted to be about a plugin, so no alternative is built on it.
+test('a marketplace failure is not read as the plugin being absent', async () => {
+  for (const stderr of [
+    'Failed to uninstall plugin "xero-sdk@plugin-marketplace":' +
+      " Marketplace 'plugin-marketplace' is not installed",
+    "plugin marketplace 'context-plugins' is not installed",
+    'xero-sdk is not installed',
+  ]) {
+    const run = fakeCli({ 'plugin uninstall': { code: 1, stderr }, 'plugin list': { code: 1 } });
+    assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed', stderr);
+  }
 });
 
 // An unrecognised scope word must not be the thing that reads as absence: the
@@ -319,10 +326,21 @@ test('a listing whose rows carry no id is unknown, not proof of absence', async 
   assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
 });
 
-test('no claude to ask is a failure, so the record survives', async () => {
+// A skip, not a failure: Claude Code is not here to fail. The record still
+// survives - nothing could be established either way - but the run does not.
+test('no claude to ask is a skip, and the record survives it', async () => {
   const run = fakeCli({});
-  assert.equal(await quietly(() => claude.uninstall(CTX, { env: { PATH: '' }, run })), 'failed');
+  assert.equal(await quietly(() => claude.uninstall(CTX, { env: { PATH: '' }, run })), 'skipped');
   assert.equal(run.calls.length, 0);
+});
+
+test('a real uninstall failure is a failure, not a skip', async () => {
+  const run = fakeCli({
+    'plugin uninstall': { code: 1, stderr: 'EACCES: permission denied' },
+    'plugin list': plugins(['xero-sdk@context-plugins']),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
 });
 
 test('no claude on PATH is a skip, not a failure', async () => {

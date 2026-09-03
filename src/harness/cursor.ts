@@ -49,7 +49,7 @@ export async function uninstall(
   // the copy it did use. Same answer as Claude Code with no CLI to ask.
   if (!detect(opts)) {
     log.warn(`${shortPath(paths.cursorRoot(opts))} not found - Cursor not installed, skipping.`);
-    return 'failed';
+    return 'skipped';
   }
   const dest = destFor(plugin, opts);
   if (!exists(dest)) {

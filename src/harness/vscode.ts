@@ -77,7 +77,10 @@ export async function uninstall(
     log.info(`Nothing to remove at ${shortPath(dest)}`);
     return 'absent';
   }
-  log.ok(`Removed -> ${shortPath(dest)}`);
+  // Only claim the directory when there was one: with `had` false the entry in
+  // settings.json is all that came out.
+  if (had) log.ok(`Removed -> ${shortPath(dest)}`);
+  else log.ok(`Nothing was at ${shortPath(dest)} - unregistered it`);
   if (result.action === 'removed')
     log.info(`Unregistered from chat.pluginLocations (${shortPath(settings)})`);
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);

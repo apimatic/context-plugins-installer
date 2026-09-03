@@ -122,11 +122,12 @@ export interface HarnessContext {
 /**
  * `absent` is what keeps a drifted record from sticking: the harness looked and
  * positively established there is nothing to remove, so the row is wrong rather
- * than the run, and it is cleared. `failed` covers a real failure and "could not
- * look" alike - an editor that is not installed, a config this tool did not
- * write - and the row survives either way.
+ * than the run, and it is cleared. `skipped` is "could not look" - the editor is
+ * not installed here, or there is no name to address it by - and `failed` is
+ * "looked and it went wrong". Both keep the row; only `failed` fails the run.
+ * Note every one of these is a truthy string: never test the result for truth.
  */
-export type UninstallOutcome = 'removed' | 'absent' | 'failed';
+export type UninstallOutcome = 'removed' | 'absent' | 'skipped' | 'failed';
 
 export interface Harness {
   name: HarnessName;
@@ -297,7 +298,10 @@ export interface InstallResult {
 
 export interface UninstallResult {
   plugin: string;
+  /** Editors something was actually removed from - not editors whose record was corrected. */
   targets: HarnessName[];
+  /** Editors that were asked and went wrong. Non-empty means the run failed. */
+  failed: HarnessName[];
 }
 
 export interface UpdateResult {

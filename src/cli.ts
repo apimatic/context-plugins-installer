@@ -152,7 +152,7 @@ Options
   --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (skips the prompt)
   -y, --yes             Accept every detected harness without asking
   --force               install: replace a plugin from another marketplace
-                        uninstall: clear the record even if nothing was removed
+                        uninstall: drop a record nothing could confirm
   --long                Show plugin descriptions (list)
   --json                Machine-readable output (list, installed)
   --verbose             Show underlying git / CLI detail

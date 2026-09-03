@@ -85,16 +85,21 @@ is the type model for the whole surface; keep it in sync when behavior changes.
 
 - **Harnesses** (`src/harness/`): one module per editor implementing the `Harness`
   interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
-  `needsSource`). `uninstall` returns `'removed' | 'absent' | 'failed'`, never a
-  boolean: only `removed` is reported and tracked, but `absent` also clears the
-  target from the manifest row, because "there was nothing there" means the
-  _record_ drifted and leaving it strands the plugin — unremovable, and failing
-  every `update`. `absent` is a **positive** finding and nothing else may be
-  widened into it: an editor `detect` cannot find (Cursor's copy lives inside
-  Cursor's own root, so a missing root makes the path unverifiable — VS Code's
-  lives in this tool's state dir, which is why it needs no such gate), a
-  `claude` CLI off `PATH`, or no marketplace name — all `'failed'`, all keeping
-  the row, with `--force` as the user's only escape. `'unremovable'` from
+  `needsSource`). `uninstall` returns
+  `'removed' | 'absent' | 'skipped' | 'failed'`, never a boolean — and every one
+  of those is a truthy string, so a caller must never test the result for truth.
+  Only `removed` is reported and tracked; `absent` also clears the target from
+  the manifest row, because "there was nothing there" means the _record_ drifted
+  and leaving it strands the plugin — unremovable, and failing every `update`.
+  `absent` is a **positive** finding and nothing else may be widened into it.
+  `skipped` is "could not look": an editor `detect` cannot find (Cursor's copy
+  lives inside Cursor's own root, so a missing root makes the path unverifiable —
+  VS Code's lives in this tool's state dir, which is why it needs no such gate),
+  the `claude` CLI off `PATH`, no marketplace name. `failed` is "looked and it
+  went wrong", including anything a harness throws. Both keep the row, with
+  `--force` as the user's only escape, but only `failed` fails the run: an editor
+  that was never there must not turn a clean uninstall into a non-zero exit, and
+  a real error must not exit 0. `'unremovable'` from
   `settings-merge` is the one thing that is _not_ read as failure: with no plugin
   files there is nothing for VS Code to load whatever the settings file still
   says, so the outcome follows `had` and the leftover entry is warned about
@@ -108,8 +113,11 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   only `OTHER_SCOPES`, so a scope word this build has never seen counts as
   possibly ours. That is the invariant to hold on to: an unrecognised _anything_
   from Claude — a row with no `id`, a marketplace it cannot name, a new scope
-  word, a reworded failure that does not name the plugin — counts as unanswered,
-  never as proof of absence. `listJson` is the single validated boundary for every
+  word — counts as unanswered, never as proof of absence. `LOOKS_ABSENT`, the
+  fallback for a CLI too old to list as JSON, holds only phrases that cannot be
+  about anything but a plugin: anything built around "is not installed" also
+  matches `Marketplace 'plugin-marketplace' is not installed`, and `plugin
+marketplace` is Claude's own subcommand wording. `listJson` is the single validated boundary for every
   `claude ... --json` read.
   `harness/index.ts` is the registry, and `byName` is total over
   `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
@@ -124,7 +132,10 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   threads one session through all plugins; a lone `install` gets a throwaway one.
 - **The test seam is dependency injection, everywhere.** `Deps` carries
   `fetchImpl` / `run` / `materialize` / `confirm`; `PathOpts` carries
-  `platform` / `env` / `home`. Tests build a sandboxed "machine" from env overrides
+  `platform` / `env` / `home`. The command options take `HarnessOpts`, not
+  `PathOpts`, because that value is forwarded straight to the harnesses — which
+  is what lets a test drive the Claude Code path with a fake `claude` rather than
+  excluding it. Tests build a sandboxed "machine" from env overrides
   (`CP_STATE_DIR`, `CP_CURSOR_DIR`, `CP_VSCODE_USER_DIR`) and assert on real files.
   Never touch the developer's real home directory in tests; never add I/O that
   bypasses these seams.
@@ -139,12 +150,17 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   through verbatim. An entry with zero known targets must be _dropped_ from the read
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
   harness", which is why `uninstall` classifies the row with `rowShape` before
-  touching it. A `list` is shortened per target. A row with nothing to act on per
-  target (`unusable`: no `targets`, or an empty one) is dropped whole when nothing
-  contradicted it, or on `--force` — never left, because `read()` files it under
-  `ignored` and `update` would then fail on it on every future run. A `targets`
-  some other tool wrote (`foreign`) is never rebuilt and only ever dropped by an
-  explicit `--force`. `uninstall` catches per harness, so one editor's I/O failure
+  touching it. A `list` — an array naming at least one target this build knows —
+  is shortened per target. `unusable` (no `targets`, or an empty one) is dropped
+  whole, but only when every editor was asked _and_ every one answered (`removed`
+  or `absent`), or on `--force`: an empty `targets` reads as "every harness", so
+  one editor's answer cannot settle it without stranding the copy another still
+  holds. `foreign` is a target list this build cannot read — a non-array shape,
+  _or_ an array naming only names it does not know — never rebuilt and only ever
+  dropped by an explicit `--force`. That second case is not hypothetical:
+  uninstalling Cursor from `['cursor','zed']` leaves `['zed']`, so a normal run
+  produces it, and calling that a `list` left a row nothing could ever drop while
+  `read()` filed it under `ignored` and `update` failed on it forever. `uninstall` catches per harness, so one editor's I/O failure
   neither hides the others nor loses the removals already done; it records
   `'failed'`, finishes the run, prints the summary, and only then throws — which
   is also why the write is _not_ in a `finally` (that would let a write failure on
@@ -152,7 +168,11 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   that happened and nothing that did not: no line may stand in for another, since
   every earlier shape of it managed to assert a finding — "cleared the stale
   record" over a `--force` that confirmed nothing, "nothing was changed" over a row
-  it had just shortened. Editor names in prose come from `everyEditor()`, never a
+  it had just shortened, and once over a demonstrable failure. "Are they
+  installed?" is the one question it may only ask when nothing changed, nothing
+  failed, and no row survived to explain itself. The `--force` hint names the
+  stuck targets themselves rather than echoing the run's `--targets`, so it can
+  never widen what the user asked for. Editor names in prose come from `everyEditor()`, never a
   literal: the add-harness skill lists the hand-written ones, and `install.ts` is
   deliberately not among them. The same rule holds _within_ a row: writers rebuild from the raw record
   (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI

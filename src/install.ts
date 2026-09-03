@@ -1,5 +1,5 @@
 import { resolvePlugin, loadCatalog } from './catalog.js';
-import { byName, resolveTargets, NAMES } from './harness/index.js';
+import { byName, resolveTargets, isHarnessName, NAMES } from './harness/index.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
@@ -11,9 +11,9 @@ import type {
   Deps,
   HarnessContext,
   HarnessName,
+  HarnessOpts,
   InstallResult,
   ListResult,
-  PathOpts,
   Session,
   TrackFn,
   UninstallOutcome,
@@ -24,8 +24,8 @@ import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } fro
 
 const nowIso = (): string => new Date().toISOString();
 
-const titlesOf = (names: readonly HarnessName[]): string =>
-  names.map((n) => byName(n).title).join(', ');
+const titlesOf = (names: readonly HarnessName[], sep = ', '): string =>
+  names.map((n) => byName(n).title).join(sep);
 
 /**
  * Every editor this build knows, in prose. Derived from `NAMES` on purpose:
@@ -33,13 +33,10 @@ const titlesOf = (names: readonly HarnessName[]): string =>
  * is added, so there is nothing here to forget to update.
  */
 function everyEditor(conjunction?: string): string {
-  const all = NAMES.map((n) => byName(n).title);
-  if (!conjunction || all.length < 2) return all.join(' / ');
-  const last = all[all.length - 1];
-  const head = all.slice(0, -1);
-  return all.length === 2
-    ? `${head[0]} ${conjunction} ${last}`
-    : `${head.join(', ')}, ${conjunction} ${last}`;
+  if (!conjunction || NAMES.length < 2) return titlesOf(NAMES, ' / ');
+  const last = byName(NAMES[NAMES.length - 1]).title;
+  const head = NAMES.slice(0, -1);
+  return `${titlesOf(head)}${head.length > 1 ? ',' : ''} ${conjunction} ${last}`;
 }
 
 /**
@@ -54,8 +51,13 @@ type RowShape = 'none' | 'list' | 'unusable' | 'foreign';
 function rowShape(recorded: Record<string, unknown> | null | undefined): RowShape {
   if (!recorded) return 'none';
   const { targets } = recorded;
-  if (Array.isArray(targets)) return targets.length ? 'list' : 'unusable';
-  return targets == null ? 'unusable' : 'foreign';
+  if (!Array.isArray(targets)) return targets == null ? 'unusable' : 'foreign';
+  if (!targets.length) return 'unusable';
+  // An array naming only targets this build does not know is exactly as
+  // unreadable as a shape it cannot parse, and exactly as much another tool's
+  // data - so it gets the same treatment, not a row that can never be dropped.
+  // A normal uninstall produces this shape: `['cursor','zed']` becomes `['zed']`.
+  return targets.some(isHarnessName) ? 'list' : 'foreign';
 }
 
 const noTrack: TrackFn = () => {};
@@ -161,7 +163,8 @@ export interface InstallOptions {
   force?: boolean;
   assumeYes?: boolean;
   deps?: Deps;
-  pathOpts?: PathOpts;
+  /** HarnessOpts, not PathOpts: this is forwarded to the harnesses, runner and all. */
+  pathOpts?: HarnessOpts;
   /** Shared per-run work; `update` threads one through every plugin. */
   session?: Session;
 }
@@ -385,19 +388,30 @@ export interface UninstallOptions {
   /** Clear the record even for editors that could not confirm the removal. */
   force?: boolean;
   deps?: Deps;
-  pathOpts?: PathOpts;
+  pathOpts?: HarnessOpts;
 }
 
 export async function uninstallPlugin(options: UninstallOptions): Promise<UninstallResult> {
   const track = sinkOf(options.deps);
   try {
     const result = await runUninstall(options);
+    // Reported before the failure below, so a partial uninstall is not counted
+    // as nothing having happened.
     for (const name of result.targets) {
       track(EVENTS.uninstalled, {
         plugin: result.plugin,
         harness: name,
         marketplace: marketplaceLabel(options.brand),
       });
+    }
+    // An editor that was asked and went wrong is not a clean uninstall, however
+    // much else succeeded - and a caller reading the exit code has to see that.
+    // A `skipped` editor is not this: it was never there to fail.
+    if (result.failed.length) {
+      throw new UserError(
+        `Could not uninstall '${result.plugin}' from ${titlesOf(result.failed)}.`,
+        { hint: 'Close the editor if it is running, then try again - or --verbose for detail.' },
+      );
     }
     return result;
   } catch (err) {
@@ -439,7 +453,6 @@ async function runUninstall({
   // One entry per editor visited. Every question the record and the summary ask
   // is a filter over this, so the three cannot drift apart.
   const outcomes = new Map<HarnessName, UninstallOutcome>();
-  const errored: HarnessName[] = [];
   const of = (...kinds: UninstallOutcome[]): HarnessName[] =>
     [...outcomes].filter(([, o]) => kinds.includes(o)).map(([n]) => n);
 
@@ -457,7 +470,6 @@ async function runUninstall({
       // record still has to come out right for whoever did answer.
       log.warn(`${harness.title}: ${errorMessage(err)}`);
       outcomes.set(name, 'failed');
-      errored.push(name);
     }
   }
 
@@ -465,18 +477,23 @@ async function runUninstall({
   // would strand the plugin - unremovable, and failing every `update`.
   const clear = force ? [...outcomes.keys()] : of('removed', 'absent');
   const removed = of('removed');
+  const failed = of('failed');
   const row = rowShape(recorded);
-  const listed: unknown[] =
-    row === 'list' && Array.isArray(recorded?.targets) ? recorded.targets : [];
+  const listed: unknown[] = Array.isArray(recorded?.targets) ? recorded.targets : [];
   const onRow = (names: HarnessName[]): HarnessName[] => names.filter((n) => listed.includes(n));
-
-  // A row with no per-target list to shorten can only be dropped or kept whole.
-  // Nothing contradicting it is the bar for that - except a `targets` some other
-  // tool wrote, which only an explicit --force may throw away.
-  const contradicted = of('failed').length > 0;
-  const dropWhole = row === 'unusable' ? force || !contradicted : row === 'foreign' && force;
   // Foreign target names stay on the record for whichever tool wrote them.
   const remaining = listed.filter((t) => !clear.some((c) => c === t));
+
+  // A row with no per-target list to shorten can only be dropped or kept whole,
+  // so the bar is higher. `targets: []` reads as "every harness", which means
+  // only a run that actually asked every harness - and got an answer from each -
+  // may conclude the whole row is stale. A `targets` some other tool wrote is
+  // never dropped on an inference at all; only an explicit --force may.
+  const askedEveryEditor = want.length === NAMES.length;
+  const answeredAll = of('failed', 'skipped').length === 0;
+  let dropWhole = false;
+  if (row === 'foreign') dropWhole = force;
+  else if (row === 'unusable') dropWhole = force || (askedEveryEditor && answeredAll);
 
   if (recorded) {
     if (row === 'list' && remaining.length === 0) {
@@ -495,31 +512,25 @@ async function runUninstall({
     cleared: onRow(of('absent')),
     // Dropped on --force alone: no editor confirmed these, so nothing else in
     // the summary may imply one did.
-    forced: force ? onRow(of('failed')) : [],
-    // A foreign target name is left behind too, on purpose, and --force does
-    // not clear it either - so it is never what the hint is about.
-    stuck: force ? [] : onRow(of('failed')),
+    forced: force ? onRow(of('failed', 'skipped')) : [],
+    failed,
+    // Whatever this build still recognises on the row after the write, however
+    // it got there - a target this run could not settle, or one it never asked
+    // because --targets scoped it out. Both are "still recorded", and naming
+    // them is what makes the --force hint honest under --force too.
+    stuck: remaining.filter(isHarnessName),
     row,
     dropWhole,
-    errored,
     bin: brand.bin,
-    targets,
   });
 
-  // Reported after the summary, so the record and what happened are both on
-  // screen before the failure: an editor that errored is not a clean uninstall.
-  if (errored.length) {
-    throw new UserError(`Could not uninstall '${plugin}' from ${titlesOf(errored)}.`, {
-      hint: 'Close the editor if it is running, then try again.',
-    });
-  }
-  return { plugin, targets: removed };
+  return { plugin, targets: removed, failed };
 }
 
 export interface UpdateOptions {
   brand: Brand;
   deps?: Deps;
-  pathOpts?: PathOpts;
+  pathOpts?: HarnessOpts;
 }
 
 export async function updateAll({
@@ -608,7 +619,7 @@ export async function updateAll({
 export interface ListOptions {
   brand: Brand;
   deps?: Deps;
-  pathOpts?: PathOpts;
+  pathOpts?: HarnessOpts;
 }
 
 export async function listPlugins({
@@ -652,34 +663,33 @@ interface UninstallSummary {
   cleared: HarnessName[];
   /** Dropped by --force without any editor confirming it. */
   forced: HarnessName[];
-  /** Left on the record because this run could not confirm them. */
+  /** Editors that were asked and went wrong. */
+  failed: HarnessName[];
+  /** Known targets this build still sees on the row after the write. */
   stuck: HarnessName[];
   row: RowShape;
   /** The row had no per-target list and was dropped, or kept, whole. */
   dropWhole: boolean;
-  /** Editors whose uninstall threw. */
-  errored: HarnessName[];
   bin: string;
-  targets?: readonly string[] | null;
 }
 
 /**
  * One line per thing that actually happened, and nothing that did not. Every
  * earlier shape of this asserted a finding somewhere - "cleared the stale
  * record" over a --force that confirmed nothing, "nothing was changed" over a
- * row it had just shortened - so no line here may stand in for another.
+ * row it had just shortened, and once over a demonstrable failure - so no line
+ * here may stand in for another.
  */
 function summarizeUninstall({
   removed,
   plugin,
   cleared,
   forced,
+  failed,
   stuck,
   row,
   dropWhole,
-  errored,
   bin,
-  targets,
 }: UninstallSummary): void {
   log.plain('');
   log.rule();
@@ -696,15 +706,23 @@ function summarizeUninstall({
   if (row === 'foreign' && dropWhole) {
     log.warn(`Dropped the record for '${plugin}' with a target list this version cannot read.`);
   }
+  if (failed.length) log.error(`Could not uninstall from: ${titlesOf(failed)}`);
 
+  // "Are they installed?" is only the right question when every editor asked was
+  // simply not there and there is nothing else to say. A failure is a different
+  // answer, a change is another, and a row that survived is explained below -
+  // asking it there would imply the editor holding the record is missing.
   const changed = removed.length || cleared.length || forced.length || dropWhole;
-  if (!changed && !errored.length && row !== 'foreign' && row !== 'unusable') {
+  const kept = row === 'foreign' || row === 'unusable';
+  if (!changed && !failed.length && !kept && !stuck.length) {
     log.warn(`Nothing was changed. Are ${everyEditor()} installed?`);
   }
 
-  const scope = targets?.length ? ` --targets ${targets.join(',')}` : '';
+  // The scope is the stuck targets themselves, never the --targets of the run
+  // that printed it: naming them exactly cannot widen what the user asked for.
+  const scope = stuck.length ? ` --targets ${stuck.join(',')}` : '';
   const forceLine = `\`${bin} uninstall ${plugin}${scope} --force\` drops it without confirming.`;
-  if (!dropWhole && (row === 'foreign' || row === 'unusable')) {
+  if (kept && !dropWhole) {
     log.warn(
       row === 'foreign'
         ? `The record for '${plugin}' has a target list this version cannot read.`

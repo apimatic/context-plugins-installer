@@ -28,12 +28,13 @@ const tail = (res: RunResult): string =>
 // worth one retry.
 const LOOKS_STALE = /not found in marketplace|out of date|marketplace update/i;
 
-// Only consulted when the plugin listing cannot answer; the wording is Claude's
-// and has no compatibility promise, so it is the fallback, not the test. Every
-// alternative has to be about a plugin - a bare "is not installed" also matches
-// "marketplace 'x' is not installed", which would clear a record off a real error.
-const LOOKS_ABSENT =
-  /not found in installed plugins|no such plugin|plugin\b[^:]{0,80}\bis not installed/i;
+// Only consulted when the plugin listing cannot answer, so it only ever serves
+// a CLI too old to list as JSON - whose wording is known. Both alternatives have
+// to be unambiguously about a plugin: anything built around "is not installed"
+// also matches "Marketplace 'plugin-marketplace' is not installed", and `plugin
+// marketplace` is Claude's own subcommand wording, so a record would be cleared
+// off a real error.
+const LOOKS_ABSENT = /not found in installed plugins|no such plugin/i;
 
 // Every install and uninstall names this scope, so it is also the only scope
 // whose contents can say whether a record has drifted.
@@ -312,16 +313,17 @@ export async function uninstall(
 ): Promise<UninstallOutcome> {
   const claude = cli(opts);
   // Nothing was reached, so nothing is known: the record stands until a run
-  // that can talk to Claude Code, or an explicit --force, clears it.
+  // that can talk to Claude Code, or an explicit --force, clears it. A skip, not
+  // a failure - Claude Code simply is not here, and that must not fail the run.
   if (!claude) {
     log.warn("'claude' CLI not on PATH - skipping Claude Code.");
-    return 'failed';
+    return 'skipped';
   }
   const exec = runner(opts);
   const known = (await registeredName(exec, claude, repo)) || marketplace;
   if (!known) {
     log.warn('No marketplace name to uninstall from - skipping Claude Code.');
-    return 'failed';
+    return 'skipped';
   }
   const target = `${plugin}@${known}`;
   const res = await exec(claude, ['plugin', 'uninstall', target, '--scope', SCOPE]);

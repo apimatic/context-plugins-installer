@@ -57,15 +57,17 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    - `install` returns `false` to mean "skipped, and said why" - not installed, nothing to
      do. A failure the user can fix is a thrown `UserError` with a `hint`. Never throw a
      bare `Error` for a predictable condition.
-   - `uninstall` returns `'removed' | 'absent' | 'failed'`, never a boolean, and the
-     difference decides whether the manifest row survives. `absent` means the harness
-     LOOKED and established there is nothing to remove - only then is the target
-     cleared from the record. Anything you cannot verify is `'failed'`: the editor not
-     being installed, a config file naming the plugin in a form this tool did not
-     write, a path that may not be the one the install used. Getting that backwards
-     deletes the record for a plugin that is still installed, with nothing left to
-     remove it by. Repeated uninstalls and `update` depend on `absent` being reachable;
-     `--force` is the user's escape for a target stuck on `'failed'`.
+   - `uninstall` returns `'removed' | 'absent' | 'skipped' | 'failed'`, never a
+     boolean, and the difference decides whether the manifest row survives AND whether
+     the command fails. `absent` means the harness LOOKED and established there is
+     nothing to remove - only then is the target cleared from the record. `skipped` is
+     "could not look": your editor is not installed, or there is no path or name to
+     address it by. `failed` is "looked and it went wrong". Both keep the row, but only
+     `failed` makes the command exit non-zero - so never return it for an editor that
+     simply is not there. Getting `absent` wrong the other way deletes the record for a
+     plugin that is still installed, with nothing left to remove it by. Repeated
+     uninstalls and `update` depend on `absent` being reachable; `--force` is the user's
+     escape for a target stuck on `skipped` or `failed`.
    - Copy files with `replaceDir` (wholesale replace), so a plugin that shrank between
      versions leaves no orphan files behind.
    - All output goes through `log`; end `install` and `uninstall` with the line that
