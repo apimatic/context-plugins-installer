@@ -16,6 +16,9 @@ import type { HarnessName, UninstallOutcome } from '../src/types.js';
  */
 
 const OUTCOMES: UninstallOutcome[] = ['removed', 'absent', 'skipped', 'failed'];
+
+/** The only pair of claims that may name the same editor. */
+const OVERLAP_OK = new Set(['failed|forced', 'forced|failed']);
 /** null is "this run never asked that editor". */
 type Answer = UninstallOutcome | null;
 const ANSWERS: Answer[] = [null, ...OUTCOMES];
@@ -100,7 +103,7 @@ function* assignments(): Generator<Answer[]> {
 
 const title = (n: HarnessName): string => byName(n).title;
 /** What the row's `targets` reads as after the decision is applied. */
-function targetsAfter(c: Case, d: ReturnType<typeof decideUninstall>): unknown[] | 'gone' | 'same' {
+function targetsAfter(d: ReturnType<typeof decideUninstall>): unknown[] | 'gone' | 'same' {
   if (d.write === 'remove') return 'gone';
   if (d.write === 'shorten') return d.targets;
   return 'same';
@@ -115,17 +118,43 @@ test('the whole uninstall state space holds its invariants', () => {
     const text = lines.map((l) => l.text).join(' | ');
     const where = `${c.label}\n  decision: ${JSON.stringify(d)}\n  said: ${text}`;
 
-    // ---- 1. Nothing is claimed that did not happen -------------------------
-    for (const n of d.removed) {
-      assert.equal(c.outcomes.get(n), 'removed', `claimed a removal that did not happen\n${where}`);
+    // ---- 1. Every editor named in a claim has the outcome it implies -------
+    // Stated over all four lists at once, because checking them one at a time
+    // is what let `--force` credit itself with a removal Cursor had confirmed:
+    // the pairwise disjointness below held, and nothing asked what `forced`
+    // meant about the editor it named.
+    const claims: [keyof typeof d, UninstallOutcome[]][] = [
+      ['removed', ['removed']],
+      ['failed', ['failed']],
+      ['cleared', ['absent']],
+      ['forced', ['skipped', 'failed']],
+    ];
+    for (const [key, allowed] of claims) {
+      for (const n of d[key] as HarnessName[]) {
+        const answer = c.outcomes.get(n);
+        assert.ok(
+          answer !== undefined && allowed.includes(answer),
+          `${key} names ${n}, whose answer was ${answer ?? 'never asked'}\n${where}`,
+        );
+      }
     }
-    for (const n of d.failed) {
-      assert.equal(c.outcomes.get(n), 'failed', `claimed a failure that did not happen\n${where}`);
+    // And no editor appears in two claims, bar the one honest overlap: an editor
+    // that failed and was then dropped by --force is both.
+    for (const [a] of claims) {
+      for (const [b] of claims) {
+        if (a === b || OVERLAP_OK.has(`${a}|${b}`)) continue;
+        for (const n of d[a] as HarnessName[]) {
+          assert.ok(
+            !(d[b] as HarnessName[]).includes(n),
+            `${n} is claimed as both ${a} and ${b}\n${where}`,
+          );
+        }
+      }
     }
 
     // ---- 2. A target only leaves the record on an answer, or on --force ----
     const before: unknown[] = Array.isArray(c.recorded?.targets) ? c.recorded.targets : [];
-    const after = targetsAfter(c, d);
+    const after = targetsAfter(d);
     const left =
       after === 'gone' ? before : after === 'same' ? [] : before.filter((t) => !after.includes(t));
     for (const t of left) {

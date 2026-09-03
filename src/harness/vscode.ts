@@ -42,8 +42,8 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
     log.warn(`Could not edit ${shortPath(settings, opts?.home)} - add this entry yourself:`);
     log.info(`"${KEY}": { "${toKey(dest)}": true }`);
   } else if (result.action === 'conflict') {
-    // Reporting "already registered" here would be a green install of a plugin
-    // VS Code never loads; a second entry would just leave a duplicate key.
+    // "Already registered" here would be a green install of a plugin that never
+    // loads, and a second entry would leave a duplicate key.
     log.warn(
       `${shortPath(settings, opts?.home)} already names this path, but not as an entry that loads it.`,
     );
@@ -68,10 +68,8 @@ export async function uninstall(
   const had = exists(dest);
   if (had) rmrf(dest);
 
-  // The settings file names this path in a form the splice does not recognise
-  // (hand-edited to `false`, or a shape its patterns miss). Always say so: left
-  // unmentioned it survives the uninstall, and the next install then reports
-  // "Already registered" for an entry that never loads the plugin.
+  // Always said: unmentioned, it survives the uninstall and the next install
+  // reports "Already registered" for an entry that never loads the plugin.
   if (result.action === 'unremovable') {
     log.warn(
       `${shortPath(settings, opts?.home)} names ${shortPath(dest, opts?.home)} in a form this tool did not write.`,
@@ -81,16 +79,14 @@ export async function uninstall(
   // The record still follows the files below: a leftover settings entry is a
   // separate mess to clean up, not a reason to keep claiming an install.
 
-  // The outcome follows the files, not that entry. No detect() gate either,
-  // unlike Cursor: the copy lives in this tool's own state dir, so `had` is a
-  // fact about the plugin even with VS Code missing - and with no copy there is
-  // nothing for VS Code to load, whatever the settings file still says.
+  // The outcome follows the files: with no copy there is nothing for VS Code to
+  // load, whatever the settings say. No detect() gate, unlike Cursor - the copy
+  // is in this tool's own state dir, readable either way.
   if (!had && result.action !== 'removed') {
     log.info(`Nothing to remove at ${shortPath(dest, opts?.home)}`);
     return 'absent';
   }
-  // Only claim the directory when there was one: with `had` false the entry in
-  // settings.json is all that came out.
+  // Only claim the directory when there was one.
   if (had) log.ok(`Removed -> ${shortPath(dest, opts?.home)}`);
   else log.ok(`Nothing was at ${shortPath(dest, opts?.home)} - unregistered it`);
   if (result.action === 'removed')

@@ -28,22 +28,18 @@ const tail = (res: RunResult): string =>
 // worth one retry.
 const LOOKS_STALE = /not found in marketplace|out of date|marketplace update/i;
 
-// Only consulted when the plugin listing cannot answer, so it only ever serves
-// a CLI too old to list as JSON - whose wording is known. Both alternatives have
-// to be unambiguously about a plugin: anything built around "is not installed"
-// also matches "Marketplace 'plugin-marketplace' is not installed", and `plugin
-// marketplace` is Claude's own subcommand wording, so a record would be cleared
-// off a real error.
+// The fallback when the plugin listing cannot answer. Every alternative has to
+// be unambiguously about a plugin: "is not installed" also matches a
+// marketplace's own failure, and `plugin marketplace` is a subcommand.
 const LOOKS_ABSENT = /not found in installed plugins|no such plugin/i;
 
-// Every install and uninstall names this scope, so it is also the only scope
-// whose contents can say whether a record has drifted.
+// Named by every install and uninstall, so the only scope that can say whether
+// a record has drifted.
 const SCOPE = 'user';
 
-// Scopes that are definitely not this tool's. Anything else - including a name
-// this build has never seen - counts as possibly ours, the same way an
-// unreadable id and an unnameable marketplace do: an unrecognised word must
-// never be the thing that reads as absence and deletes a live record.
+// Scopes that are definitely not this tool's. Anything else, a word this build
+// has never seen included, counts as possibly ours: an unrecognised value must
+// never be the thing that reads as absence.
 const OTHER_SCOPES = new Set(['project', 'local']);
 
 const REPO_IN = /(?:github\.com[/:]|^)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/i;
@@ -122,8 +118,7 @@ async function installedPlugins(
   if (!entries) return null;
   const rows = entries.flatMap((e) => {
     if (!isPlainObject(e) || !nonEmptyString(e.id)) return [];
-    // The id is `plugin@marketplace`, and the marketplace half is whatever name
-    // Claude filed it under - not necessarily the one this run addressed.
+    // `plugin@marketplace`, where the marketplace half is Claude's own name for it.
     const at = e.id.lastIndexOf('@');
     return [
       {
@@ -132,11 +127,8 @@ async function installedPlugins(
       },
     ];
   });
-  // Unlike the marketplace listing, this one is only ever read to conclude a
-  // plugin is GONE, so it has to be read whole. A single row this build cannot
-  // parse - a plain string, an `id` renamed on some rows - makes the answer
-  // unknown, never "nothing is installed". An empty listing is only trustworthy
-  // when there were no rows to begin with, which this covers.
+  // Read whole or not at all: absence is the only conclusion drawn from this, so
+  // one row that will not parse makes the answer unknown, never "none".
   if (rows.length !== entries.length) return null;
   return rows;
 }
@@ -292,12 +284,9 @@ export async function install(
   return true;
 }
 
-// Claude uninstalling a plugin it does not have is a failure, and telling that
-// apart from a real one is what keeps a drifted record from sticking forever.
-// Its own listing decides, on the plugin id alone: comparing the whole
-// `plugin@marketplace` would read a marketplace this build could not name as
-// proof of absence and delete a live record. Only this tool's own scope counts -
-// a project-scope copy elsewhere is not what the row is about.
+// Claude fails the same way whether the plugin is missing or something went
+// wrong, so its listing decides - on the plugin id alone, since the marketplace
+// half is its own name for it, and only at the scope this tool owns.
 async function isAbsent(
   exec: RunCommand,
   claude: string,
@@ -319,9 +308,8 @@ export async function uninstall(
   opts?: HarnessOpts,
 ): Promise<UninstallOutcome> {
   const claude = cli(opts);
-  // Nothing was reached, so nothing is known: the record stands until a run
-  // that can talk to Claude Code, or an explicit --force, clears it. A skip, not
-  // a failure - Claude Code simply is not here, and that must not fail the run.
+  // A skip, not a failure: Claude Code is not here to fail, and the record
+  // stands until a run that can reach it says otherwise.
   if (!claude) {
     log.warn("'claude' CLI not on PATH - skipping Claude Code.");
     return 'skipped';
@@ -335,8 +323,7 @@ export async function uninstall(
   const target = `${plugin}@${known}`;
   const res = await exec(claude, ['plugin', 'uninstall', target, '--scope', SCOPE]);
   if (res.code !== 0) {
-    // True either way: never installed, or removed by a command that then
-    // failed on something after the removal itself.
+    // True whether it was never installed or a command removed it and then failed.
     if (await isAbsent(exec, claude, plugin, res)) {
       log.info(`Claude Code has no '${plugin}' at ${SCOPE} scope - nothing left to remove.`);
       return 'absent';

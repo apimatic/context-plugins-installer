@@ -45,10 +45,8 @@ export async function uninstall(
   { plugin }: HarnessContext,
   opts?: HarnessOpts,
 ): Promise<UninstallOutcome> {
-  // The plugin dir lives under Cursor's own root, so a root that is not here
-  // is not an empty one: nothing about this plugin can be established, and
-  // clearing the record off a path the install may never have used would strand
-  // the copy it did use. Same answer as Claude Code with no CLI to ask.
+  // The plugin dir lives under Cursor's own root, so a missing root makes the
+  // path unverifiable rather than empty.
   if (!detect(opts)) {
     log.warn(
       `${shortPath(paths.cursorRoot(opts), opts?.home)} not found - Cursor not installed, skipping.`,

@@ -12,9 +12,7 @@ const BOM = String.fromCharCode(0xfeff);
 export const toKey = (dir: string): string => dir.replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// The path has to appear AS a key. A bare quoted match also hits the same path
-// used as some other setting's *value*, which would report a plugin entry that
-// is not there at all.
+// As a key: a bare quoted match also hits the path used as another setting's value.
 const namedAsKey = (mask: string, key: string): boolean =>
   new RegExp(`"${escapeRe(key)}"\\s*:`).test(mask);
 
@@ -112,9 +110,8 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
 
   const mask = maskComments(raw);
   if (entryFor(mask, key)) return { action: 'already', backup: null };
-  // The path IS a key here, but not the `"<key>": true` this tool writes - hand
-  // edited to false, or some other shape. Adding a second entry would leave a
-  // duplicate key and VS Code still would not load the plugin, so say so.
+  // A key, but not the `"<key>": true` this tool writes; a second entry would
+  // only leave a duplicate key.
   if (namedAsKey(mask, key)) return { action: 'conflict', backup: null };
 
   const eol = eolOf(raw);
@@ -164,8 +161,7 @@ export function removePluginLocation(settingsPath: string, dir: string): RemoveL
   ]
     .map((re) => re.exec(mask))
     .find((m): m is RegExpExecArray => m !== null);
-  // The path is named in the file but not as an entry this tool wrote. Nothing
-  // can be taken out, and this is NOT absence: VS Code may still be loading it.
+  // Named, but not as an entry this tool wrote - which is not absence.
   if (!hit) return { action: 'unremovable', backup: null };
 
   const saved = backup(settingsPath);
