@@ -1,15 +1,9 @@
 'use strict';
 
-/**
- * Programmatic entry point: runs the CLI with a preset configuration.
- *
- * Accepts an optional profile of { id, displayName, repo, bin }. Any field left
- * out falls back to the default, and command-line flags and CP_* environment
- * variables still take precedence over it.
- */
+/** Runs the CLI with a preset profile; flags and CP_* env still take precedence. */
 module.exports = function runWithProfile(profile = {}, argv = process.argv.slice(2)) {
-  require('./src/require-node')();
-  return require('./src/cli')
+  require('./bin/require-node')();
+  return require('./lib/cli')
     .run(argv, profile)
     .then((code) => {
       process.exitCode = code;

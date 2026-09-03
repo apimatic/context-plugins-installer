@@ -1,35 +1,34 @@
-// eslint-disable-next-line no-undef
 module.exports = {
   branches: [
-    "main",
+    'main',
     {
-      name: "beta",
-      prerelease: true
+      name: 'beta',
+      prerelease: true,
     },
     {
-      name: "alpha",
-      prerelease: true
-    }
+      name: 'alpha',
+      prerelease: true,
+    },
   ],
   plugins: [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    '@semantic-release/commit-analyzer',
+    '@semantic-release/release-notes-generator',
     [
-      "@semantic-release/changelog",
+      '@semantic-release/changelog',
       {
-        changelogFile: "CHANGELOG.md"
-      }
+        changelogFile: 'CHANGELOG.md',
+      },
     ],
     // Publishes via npm OIDC trusted publishing - no NPM_TOKEN involved.
-    "@semantic-release/npm",
-    "@semantic-release/github",
+    '@semantic-release/npm',
+    '@semantic-release/github',
     [
-      "@semantic-release/git",
+      '@semantic-release/git',
       {
-        assets: ["CHANGELOG.md", "package.json"],
+        assets: ['CHANGELOG.md', 'package.json'],
         message:
-          "chore(release): set `package.json` to ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-      }
-    ]
-  ]
+          'chore(release): set `package.json` to ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}',
+      },
+    ],
+  ],
 };

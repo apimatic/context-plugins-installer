@@ -1,0 +1,20 @@
+{
+  // Typechecks src and test with no output; tsconfig.build.json emits lib/ from src.
+  "compilerOptions": {
+    // Node 18 is the engine floor; @types/node is pinned to 18 for the same reason.
+    "target": "es2022",
+    "lib": ["es2022"],
+    "types": ["node"],
+    // node16 against a package.json with no "type" emits CommonJS.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test"]
+}

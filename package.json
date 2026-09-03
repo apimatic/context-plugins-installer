@@ -30,31 +30,56 @@
   "bin": {
     "context-plugins": "bin/cli.js"
   },
-  "main": "src/index.js",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "exports": {
-    ".": "./src/index.js",
-    "./run": "./run.js",
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./run": {
+      "types": "./run.d.ts",
+      "default": "./run.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "bin/",
+    "lib/",
     "src/",
     "run.js",
+    "run.d.ts",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test",
-    "syntax": "node --check bin/cli.js && node --check run.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node scripts/test.js",
+    "syntax": "node --check bin/cli.js && node --check bin/require-node.js && node --check run.js",
+    "prepare": "npm run build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "commitlint": "commitlint",
     "release": "semantic-release"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",
     "@commitlint/config-conventional": "^19.6.0",
+    "@eslint/js": "^9.39.5",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
-    "semantic-release": "^25.0.3"
+    "@types/node": "^18.19.130",
+    "eslint": "^9.39.5",
+    "eslint-plugin-sonarjs": "^1.0.4",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "semantic-release": "^25.0.3",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.69.0"
   },
   "publishConfig": {
     "access": "public"

@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The prerelease branches too: Release runs on a direct push to them, and
+    # nothing else would compile the code before it tags.
+    branches: [main, beta, alpha]
   pull_request:
 
 jobs:
@@ -19,8 +21,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
       - run: npm ci
       - run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+  # Static checks over src and test: lint, format, and the strict typecheck.
+  lint:
+    name: lint, format, typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
 
   test:
     name: ${{ matrix.os }} / node ${{ matrix.node }}
@@ -35,8 +53,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      # No dependencies to install - that is the point.
+          cache: npm
+      - run: npm ci
       - run: npm run syntax
+      # Tests run the TypeScript sources directly through tsx: no build step
+      # sits between an edit and a red or green result.
       - run: npm test
 
   smoke:
@@ -47,6 +68,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+      - run: npm ci
+      # The published entry point runs the compiled lib/, exactly as npx would.
+      - run: npm run build
+      # Every other job installs devDependencies now, so this is the only place
+      # the zero-runtime-dependency claim is still proved: strip the build tooling
+      # and make the shipped binary do real work with nothing but node builtins.
+      - run: npm prune --omit=dev
       - name: list the default marketplace
         run: node bin/cli.js list --json > /dev/null
       - name: install into a sandboxed machine
