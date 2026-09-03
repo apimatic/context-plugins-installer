@@ -17,7 +17,9 @@ export const destFor = (plugin: string, opts?: HarnessOpts): string =>
 
 export async function install({ plugin, srcDir }: HarnessContext, opts?: HarnessOpts) {
   if (!detect(opts)) {
-    log.warn(`${shortPath(paths.cursorRoot(opts))} not found - Cursor not installed, skipping.`);
+    log.warn(
+      `${shortPath(paths.cursorRoot(opts), opts?.home)} not found - Cursor not installed, skipping.`,
+    );
     return false;
   }
   if (!srcDir) {
@@ -34,7 +36,7 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   replaceDir(srcDir, dest);
 
-  log.ok(`Installed -> ${shortPath(dest)}`);
+  log.ok(`Installed -> ${shortPath(dest, opts?.home)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
@@ -48,18 +50,21 @@ export async function uninstall(
   // clearing the record off a path the install may never have used would strand
   // the copy it did use. Same answer as Claude Code with no CLI to ask.
   if (!detect(opts)) {
-    log.warn(`${shortPath(paths.cursorRoot(opts))} not found - Cursor not installed, skipping.`);
+    log.warn(
+      `${shortPath(paths.cursorRoot(opts), opts?.home)} not found - Cursor not installed, skipping.`,
+    );
     return 'skipped';
   }
   const dest = destFor(plugin, opts);
   if (!exists(dest)) {
-    log.info(`Nothing to remove at ${shortPath(dest)}`);
+    log.info(`Nothing to remove at ${shortPath(dest, opts?.home)}`);
     return 'absent';
   }
   rmrf(dest);
-  log.ok(`Removed -> ${shortPath(dest)}`);
+  log.ok(`Removed -> ${shortPath(dest, opts?.home)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return 'removed';
 }
 
-export const location = (opts?: HarnessOpts): string => shortPath(paths.cursorRoot(opts));
+export const location = (opts?: HarnessOpts): string =>
+  shortPath(paths.cursorRoot(opts), opts?.home);

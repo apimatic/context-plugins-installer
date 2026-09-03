@@ -96,13 +96,10 @@ Work in this order: the type goes first so the compiler enumerates the rest.
 
 6. **The hand-written editor lists.** These are prose, so nothing enforces them; the
    compiler is silent and the old text simply stays wrong. Update every one:
-   - `src/cli.ts` - the first line of `helpText` ("install marketplace plugins into ...").
-     The `--targets` line under it is generated from `NAMES` and needs nothing.
-   - `src/install.ts` needs nothing: both its editor lists are built by `everyEditor()`
-     from `NAMES`. Do not hand-write a new one - there are two summary functions
-     (`summarize` and `summarizeUninstall`) and a list added to one would silently go
-     stale in the other.
-   - `src/doctor.ts` - the "Any editor" failure hint.
+   - `src/install.ts`, `src/cli.ts` and `src/doctor.ts` need nothing: their editor lists
+     all come from `everyEditor()` / `titlesOf()` in `harness/index.ts`. Do not hand-write
+     a new one anywhere - `install.ts` alone has two summary functions (`summarize` and
+     `summarizeUninstall`), and a list added to one would silently go stale in the other.
    - `CLAUDE.md` - the "What this is" paragraph.
    - `package.json` - `description` and, if the editor has a well-known name, `keywords`.
    - To find the code and config sites (six today), run

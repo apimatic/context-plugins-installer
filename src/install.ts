@@ -1,5 +1,12 @@
 import { resolvePlugin, loadCatalog } from './catalog.js';
-import { byName, resolveTargets, isHarnessName, NAMES } from './harness/index.js';
+import {
+  byName,
+  resolveTargets,
+  isHarnessName,
+  titlesOf,
+  everyEditor,
+  NAMES,
+} from './harness/index.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
@@ -24,27 +31,13 @@ import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } fro
 
 const nowIso = (): string => new Date().toISOString();
 
-const titlesOf = (names: readonly HarnessName[], sep = ', '): string =>
-  names.map((n) => byName(n).title).join(sep);
-
-/**
- * Every editor this build knows, in prose. Derived from `NAMES` on purpose:
- * these lists are the one thing the compiler cannot keep honest when a harness
- * is added, so there is nothing here to forget to update.
- */
-function everyEditor(conjunction?: string): string {
-  if (!conjunction || NAMES.length < 2) return titlesOf(NAMES, ' / ');
-  const last = byName(NAMES[NAMES.length - 1]).title;
-  const head = NAMES.slice(0, -1);
-  return `${titlesOf(head)}${head.length > 1 ? ',' : ''} ${conjunction} ${last}`;
-}
-
 /**
  * What a manifest row says this build should act on. `list` is a usable list of
  * target names; `unusable` is a row with nothing to act on per target (no
  * `targets`, or an empty one, which `read()` drops from its view anyway);
- * `foreign` is a `targets` some other tool wrote in a shape this build cannot
- * read, which is never rebuilt and never dropped without `--force`.
+ * `foreign` is a target list this build cannot read - a shape it cannot parse,
+ * or an array naming only names it does not know - which is never rebuilt and
+ * never dropped without `--force`.
  */
 type RowShape = 'none' | 'list' | 'unusable' | 'foreign';
 
@@ -442,8 +435,20 @@ async function runUninstall({
   let marketplace: string | null =
     brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
   if (!marketplace && want.includes('claude')) {
-    marketplace = (await resolvePlugin({ repo: brand.repo, ref: brand.ref, plugin, deps }))
-      .marketplace;
+    try {
+      marketplace = (await resolvePlugin({ repo: brand.repo, ref: brand.ref, plugin, deps }))
+        .marketplace;
+    } catch (err) {
+      // With no record there is nothing to correct, so the resolution error -
+      // a wrong id, with its suggestion - is the useful answer. With a record,
+      // nothing about reaching the registry may stand between the user and
+      // cleaning it up: offline, or after an upstream rename, `--force` has to
+      // still work. Claude Code then reports a skip for want of a name.
+      if (!recorded) throw err;
+      log.warn(
+        `Could not look up the marketplace for '${plugin}' - continuing. ${errorMessage(err)}`,
+      );
+    }
   }
 
   log.banner(`Uninstalling '${plugin}' from ${brand.label}`);
@@ -489,21 +494,28 @@ async function runUninstall({
   // only a run that actually asked every harness - and got an answer from each -
   // may conclude the whole row is stale. A `targets` some other tool wrote is
   // never dropped on an inference at all; only an explicit --force may.
-  const askedEveryEditor = want.length === NAMES.length;
+  const askedEveryEditor = NAMES.every((n) => want.includes(n));
   const answeredAll = of('failed', 'skipped').length === 0;
   let dropWhole = false;
   if (row === 'foreign') dropWhole = force;
   else if (row === 'unusable') dropWhole = force || (askedEveryEditor && answeredAll);
 
-  if (recorded) {
-    if (row === 'list' && remaining.length === 0) {
-      manifest.remove(manifestFile, { plugin, repo: brand.repo });
-    } else if (row === 'list' && remaining.length < listed.length) {
-      manifest.upsert(manifestFile, { ...recorded, targets: remaining });
-    } else if (dropWhole) {
-      manifest.remove(manifestFile, { plugin, repo: brand.repo });
-    }
+  const emptied = row === 'list' && remaining.length === 0;
+  const rowGone = Boolean(recorded) && (emptied || dropWhole);
+  if (rowGone) manifest.remove(manifestFile, { plugin, repo: brand.repo });
+  else if (recorded && row === 'list' && remaining.length < listed.length) {
+    manifest.upsert(manifestFile, { ...recorded, targets: remaining });
   }
+
+  // What the row is NOW, which is what the summary has to speak about. A `list`
+  // shortened down to names this build does not know is stranded exactly like a
+  // row that arrived that way - `read()` files it under `ignored` and `update`
+  // fails on it forever - and saying nothing about it left the user needing a
+  // second --force run that nothing had mentioned.
+  const rowLeft: RowShape =
+    !recorded || rowGone
+      ? 'none'
+      : rowShape({ ...recorded, targets: row === 'list' ? remaining : recorded.targets });
 
   summarizeUninstall({
     removed,
@@ -519,8 +531,7 @@ async function runUninstall({
     // because --targets scoped it out. Both are "still recorded", and naming
     // them is what makes the --force hint honest under --force too.
     stuck: remaining.filter(isHarnessName),
-    row,
-    dropWhole,
+    rowLeft,
     bin: brand.bin,
   });
 
@@ -576,13 +587,22 @@ export async function updateAll({
         ref: entry.ref || brand.ref,
         id: entry.marketplace || brand.id,
       });
+      // Nothing to refresh, and nowhere to refresh it: `installPlugin` would
+      // throw "not installed on this machine" for an explicit target, which
+      // would make `update` exit 1 on this row on every future run. It is a
+      // skip - the copy, if any, is wherever the uninstalled editor left it.
+      const reachable = entry.targets.filter((n) => byName(n).detect(pathOpts));
+      if (!reachable.length) {
+        log.warn(`${entry.plugin.padEnd(idWidth)}  no editor for it on this machine - skipping`);
+        continue;
+      }
       if (collapse) log.setQuiet(true);
       try {
         const result = await installPlugin({
           brand: entryBrand,
           plugin: entry.plugin,
           ref: entry.ref,
-          targets: entry.targets,
+          targets: reachable,
           force: true,
           assumeYes: true,
           deps,
@@ -667,9 +687,8 @@ interface UninstallSummary {
   failed: HarnessName[];
   /** Known targets this build still sees on the row after the write. */
   stuck: HarnessName[];
-  row: RowShape;
-  /** The row had no per-target list and was dropped, or kept, whole. */
-  dropWhole: boolean;
+  /** What the row looks like now: `none` once it is gone. */
+  rowLeft: RowShape;
   bin: string;
 }
 
@@ -687,8 +706,7 @@ function summarizeUninstall({
   forced,
   failed,
   stuck,
-  row,
-  dropWhole,
+  rowLeft,
   bin,
 }: UninstallSummary): void {
   log.plain('');
@@ -700,31 +718,18 @@ function summarizeUninstall({
   if (forced.length) {
     log.warn(`Dropped from the record without confirming removal: ${titlesOf(forced)}`);
   }
-  if (row === 'unusable' && dropWhole) {
-    log.ok(`The record for '${plugin}' named no editor to remove from - dropped it.`);
-  }
-  if (row === 'foreign' && dropWhole) {
-    log.warn(`Dropped the record for '${plugin}' with a target list this version cannot read.`);
-  }
-  if (failed.length) log.error(`Could not uninstall from: ${titlesOf(failed)}`);
 
-  // "Are they installed?" is only the right question when every editor asked was
-  // simply not there and there is nothing else to say. A failure is a different
-  // answer, a change is another, and a row that survived is explained below -
-  // asking it there would imply the editor holding the record is missing.
-  const changed = removed.length || cleared.length || forced.length || dropWhole;
-  const kept = row === 'foreign' || row === 'unusable';
-  if (!changed && !failed.length && !kept && !stuck.length) {
-    log.warn(`Nothing was changed. Are ${everyEditor()} installed?`);
-  }
-
+  // A row this build can no longer act on at all. It has to be named: left
+  // unmentioned, `read()` files it under `ignored` and `update` fails on it on
+  // every future run, and clearing it takes a --force nothing asked for.
+  const stranded = rowLeft === 'foreign' || rowLeft === 'unusable';
   // The scope is the stuck targets themselves, never the --targets of the run
   // that printed it: naming them exactly cannot widen what the user asked for.
   const scope = stuck.length ? ` --targets ${stuck.join(',')}` : '';
   const forceLine = `\`${bin} uninstall ${plugin}${scope} --force\` drops it without confirming.`;
-  if (kept && !dropWhole) {
+  if (stranded) {
     log.warn(
-      row === 'foreign'
+      rowLeft === 'foreign'
         ? `The record for '${plugin}' has a target list this version cannot read.`
         : `The record for '${plugin}' names no editor to remove from.`,
     );
@@ -732,6 +737,15 @@ function summarizeUninstall({
   } else if (stuck.length) {
     log.info(`Still recorded for ${titlesOf(stuck)} - nothing here could confirm otherwise.`);
     log.info(forceLine);
+  }
+
+  // "Are they installed?" is only the right question when every editor asked was
+  // simply not there and there is nothing else to say. A failure is a different
+  // answer (and the thrown error names it, so no line here repeats it), a change
+  // is another, and a row that survived has just explained itself.
+  const changed = removed.length || cleared.length || forced.length || rowLeft === 'none';
+  if (!changed && !failed.length && !stranded && !stuck.length) {
+    log.warn(`Nothing was changed. Are ${everyEditor()} installed?`);
   }
   log.plain('');
 }

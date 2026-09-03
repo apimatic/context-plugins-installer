@@ -11,6 +11,16 @@ const BOM = String.fromCharCode(0xfeff);
 
 export const toKey = (dir: string): string => dir.replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The path has to appear AS a key. A bare quoted match also hits the same path
+// used as some other setting's *value*, which would report a plugin entry that
+// is not there at all.
+const namedAsKey = (mask: string, key: string): boolean =>
+  new RegExp(`"${escapeRe(key)}"\\s*:`).test(mask);
+
+/** The `"<key>": true` entry this tool writes, as opposed to any other shape. */
+const entryFor = (mask: string, key: string): boolean =>
+  new RegExp(`"${escapeRe(key)}"\\s*:\\s*true\\b`).test(mask);
 const eolOf = (text: string): string => (text.includes('\r\n') ? '\r\n' : '\n');
 
 export function freshDocument(key: string, eol = '\n'): string {
@@ -101,7 +111,11 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
   }
 
   const mask = maskComments(raw);
-  if (mask.includes(`"${key}"`)) return { action: 'already', backup: null };
+  if (entryFor(mask, key)) return { action: 'already', backup: null };
+  // The path IS a key here, but not the `"<key>": true` this tool writes - hand
+  // edited to false, or some other shape. Adding a second entry would leave a
+  // duplicate key and VS Code still would not load the plugin, so say so.
+  if (namedAsKey(mask, key)) return { action: 'conflict', backup: null };
 
   const eol = eolOf(raw);
   const entry = `"${key}": true`;
@@ -139,7 +153,7 @@ export function removePluginLocation(settingsPath: string, dir: string): RemoveL
   const hadBom = original.charCodeAt(0) === 0xfeff;
   const raw = stripBom(original);
   const mask = maskComments(raw);
-  if (!mask.includes(`"${key}"`)) return { action: 'absent', backup: null };
+  if (!namedAsKey(mask, key)) return { action: 'absent', backup: null };
 
   const esc = escapeRe(key);
   // Leading-comma form first, so removing the last entry leaves no dangling comma.

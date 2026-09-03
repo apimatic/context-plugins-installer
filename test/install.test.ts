@@ -874,6 +874,73 @@ test('an editor that was asked and went wrong fails the run', async () => {
   );
 });
 
+// --force is the documented escape for a row nothing can clear, so nothing about
+// reaching the registry may stand between the user and using it.
+test('--force clears a record offline, with no marketplace to resolve', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // No `marketplace` and no `targets`: the shape --force exists for.
+  fs.writeFileSync(file, JSON.stringify({ version: 1, plugins: [{ plugin: 'ghost-sdk', repo }] }));
+  const offline = () => {
+    throw new Error('network touched');
+  };
+
+  await quietly(() =>
+    uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'ghost-sdk',
+      force: true,
+      deps: { fetchImpl: offline, env: {} },
+      pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
+    }),
+  );
+
+  assert.equal(manifest.list(file).length, 0);
+});
+
+test('a lookup failure still stops an uninstall with no record to correct', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const offline = () => {
+    throw new Error('network touched');
+  };
+
+  await assert.rejects(
+    quietly(() =>
+      uninstallPlugin({
+        brand: brandFor(repo),
+        plugin: 'never-installed-sdk',
+        deps: { fetchImpl: offline, env: {} },
+        pathOpts: m.pathOpts,
+      }),
+    ),
+    'the resolution error is the useful answer when there is nothing to clean up',
+  );
+});
+
+// `update` refreshing a plugin for an editor that is no longer installed is a
+// no-op, not a failure - otherwise the row makes `update` exit 1 forever, and
+// this branch made such a row need --force to clear.
+test('update skips a row whose editors are all gone instead of failing', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const brand = brandFor(repo);
+  const d = deps({ repo, srcDir });
+
+  await quietly(() =>
+    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
+  );
+  fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
+
+  const result = await quietly(() => updateAll({ brand, deps: d, pathOpts: m.pathOpts }));
+
+  assert.deepEqual(result.failed, [], 'no editor for it is not a failure');
+  assert.deepEqual(result.updated, []);
+});
+
 test('asking for an editor that is not installed fails, naming it', async () => {
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
@@ -1388,7 +1455,10 @@ test('uninstall still works offline for rows the sanitized view hides', async ()
   assert.deepEqual(result.targets, ['cursor']);
   const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins;
   assert.deepEqual(after[0].targets, ['zed'], 'the foreign target stays on the record');
-  assert.doesNotMatch(out, /--force/, 'which --force would not clear either');
+  // The row that is left names nothing this build knows, so it has to say so -
+  // silently, `read()` files it under `ignored` and `update` fails on it forever.
+  assert.match(out, /target list this version cannot read/);
+  assert.match(out, /--force/, 'and names the one thing that clears it');
 });
 
 test('a row mixing a known target with a foreign one keeps the foreign name', async () => {

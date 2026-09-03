@@ -113,7 +113,14 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   only `OTHER_SCOPES`, so a scope word this build has never seen counts as
   possibly ours. That is the invariant to hold on to: an unrecognised _anything_
   from Claude — a row with no `id`, a marketplace it cannot name, a new scope
-  word — counts as unanswered, never as proof of absence. `LOOKS_ABSENT`, the
+  word — counts as unanswered, never as proof of absence. That is why the plugin
+  listing must be read **whole**: `installedPlugins` returns null unless every
+  row parsed, because absence is the only conclusion it is ever read for, and a
+  listing whose rows this build cannot parse (plain strings, an `id` renamed on
+  some rows) would otherwise look exactly like "nothing is installed".
+  `listMarketplaces` is the opposite — it filters junk rows, because one
+  unreadable marketplace must not hide the rest and the worst case there is
+  re-adding one. `LOOKS_ABSENT`, the
   fallback for a CLI too old to list as JSON, holds only phrases that cannot be
   about anything but a plugin: anything built around "is not installed" also
   matches `Marketplace 'plugin-marketplace' is not installed`, and `plugin
@@ -160,7 +167,14 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   dropped by an explicit `--force`. That second case is not hypothetical:
   uninstalling Cursor from `['cursor','zed']` leaves `['zed']`, so a normal run
   produces it, and calling that a `list` left a row nothing could ever drop while
-  `read()` filed it under `ignored` and `update` failed on it forever. `uninstall` catches per harness, so one editor's I/O failure
+  `read()` filed it under `ignored` and `update` failed on it forever. The
+  summary therefore speaks about `rowLeft` — the row as _written_, not as found —
+  because a `list` shortened down to foreign names is stranded exactly like a row
+  that arrived that way, and saying nothing left the user needing a second
+  `--force` run nothing had mentioned. `update` skips an entry whose every
+  recorded editor is undetected rather than failing on it: refreshing a plugin
+  for an editor that is not installed is a no-op, and treating it as a failure
+  made such a row exit 1 forever. `uninstall` catches per harness, so one editor's I/O failure
   neither hides the others nor loses the removals already done; it records
   `'failed'`, finishes the run, prints the summary, and only then throws — which
   is also why the write is _not_ in a `finally` (that would let a write failure on
@@ -173,8 +187,14 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   failed, and no row survived to explain itself. The `--force` hint names the
   stuck targets themselves rather than echoing the run's `--targets`, so it can
   never widen what the user asked for. Editor names in prose come from `everyEditor()`, never a
-  literal: the add-harness skill lists the hand-written ones, and `install.ts` is
-  deliberately not among them. The same rule holds _within_ a row: writers rebuild from the raw record
+  literal. `titlesOf` and `everyEditor` live in `harness/index.ts`, next to
+  `NAMES` and `byName`, and `install.ts`, `cli.ts` and `doctor.ts` all use them,
+  so adding a harness leaves only `CLAUDE.md` and `package.json` to edit by hand.
+  Resolving a marketplace name never blocks correcting a record: `uninstall`
+  degrades a failed lookup to a warning when there _is_ a row (so `--force`
+  works offline, and after an upstream rename), and still throws when there is
+  not, because then the resolution error and its suggestion are the useful
+  answer. The same rule holds _within_ a row: writers rebuild from the raw record
   (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
   survives a rewrite. Never write a row back from the sanitized view. Every command that
   renders that view says what it left out: `installed` and `list` share
@@ -184,7 +204,15 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   marketplace it is listing, which is why both gap types carry `repo`.
 - **VS Code settings** (`src/settings-merge.ts`) are JSONC. Edits are targeted string
   splices, never parse-and-reserialize, so user comments and formatting survive. A
-  backup is taken before every mutation.
+  backup is taken before every mutation. Both entry points test for the path
+  **as a key** (`namedAsKey`), never as a bare quoted string: the path also
+  appears quoted when it is some other setting's _value_, which used to make
+  `remove` report `unremovable` for an entry that was not there. And both
+  distinguish the `"<key>": true` entry this tool writes (`entryFor`) from any
+  other shape: `add` returns `conflict` rather than `already` for a
+  hand-edited `"<key>": false`, because reporting "already registered" there is a
+  green install of a plugin VS Code never loads, and splicing a second entry in
+  would just leave a duplicate key.
 - **Configuration** resolves flag → `CP_*` env → `.contextpluginsrc` (cwd, then home)
   → preset profile → defaults (`src/brand.ts`). `run.js` exists so another brand can
   ship this CLI preconfigured. The Mixpanel token and host are profile fields

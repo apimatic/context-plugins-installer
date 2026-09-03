@@ -315,6 +315,40 @@ test('a scope this build has never seen counts as possibly ours', async () => {
   assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
 });
 
+// Absence is the one conclusion this listing is read for, so it has to be read
+// WHOLE. A row shape the build cannot parse used to be filtered away before the
+// guard could see it, and an all-unreadable listing then looked like "nothing is
+// installed" - clearing the record for a plugin Claude still had.
+test('a listing of a shape this build cannot parse is unknown, not absence', async () => {
+  const run = fakeCli({
+    'plugin uninstall': { code: 1, stderr: 'boom' },
+    'plugin list': { code: 0, stdout: JSON.stringify(['xero-sdk@context-plugins', 'other@x']) },
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+test('one unreadable row makes the whole listing unknown', async () => {
+  const run = fakeCli({
+    'plugin uninstall': { code: 1, stderr: 'boom' },
+    // A newer CLI renamed `id` on some rows but not others.
+    'plugin list': {
+      code: 0,
+      stdout: JSON.stringify([
+        { name: 'xero-sdk', scope: 'user' },
+        { id: 'other@x', scope: 'user' },
+      ]),
+    },
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+test('an empty listing is still proof that nothing is installed', async () => {
+  const run = fakeCli({ 'plugin uninstall': NOT_INSTALLED, 'plugin list': plugins([]) });
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'absent');
+});
+
 test('a listing whose rows carry no id is unknown, not proof of absence', async () => {
   const run = fakeCli({
     'plugin uninstall': { code: 1, stderr: 'EACCES: permission denied' },

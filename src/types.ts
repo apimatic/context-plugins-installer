@@ -225,6 +225,8 @@ export type AddLocationAction =
   | 'inserted-empty'
   | 'inserted-existing'
   | 'inserted-key'
+  /** The path is already a key, but not the `"<key>": true` this tool writes. */
+  | 'conflict'
   | 'failed';
 
 /**

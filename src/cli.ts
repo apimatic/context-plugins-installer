@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
-import { NAMES, byName } from './harness/index.js';
+import { NAMES, byName, titlesOf, everyEditor } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
@@ -134,7 +134,7 @@ export const parseTargets = (value?: string): string[] | null =>
 
 export function helpText(bin: string, brand: Pick<Brand, 'displayName' | 'label' | 'ref'>): string {
   return `
-${brand.displayName} - install marketplace plugins into Claude Code, Cursor, and VS Code.
+${brand.displayName} - install marketplace plugins into ${everyEditor('and')}.
 
 Usage
   ${bin} install <plugin> [options]
@@ -325,7 +325,7 @@ export async function run(
             log.plain(`  ${mark} ${log.bold(p.name)}`);
             if (p.description) log.info(p.description);
             if (p.targets.length) {
-              log.info(`Installed into: ${p.targets.map((n) => byName(n).title).join(', ')}`);
+              log.info(`Installed into: ${titlesOf(p.targets)}`);
             }
           }
         } else {

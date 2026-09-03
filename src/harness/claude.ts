@@ -82,26 +82,30 @@ async function listJson(
   claude: string,
   args: string[],
   key: string,
-): Promise<Record<string, unknown>[] | null> {
+): Promise<unknown[] | null> {
   const res = await exec(claude, [...args, '--json']);
   if (res.code !== 0) return null;
   try {
     const parsed: unknown = JSON.parse(stripBom(res.stdout));
-    const entries: unknown[] | null = Array.isArray(parsed)
-      ? parsed
-      : isPlainObject(parsed) && Array.isArray(parsed[key])
-        ? parsed[key]
-        : null;
-    if (!entries) return null;
-    return entries.filter(isPlainObject);
+    if (Array.isArray(parsed)) return parsed;
+    return isPlainObject(parsed) && Array.isArray(parsed[key]) ? parsed[key] : null;
   } catch {
     return null;
   }
 }
 
-/** null on a CLI too old to list marketplaces as JSON. */
-const listMarketplaces = (exec: RunCommand, claude: string): Promise<MarketplaceListing[] | null> =>
-  listJson(exec, claude, ['plugin', 'marketplace', 'list'], 'marketplaces');
+/**
+ * null on a CLI too old to list marketplaces as JSON. Junk rows are dropped
+ * rather than fatal: one unreadable marketplace must not hide the rest, and the
+ * worst case is re-adding one that was already there.
+ */
+async function listMarketplaces(
+  exec: RunCommand,
+  claude: string,
+): Promise<MarketplaceListing[] | null> {
+  const entries = await listJson(exec, claude, ['plugin', 'marketplace', 'list'], 'marketplaces');
+  return entries ? entries.filter(isPlainObject) : null;
+}
 
 interface InstalledPlugin {
   plugin: string;
@@ -117,7 +121,7 @@ async function installedPlugins(
   const entries = await listJson(exec, claude, ['plugin', 'list'], 'plugins');
   if (!entries) return null;
   const rows = entries.flatMap((e) => {
-    if (!nonEmptyString(e.id)) return [];
+    if (!isPlainObject(e) || !nonEmptyString(e.id)) return [];
     // The id is `plugin@marketplace`, and the marketplace half is whatever name
     // Claude filed it under - not necessarily the one this run addressed.
     const at = e.id.lastIndexOf('@');
@@ -128,9 +132,12 @@ async function installedPlugins(
       },
     ];
   });
-  // Rows that carry no id at all mean the shape moved; an empty list is only
-  // trustworthy as "nothing is installed" when there were no rows to read.
-  if (!rows.length && entries.length) return null;
+  // Unlike the marketplace listing, this one is only ever read to conclude a
+  // plugin is GONE, so it has to be read whole. A single row this build cannot
+  // parse - a plain string, an `id` renamed on some rows - makes the answer
+  // unknown, never "nothing is installed". An empty listing is only trustworthy
+  // when there were no rows to begin with, which this covers.
+  if (rows.length !== entries.length) return null;
   return rows;
 }
 
