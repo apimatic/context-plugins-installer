@@ -230,6 +230,69 @@ async function runWith(
   }
 }
 
+// `installed --targets vscode` used to answer exactly as though the flag were
+// absent: accepted, ignored, no signal.
+const PER_EDITOR = {
+  version: 1,
+  plugins: [
+    { plugin: 'only-cursor', repo: REPO, marketplace: 'apimatic', targets: ['cursor'] },
+    { plugin: 'only-vscode', repo: REPO, marketplace: 'apimatic', targets: ['vscode'] },
+    { plugin: 'both', repo: REPO, marketplace: 'apimatic', targets: ['cursor', 'vscode'] },
+  ],
+};
+
+test('installed --targets lists only what is recorded for those editors', async () => {
+  const { code, text } = await runWith(['installed', '--targets', 'vscode'], PER_EDITOR);
+
+  assert.equal(code, 0);
+  assert.ok(text.includes('only-vscode'));
+  assert.ok(text.includes('both'), 'a plugin in several editors still counts');
+  assert.ok(!text.includes('only-cursor'), 'and one in none of them does not');
+  assert.ok(text.includes('2 plugins installed in VS Code'), 'the heading says what it filtered');
+});
+
+test('installed --targets filters the --json payload the same way', async () => {
+  const { out } = await runWith(['installed', '--targets', 'cursor', '--json'], PER_EDITOR);
+  const payload: { plugin: string }[] = JSON.parse(out);
+
+  assert.deepEqual(
+    payload.map((e) => e.plugin).sort(),
+    ['both', 'only-cursor'],
+    'the payload is the filtered rows, in the same shape as before',
+  );
+});
+
+test('installed --targets still shows every editor a listed plugin is recorded for', async () => {
+  const { text } = await runWith(['installed', '--targets', 'vscode'], PER_EDITOR);
+  // The filter chooses the rows; it does not narrow what each row says.
+  assert.ok(text.includes('both Cursor, VS Code'), text);
+});
+
+test('installed --targets with no match says so, rather than "none yet"', async () => {
+  const { text } = await runWith(['installed', '--targets', 'claude'], PER_EDITOR);
+  assert.ok(text.includes('No plugins installed in Claude Code.'), text);
+});
+
+test('installed --targets all is the same as not asking', async () => {
+  const every = await runWith(['installed', '--targets', 'all'], PER_EDITOR);
+  const plain = await runWith(['installed'], PER_EDITOR);
+  assert.equal(every.text, plain.text);
+});
+
+test('an unknown --targets value is refused, not quietly dropped', async () => {
+  const { code, err } = await runWith(['installed', '--targets', 'emacs'], PER_EDITOR);
+  assert.equal(code, 1);
+  assert.ok(err.includes('Unknown target(s): emacs'), err);
+});
+
+// The defect class behind the report: a flag that does nothing must not answer
+// as though it were absent.
+test('--targets on a command that ignores it warns on stderr', async () => {
+  const { code, err } = await runWith(['doctor', '--targets', 'vscode'], PER_EDITOR);
+  assert.ok(err.includes('--targets does nothing for `doctor`'), err);
+  assert.ok(code === 0 || code === 1, 'the warning does not change the outcome');
+});
+
 test('installed --json leaves stdout to the payload and puts the warnings on stderr', async () => {
   const { code, out, err } = await runWith(['installed', '--json'], STATE_MANIFEST);
   assert.equal(code, 0);

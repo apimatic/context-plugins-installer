@@ -38,19 +38,19 @@ context-plugins telemetry [status|enable|disable]   # anonymous usage data, see 
 
 ## Options
 
-| Option                     | Default                      | Description                                                                               |
-| -------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
-| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                                                      |
-| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                                                   |
-| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                                                          |
-| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, or `all` — skips the prompt                                 |
-| `-y`, `--yes`              | off                          | Accept every detected assistant without asking                                            |
-| `--force`                  | off                          | Replace a plugin from a different marketplace; on `uninstall`, drop an unconfirmed record |
-| `--long`                   | off                          | Show plugin descriptions in `list`                                                        |
-| `--json`                   | off                          | Machine-readable output for `list` / `installed` / `doctor`                               |
-| `--verbose` / `--quiet`    | off                          | More or less progress detail                                                              |
-| `-h`, `--help`             | —                            | Show usage and exit                                                                       |
-| `-v`, `--version`          | —                            | Print the version and exit                                                                |
+| Option                     | Default                      | Description                                                                                                                                                    |
+| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                                                                                                                           |
+| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                                                                                                                        |
+| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                                                                                                                               |
+| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, or `all`. On install/uninstall it picks the editors and skips the prompt; on `installed` it lists only what is recorded for them |
+| `-y`, `--yes`              | off                          | Accept every detected assistant without asking                                                                                                                 |
+| `--force`                  | off                          | Replace a plugin from a different marketplace; on `uninstall`, drop an unconfirmed record                                                                      |
+| `--long`                   | off                          | Show plugin descriptions in `list`                                                                                                                             |
+| `--json`                   | off                          | Machine-readable output for `list` / `installed` / `doctor`                                                                                                    |
+| `--verbose` / `--quiet`    | off                          | More or less progress detail                                                                                                                                   |
+| `-h`, `--help`             | —                            | Show usage and exit                                                                                                                                            |
+| `-v`, `--version`          | —                            | Print the version and exit                                                                                                                                     |
 
 With `--json`, stdout carries the payload and nothing else — warnings and `--verbose` detail go
 to stderr, so `... --json | jq` is safe to script against. The commands that read `installed.json` show only what
