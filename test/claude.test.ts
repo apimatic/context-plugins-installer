@@ -219,9 +219,9 @@ const NOT_INSTALLED: Partial<RunResult> = {
   stderr: 'Plugin "xero-sdk@context-plugins" not found in installed plugins',
 };
 
-const plugins = (ids: unknown[]): Partial<RunResult> => ({
+const plugins = (ids: unknown[], scope = 'user'): Partial<RunResult> => ({
   code: 0,
-  stdout: JSON.stringify(ids.map((id) => ({ id, scope: 'user', enabled: true }))),
+  stdout: JSON.stringify(ids.map((id) => ({ id, scope, enabled: true }))),
 });
 
 test('a plugin Claude does not have is absent, not a failed uninstall', async () => {
@@ -236,8 +236,40 @@ test('a plugin Claude does not have is absent, not a failed uninstall', async ()
 test('a plugin Claude still lists is a failure, whatever the message says', async () => {
   const run = fakeCli({
     'plugin uninstall': NOT_INSTALLED,
-    // Installed at a scope this run cannot reach: still installed.
     'plugin list': plugins(['xero-sdk@context-plugins']),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+// The id is `plugin@marketplace`, and the marketplace half is whatever name
+// Claude filed it under. Comparing the whole id would read a name this build
+// could not resolve as proof of absence and delete a live record.
+test('a marketplace Claude knows by another name is not absence', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': { code: 1 }, // nothing to resolve the name from
+    'plugin uninstall': NOT_INSTALLED,
+    'plugin list': plugins(['xero-sdk@apimatic-plugins']),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+// Everything here installs and uninstalls at user scope, so a project-scope
+// copy is not what this record is about - and must not keep it stuck.
+test('a copy at another scope leaves the user-scope record clearable', async () => {
+  const run = fakeCli({
+    'plugin uninstall': NOT_INSTALLED,
+    'plugin list': plugins(['xero-sdk@context-plugins'], 'project'),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'absent');
+});
+
+test('a listing that does not say the scope counts as possibly ours', async () => {
+  const run = fakeCli({
+    'plugin uninstall': NOT_INSTALLED,
+    'plugin list': { code: 0, stdout: JSON.stringify([{ id: 'xero-sdk@context-plugins' }]) },
   });
 
   assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');

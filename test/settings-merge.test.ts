@@ -207,6 +207,17 @@ test('a document with no object to splice into fails instead of reporting succes
   assert.equal(backupsIn(file).length, 0);
 });
 
+// Reporting this as 'absent' would let a caller clear its own record while VS
+// Code carries on loading the path.
+test('remove: a path named in a form this tool did not write is not absence', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    "${KEY}": false\n  }\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'unremovable');
+  assert.equal(read(file), source, 'and the file is left exactly as it was');
+  assert.equal(backupsIn(file).length, 0);
+});
+
 test('remove: a commented-out entry is left where it is', () => {
   const source = `{\n  "chat.pluginLocations": {\n    // "${KEY}": true\n  }\n}\n`;
   const file = settingsWith(source);

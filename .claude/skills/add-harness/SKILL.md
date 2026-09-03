@@ -57,8 +57,15 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    - `install` returns `false` to mean "skipped, and said why" - not installed, nothing to
      do. A failure the user can fix is a thrown `UserError` with a `hint`. Never throw a
      bare `Error` for a predictable condition.
-   - `uninstall` is idempotent: nothing to remove is `log.info` + `return false`, not an
-     error. `update` and repeated uninstalls depend on this.
+   - `uninstall` returns `'removed' | 'absent' | 'failed'`, never a boolean, and the
+     difference decides whether the manifest row survives. `absent` means the harness
+     LOOKED and established there is nothing to remove - only then is the target
+     cleared from the record. Anything you cannot verify is `'failed'`: the editor not
+     being installed, a config file naming the plugin in a form this tool did not
+     write, a path that may not be the one the install used. Getting that backwards
+     deletes the record for a plugin that is still installed, with nothing left to
+     remove it by. Repeated uninstalls and `update` depend on `absent` being reachable;
+     `--force` is the user's escape for a target stuck on `'failed'`.
    - Copy files with `replaceDir` (wholesale replace), so a plugin that shrank between
      versions leaves no orphan files behind.
    - All output goes through `log`; end `install` and `uninstall` with the line that
@@ -89,8 +96,10 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    compiler is silent and the old text simply stays wrong. Update every one:
    - `src/cli.ts` - the first line of `helpText` ("install marketplace plugins into ...").
      The `--targets` line under it is generated from `NAMES` and needs nothing.
-   - `src/install.ts` - the "No supported editor found" hint and the "Nothing was
-     changed. Are ... installed?" warning in `summarize`.
+   - `src/install.ts` needs nothing: both its editor lists are built by `everyEditor()`
+     from `NAMES`. Do not hand-write a new one - there are two summary functions
+     (`summarize` and `summarizeUninstall`) and a list added to one would silently go
+     stale in the other.
    - `src/doctor.ts` - the "Any editor" failure hint.
    - `CLAUDE.md` - the "What this is" paragraph.
    - `package.json` - `description` and, if the editor has a well-known name, `keywords`.

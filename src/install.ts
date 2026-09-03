@@ -16,12 +16,31 @@ import type {
   PathOpts,
   Session,
   TrackFn,
+  UninstallOutcome,
   UninstallResult,
   UpdateResult,
 } from './types.js';
 import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } from './util.js';
 
 const nowIso = (): string => new Date().toISOString();
+
+const titlesOf = (names: readonly HarnessName[]): string =>
+  names.map((n) => byName(n).title).join(', ');
+
+/**
+ * Every editor this build knows, in prose. Derived from `NAMES` on purpose:
+ * these lists are the one thing the compiler cannot keep honest when a harness
+ * is added, so there is nothing here to forget to update.
+ */
+function everyEditor(conjunction?: string): string {
+  const all = NAMES.map((n) => byName(n).title);
+  if (!conjunction || all.length < 2) return all.join(' / ');
+  const last = all[all.length - 1];
+  const head = all.slice(0, -1);
+  return all.length === 2
+    ? `${head[0]} ${conjunction} ${last}`
+    : `${head.join(', ')}, ${conjunction} ${last}`;
+}
 
 const noTrack: TrackFn = () => {};
 
@@ -241,7 +260,7 @@ async function runInstall({
       {
         hint: explicit
           ? `Install it first, or choose another with --targets ${NAMES.join(',')}.`
-          : 'Install Claude Code, Cursor, or VS Code, then run this again.',
+          : `Install ${everyEditor('or')}, then run this again.`,
       },
     );
   }
@@ -398,42 +417,77 @@ async function runUninstall({
   }
 
   log.banner(`Uninstalling '${plugin}' from ${brand.label}`);
-  log.info(`Removing from: ${want.map((n) => byName(n).title).join(', ')}`);
+  log.info(`Removing from: ${titlesOf(want)}`);
   log.rule();
 
-  const removed: HarnessName[] = [];
-  // Targets the record should no longer claim. An editor that had nothing to
-  // remove belongs here too: the row is what drifted, not the run, and leaving
-  // it would strand the plugin - unremovable, and failing every `update`.
-  const clear: HarnessName[] = [];
-  const failed: HarnessName[] = [];
-  for (const name of want) {
-    const harness = byName(name);
-    log.step(`[${harness.title}]`);
-    const outcome = await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts);
-    if (outcome === 'removed') removed.push(name);
-    if (outcome !== 'failed' || force) clear.push(name);
-    else failed.push(name);
-  }
+  // One entry per editor visited. Every question the record and the summary ask
+  // is a filter over this, so the three cannot drift apart.
+  const outcomes = new Map<HarnessName, UninstallOutcome>();
+  // A `targets` shape this build cannot read belongs to whoever wrote it, so the
+  // row is left exactly as found rather than rebuilt from an empty list.
+  const rawTargets = recorded && Array.isArray(recorded.targets) ? recorded.targets : null;
+  const recordedTargets: unknown[] = rawTargets ?? [];
+  const of = (...kinds: UninstallOutcome[]): HarnessName[] =>
+    [...outcomes].filter(([, o]) => kinds.includes(o)).map(([n]) => n);
+  // `absent` clears too: the row is what drifted, not the run, and leaving it
+  // would strand the plugin - unremovable, and failing every `update`. Read
+  // lazily, because a harness that throws leaves the map half filled.
+  const clearable = (): HarnessName[] => (force ? [...outcomes.keys()] : of('removed', 'absent'));
 
-  // Foreign target names stay on the record for whichever tool wrote them.
-  const recordedTargets: unknown[] =
-    recorded && Array.isArray(recorded.targets) ? recorded.targets : [];
-  const remaining = recordedTargets.filter((t) => !clear.some((c) => c === t));
-  if (recorded && remaining.length === 0) {
-    manifest.remove(manifestFile, { plugin, repo: brand.repo });
-  } else if (recorded) {
-    manifest.upsert(manifestFile, { ...recorded, targets: remaining });
+  const writeRecord = (): void => {
+    // Foreign target names, and a whole `targets` this build cannot read, stay
+    // on the record for whichever tool wrote them.
+    if (!recorded || !rawTargets) return;
+    const clear = clearable();
+    const remaining = recordedTargets.filter((t) => !clear.some((c) => c === t));
+    if (remaining.length === 0) manifest.remove(manifestFile, { plugin, repo: brand.repo });
+    else if (remaining.length < rawTargets.length) {
+      manifest.upsert(manifestFile, { ...recorded, targets: remaining });
+    }
+  };
+
+  try {
+    for (const name of want) {
+      const harness = byName(name);
+      log.step(`[${harness.title}]`);
+      outcomes.set(
+        name,
+        await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts),
+      );
+    }
+  } catch (err) {
+    // A harness that throws must still not cost the removals already done, but
+    // failing to write that down must not hide the failure that caused it.
+    try {
+      writeRecord();
+    } catch (writeErr) {
+      log.debug(`could not update the record: ${errorMessage(writeErr)}`);
+    }
+    throw err;
   }
+  writeRecord();
+
+  const removed = of('removed');
+  const onRecord = (names: HarnessName[]): HarnessName[] =>
+    rawTargets ? names.filter((n) => recordedTargets.includes(n)) : [];
 
   summarizeUninstall({
     removed,
     plugin,
-    cleared: Boolean(recorded) && remaining.length < recordedTargets.length,
-    // Only what this run could not settle: a foreign target is also left
-    // behind, on purpose, and --force does not clear it either.
-    stuck: failed.some((n) => recordedTargets.includes(n)),
+    // Only what this run took off the row, and only if it was on it.
+    cleared: onRecord(of('absent')),
+    rowGone:
+      Boolean(recorded && rawTargets) &&
+      recordedTargets.every((t) => clearable().some((c) => c === t)),
+    // Dropped on --force alone: no editor confirmed these, so the summary must
+    // not imply one did.
+    forced: force ? onRecord(of('failed')) : [],
+    // A foreign target is left behind too, on purpose, and --force does not
+    // clear it either - so it is never what the hint is about.
+    stuck: force ? [] : onRecord(of('failed')),
+    unreadable: Boolean(recorded) && !rawTargets,
     bin: brand.bin,
+    targets,
   });
   return { plugin, targets: removed };
 }
@@ -570,27 +624,51 @@ export async function listPlugins({
 interface UninstallSummary {
   removed: HarnessName[];
   plugin: string;
-  /** The record was corrected, whether or not this run removed anything. */
-  cleared: boolean;
-  /** A target this run could not confirm is still on the record. */
-  stuck: boolean;
+  /** Recorded targets taken off the row because nothing was there. */
+  cleared: HarnessName[];
+  /** The row itself is gone, not merely shorter. */
+  rowGone: boolean;
+  /** Dropped by --force without any editor confirming it. */
+  forced: HarnessName[];
+  /** Left on the record because this run could not confirm them. */
+  stuck: HarnessName[];
+  /** The row's `targets` belong to a newer CLI, so it was not touched at all. */
+  unreadable: boolean;
   bin: string;
+  targets?: readonly string[] | null;
 }
 
-function summarizeUninstall({ removed, plugin, cleared, stuck, bin }: UninstallSummary): void {
+function summarizeUninstall({
+  removed,
+  plugin,
+  cleared,
+  rowGone,
+  forced,
+  stuck,
+  unreadable,
+  bin,
+  targets,
+}: UninstallSummary): void {
   log.plain('');
   log.rule();
-  if (removed.length) {
-    log.ok(`Uninstalled from: ${removed.map((n) => byName(n).title).join(', ')}`);
-  } else if (cleared) {
-    log.ok(`Nothing was installed - cleared the stale record for '${plugin}'.`);
-  } else {
-    log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
+  if (removed.length) log.ok(`Uninstalled from: ${titlesOf(removed)}`);
+  else if (rowGone) log.ok(`Nothing was installed - cleared the stale record for '${plugin}'.`);
+  else if (cleared.length) {
+    log.ok(`Nothing was installed in ${titlesOf(cleared)} - cleared that from the record.`);
+  } else if (!unreadable) log.warn(`Nothing was changed. Are ${everyEditor()} installed?`);
+
+  if (unreadable) {
+    log.warn(`The record for '${plugin}' lists targets this version cannot read.`);
+    log.info('It was left untouched for the version that owns it.');
   }
-  if (stuck) {
-    log.info(
-      `'${plugin}' is still on the record - \`${bin} uninstall ${plugin} --force\` clears it.`,
-    );
+  // Naming them is the whole point: --force asserts what no editor could.
+  if (forced.length) {
+    log.warn(`Dropped from the record without confirming removal: ${titlesOf(forced)}`);
+  }
+  if (stuck.length) {
+    const scope = targets?.length ? ` --targets ${targets.join(',')}` : '';
+    log.info(`Still recorded for ${titlesOf(stuck)} - nothing here could confirm otherwise.`);
+    log.info(`\`${bin} uninstall ${plugin}${scope} --force\` drops it without confirming.`);
   }
   log.plain('');
 }
@@ -599,12 +677,10 @@ function summarize(done: HarnessName[], verb: string, unchanged: HarnessName[] =
   log.plain('');
   log.rule();
   if (!done.length) {
-    log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
+    log.warn(`Nothing was changed. Are ${everyEditor()} installed?`);
   } else {
-    log.ok(`${verb}: ${done.map((n) => byName(n).title).join(', ')}`);
+    log.ok(`${verb}: ${titlesOf(done)}`);
   }
-  if (unchanged.length) {
-    log.info(`Already installed: ${unchanged.map((n) => byName(n).title).join(', ')}`);
-  }
+  if (unchanged.length) log.info(`Already installed: ${titlesOf(unchanged)}`);
   log.plain('');
 }

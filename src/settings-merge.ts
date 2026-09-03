@@ -150,9 +150,9 @@ export function removePluginLocation(settingsPath: string, dir: string): RemoveL
   ]
     .map((re) => re.exec(mask))
     .find((m): m is RegExpExecArray => m !== null);
-  // The path is named in the file but not as an entry this tool wrote, so there
-  // is nothing here to take out.
-  if (!hit) return { action: 'absent', backup: null };
+  // The path is named in the file but not as an entry this tool wrote. Nothing
+  // can be taken out, and this is NOT absence: VS Code may still be loading it.
+  if (!hit) return { action: 'unremovable', backup: null };
 
   const saved = backup(settingsPath);
   const out = raw.slice(0, hit.index) + raw.slice(hit.index + hit[0].length);

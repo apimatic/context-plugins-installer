@@ -32,6 +32,10 @@ const LOOKS_STALE = /not found in marketplace|out of date|marketplace update/i;
 // and has no compatibility promise, so it is the fallback, not the test.
 const LOOKS_ABSENT = /not found in installed plugins|is not installed|no such plugin/i;
 
+// Every install and uninstall names this scope, so it is also the only scope
+// whose contents can tell us whether a record has drifted.
+const SCOPE = 'user';
+
 const REPO_IN = /(?:github\.com[/:]|^)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/i;
 
 // The listing has carried the source under different keys across CLI versions,
@@ -58,19 +62,25 @@ const isSameRepo = (entry: MarketplaceListing, repo: string): boolean => {
   return JSON.stringify(entry).toLowerCase().includes(repo.toLowerCase());
 };
 
-/** null on a CLI too old to list marketplaces as JSON. */
-async function listMarketplaces(
+/**
+ * The one `claude ... --json` boundary: a bare array, or `{ [key]: [...] }`.
+ * null means the CLI could not answer - too old for `--json`, or a shape this
+ * build cannot read - which every caller must treat as "unknown", never "none".
+ */
+async function listJson(
   exec: RunCommand,
   claude: string,
-): Promise<MarketplaceListing[] | null> {
-  const res = await exec(claude, ['plugin', 'marketplace', 'list', '--json']);
+  args: string[],
+  key: string,
+): Promise<Record<string, unknown>[] | null> {
+  const res = await exec(claude, [...args, '--json']);
   if (res.code !== 0) return null;
   try {
     const parsed: unknown = JSON.parse(stripBom(res.stdout));
     const entries: unknown[] | null = Array.isArray(parsed)
       ? parsed
-      : isPlainObject(parsed) && Array.isArray(parsed.marketplaces)
-        ? parsed.marketplaces
+      : isPlainObject(parsed) && Array.isArray(parsed[key])
+        ? parsed[key]
         : null;
     if (!entries) return null;
     return entries.filter(isPlainObject);
@@ -79,30 +89,39 @@ async function listMarketplaces(
   }
 }
 
-/** Installed `plugin@marketplace` ids; null on a CLI that cannot list them as JSON. */
-async function installedIds(exec: RunCommand, claude: string): Promise<string[] | null> {
-  const res = await exec(claude, ['plugin', 'list', '--json']);
-  if (res.code !== 0) return null;
-  let entries: unknown[] | null = null;
-  try {
-    const parsed: unknown = JSON.parse(stripBom(res.stdout));
-    entries = Array.isArray(parsed)
-      ? parsed
-      : isPlainObject(parsed) && Array.isArray(parsed.plugins)
-        ? parsed.plugins
-        : null;
-  } catch {
-    return null;
-  }
+/** null on a CLI too old to list marketplaces as JSON. */
+const listMarketplaces = (exec: RunCommand, claude: string): Promise<MarketplaceListing[] | null> =>
+  listJson(exec, claude, ['plugin', 'marketplace', 'list'], 'marketplaces');
+
+interface InstalledPlugin {
+  plugin: string;
+  /** null when the listing does not say, which counts as "could be ours". */
+  scope: string | null;
+}
+
+/** null on a CLI whose plugin listing cannot be read. */
+async function installedPlugins(
+  exec: RunCommand,
+  claude: string,
+): Promise<InstalledPlugin[] | null> {
+  const entries = await listJson(exec, claude, ['plugin', 'list'], 'plugins');
   if (!entries) return null;
-  const ids = entries
-    .filter(isPlainObject)
-    .map((e) => (nonEmptyString(e.id) ? e.id : null))
-    .filter((id): id is string => Boolean(id));
+  const rows = entries.flatMap((e) => {
+    if (!nonEmptyString(e.id)) return [];
+    // The id is `plugin@marketplace`, and the marketplace half is whatever name
+    // Claude filed it under - not necessarily the one this run addressed.
+    const at = e.id.lastIndexOf('@');
+    return [
+      {
+        plugin: at > 0 ? e.id.slice(0, at) : e.id,
+        scope: nonEmptyString(e.scope) ? e.scope : null,
+      },
+    ];
+  });
   // Rows that carry no id at all mean the shape moved; an empty list is only
   // trustworthy as "nothing is installed" when there were no rows to read.
-  if (!ids.length && entries.length) return null;
-  return ids;
+  if (!rows.length && entries.length) return null;
+  return rows;
 }
 
 // Claude keys a marketplace by the name it had when added, which drifts from
@@ -234,7 +253,7 @@ export async function install(
     session,
   );
   const target = `${plugin}@${known}`;
-  const args = ['plugin', 'install', target, '--scope', 'user'];
+  const args = ['plugin', 'install', target, '--scope', SCOPE];
 
   let res = await exec(claude, args);
   if (res.code !== 0 && !updated && LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)) {
@@ -258,16 +277,19 @@ export async function install(
 
 // Claude uninstalling a plugin it does not have is a failure, and telling that
 // apart from a real one is what keeps a drifted record from sticking forever.
-// Its own listing decides; a scope this run cannot reach still counts as installed.
+// Its own listing decides, on the plugin id alone: comparing the whole
+// `plugin@marketplace` would read a marketplace this build could not name as
+// proof of absence and delete a live record. Only this tool's own scope counts -
+// a project-scope copy elsewhere is not what the row is about.
 async function isAbsent(
   exec: RunCommand,
   claude: string,
-  target: string,
+  plugin: string,
   res: RunResult,
 ): Promise<boolean> {
-  const ids = await installedIds(exec, claude);
-  if (ids) return !ids.includes(target);
-  return LOOKS_ABSENT.test(`${res.stderr || ''}${res.stdout || ''}`);
+  const rows = await installedPlugins(exec, claude);
+  if (!rows) return LOOKS_ABSENT.test(`${res.stderr || ''}${res.stdout || ''}`);
+  return !rows.some((r) => r.plugin === plugin && (r.scope === null || r.scope === SCOPE));
 }
 
 export async function uninstall(
@@ -288,10 +310,12 @@ export async function uninstall(
     return 'failed';
   }
   const target = `${plugin}@${known}`;
-  const res = await exec(claude, ['plugin', 'uninstall', target, '--scope', 'user']);
+  const res = await exec(claude, ['plugin', 'uninstall', target, '--scope', SCOPE]);
   if (res.code !== 0) {
-    if (await isAbsent(exec, claude, target, res)) {
-      log.info(`Claude Code has no '${target}' installed - nothing to remove.`);
+    // True either way: never installed, or removed by a command that then
+    // failed on something after the removal itself.
+    if (await isAbsent(exec, claude, plugin, res)) {
+      log.info(`Claude Code has no '${plugin}' at ${SCOPE} scope - nothing left to remove.`);
       return 'absent';
     }
     log.warn(`claude plugin uninstall ${target} returned ${res.code}. ${tail(res)}`.trim());

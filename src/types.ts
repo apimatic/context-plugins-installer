@@ -120,9 +120,11 @@ export interface HarnessContext {
 }
 
 /**
- * `absent` is what keeps a drifted record from sticking: there was nothing to
- * remove, so the row is wrong rather than the run, and it is cleared. `failed`
- * covers both a real failure and "cannot tell" - the row survives either way.
+ * `absent` is what keeps a drifted record from sticking: the harness looked and
+ * positively established there is nothing to remove, so the row is wrong rather
+ * than the run, and it is cleared. `failed` covers a real failure and "could not
+ * look" alike - an editor that is not installed, a config this tool did not
+ * write - and the row survives either way.
  */
 export type UninstallOutcome = 'removed' | 'absent' | 'failed';
 
@@ -224,7 +226,13 @@ export type AddLocationAction =
   | 'inserted-key'
   | 'failed';
 
-export type RemoveLocationAction = 'missing' | 'absent' | 'removed';
+/**
+ * `absent` is a positive answer - the file does not name this path at all.
+ * `unremovable` is not: the path IS named, in a form the splice does not
+ * recognise, so VS Code may still be loading it. Callers must not read the two
+ * as the same thing.
+ */
+export type RemoveLocationAction = 'missing' | 'absent' | 'unremovable' | 'removed';
 
 export interface AddLocationResult {
   action: AddLocationAction;

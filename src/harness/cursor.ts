@@ -17,7 +17,7 @@ export const destFor = (plugin: string, opts?: HarnessOpts): string =>
 
 export async function install({ plugin, srcDir }: HarnessContext, opts?: HarnessOpts) {
   if (!detect(opts)) {
-    log.warn('~/.cursor not found - Cursor not installed, skipping.');
+    log.warn(`${shortPath(paths.cursorRoot(opts))} not found - Cursor not installed, skipping.`);
     return false;
   }
   if (!srcDir) {
@@ -43,6 +43,14 @@ export async function uninstall(
   { plugin }: HarnessContext,
   opts?: HarnessOpts,
 ): Promise<UninstallOutcome> {
+  // The plugin dir lives under Cursor's own root, so a root that is not here
+  // is not an empty one: nothing about this plugin can be established, and
+  // clearing the record off a path the install may never have used would strand
+  // the copy it did use. Same answer as Claude Code with no CLI to ask.
+  if (!detect(opts)) {
+    log.warn(`${shortPath(paths.cursorRoot(opts))} not found - Cursor not installed, skipping.`);
+    return 'failed';
+  }
   const dest = destFor(plugin, opts);
   if (!exists(dest)) {
     log.info(`Nothing to remove at ${shortPath(dest)}`);

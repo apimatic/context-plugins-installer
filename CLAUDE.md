@@ -89,13 +89,20 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   boolean: only `removed` is reported and tracked, but `absent` also clears the
   target from the manifest row, because "there was nothing there" means the
   _record_ drifted and leaving it strands the plugin — unremovable, and failing
-  every `update`. `failed` covers a real failure and "cannot tell" alike (the
-  `claude` CLI off `PATH`, no marketplace name), and keeps the row; only an
-  explicit `--force` clears a target that could not be confirmed. Never widen
-  `absent` to a case the harness cannot positively verify: the Claude path asks
-  `claude plugin list --json` and only falls back to a message regex when that
-  listing cannot answer, and a listing whose rows carry no `id` counts as
-  unanswered rather than as proof of absence.
+  every `update`. `absent` is a **positive** finding and nothing else may be
+  widened into it: an editor `detect` cannot find (Cursor's copy lives inside
+  Cursor's own root, so a missing root makes the path unverifiable — VS Code's
+  lives in this tool's state dir, which is why it needs no such gate), a
+  `settings.json` naming the plugin in a form the splice did not write
+  (`'unremovable'`, not `'absent'`), the `claude` CLI off `PATH`, or no
+  marketplace name — all `'failed'`, all keeping the row, with `--force` as the
+  user's only escape. The Claude path asks `claude plugin list --json` rather
+  than matching on the failure text, compares **the plugin id alone** (the
+  marketplace half is whatever name Claude filed it under, so comparing the whole
+  `plugin@marketplace` would read an unresolved name as proof of absence) and
+  only at `SCOPE`, the one scope every install and uninstall names. A listing
+  whose rows carry no `id` counts as unanswered, not as proof of absence, and
+  `listJson` is the single validated boundary for every `claude ... --json` read.
   `harness/index.ts` is the registry, and `byName` is total over
   `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
@@ -123,7 +130,12 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   this build does not know); `upsert`/`remove` work on the raw file and carry every other row
   through verbatim. An entry with zero known targets must be _dropped_ from the read
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
-  harness". The same rule holds _within_ a row: writers rebuild from the raw record
+  harness". `uninstall` writes the row in a `finally`, so a harness that throws
+  cannot cost the removals already done, and it leaves a row whose `targets` this
+  build cannot read (not an array) entirely alone rather than rebuilding it from
+  an empty list. Editor names in prose come from `everyEditor()`, never a literal:
+  the add-harness skill lists the hand-written ones, and `install.ts` is
+  deliberately not among them. The same rule holds _within_ a row: writers rebuild from the raw record
   (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
   survives a rewrite. Never write a row back from the sanitized view. Every command that
   renders that view says what it left out: `installed` and `list` share
