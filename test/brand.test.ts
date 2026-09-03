@@ -161,3 +161,40 @@ test('an rc path that runs through a file is absence, not an unreadable rc', () 
   const brand = resolveBrand(clean({ cwd: notADir, home: notADir }));
   assert.equal(brand.repo, DEFAULT_PROFILE.repo);
 });
+
+test('telemetry defaults: the built-in token and US host, the built-in repo, no rc opt-out', () => {
+  const brand = resolveBrand(clean());
+  assert.equal(brand.telemetry.token, DEFAULT_PROFILE.telemetryToken);
+  assert.equal(brand.telemetry.host, 'https://api.mixpanel.com');
+  assert.equal(brand.telemetry.defaultRepo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.telemetry.rcOptOut, false);
+});
+
+test('a profile can point telemetry at its own project, or ship without it', () => {
+  const own = resolveBrand({
+    ...clean(),
+    profile: {
+      repo: 'acme/plugin-marketplace',
+      telemetryToken: 'abc',
+      telemetryHost: 'https://api-eu.mixpanel.com',
+    },
+  });
+  assert.equal(own.telemetry.token, 'abc');
+  assert.equal(own.telemetry.host, 'https://api-eu.mixpanel.com');
+  assert.equal(own.telemetry.defaultRepo, 'acme/plugin-marketplace', 'named in events as built in');
+
+  const none = resolveBrand({ ...clean(), profile: { telemetryToken: null } });
+  assert.equal(none.telemetry.token, null);
+});
+
+test('"telemetry": false in the rc file opts out; anything but a boolean is an error', () => {
+  const cwd = tmpDir('cp-cwd-');
+  writeRc(cwd, { telemetry: false });
+  assert.equal(resolveBrand(clean({ cwd })).telemetry.rcOptOut, true);
+
+  writeRc(cwd, { telemetry: 'no' });
+  assert.throws(
+    () => resolveBrand(clean({ cwd })),
+    (err) => err instanceof UserError && /'telemetry' must be true or false/.test(err.message),
+  );
+});

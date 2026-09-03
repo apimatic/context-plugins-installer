@@ -5,6 +5,7 @@ import { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } from './catalog.js';
 import { HARNESSES } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
+import { describeTelemetry, telemetryStatus } from './telemetry.js';
 import type { Brand, Deps, DoctorCheck, DoctorReport, FetchLike, PathOpts } from './types.js';
 import {
   UserError,
@@ -165,7 +166,13 @@ async function checkMarketplace(brand: Brand, deps: Deps): Promise<DoctorCheck[]
   return checks;
 }
 
-function checkState(pathOpts?: PathOpts): DoctorCheck[] {
+// Every outcome is `ok`: opting out is a choice, not a problem to fix.
+function checkTelemetry(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck {
+  const status = telemetryStatus({ brand, env: deps.env || process.env, pathOpts });
+  return ok('Telemetry', describeTelemetry(status, brand.bin));
+}
+
+function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[] {
   const dir = paths.stateDir(pathOpts);
   const checks: DoctorCheck[] = [];
   try {
@@ -208,6 +215,7 @@ function checkState(pathOpts?: PathOpts): DoctorCheck[] {
   } catch (err) {
     checks.push(warn('Installed', 'could not read installed.json', errorMessage(err)));
   }
+  checks.push(checkTelemetry(brand, deps, pathOpts));
   return checks;
 }
 
@@ -227,7 +235,7 @@ export async function diagnose({
     { title: 'Environment', checks: await checkEnvironment(deps) },
     { title: 'Editors', checks: checkEditors(pathOpts) },
     { title: 'Marketplace', checks: await checkMarketplace(brand, deps) },
-    { title: 'Local state', checks: checkState(pathOpts) },
+    { title: 'Local state', checks: checkState(brand, deps, pathOpts) },
   ];
   const all = groups.flatMap((g) => g.checks);
   return {

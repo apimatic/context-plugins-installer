@@ -33,6 +33,7 @@ context-plugins update                         # refresh everything already inst
 context-plugins list                           # what the marketplace offers
 context-plugins installed                      # what this machine has
 context-plugins doctor                         # check this machine can install
+context-plugins telemetry [status|enable|disable]   # anonymous usage data, see below
 ```
 
 ## Options
@@ -58,12 +59,13 @@ one — is named in a warning and left on disk for the version that owns it.
 
 Environment equivalents: `CP_PLUGIN`, `CP_REPO`, `CP_REF`, `CP_MARKETPLACE`.
 `GITHUB_TOKEN` raises the GitHub API rate limit. `CP_STATE_DIR` moves the state directory.
+`CP_TELEMETRY=off` or `DO_NOT_TRACK=1` turns off [usage data](#telemetry).
 
 Defaults can also be kept in a `.contextpluginsrc` file, in the current directory or your home
 directory:
 
 ```json
-{ "repo": "your-org/plugin-marketplace" }
+{ "repo": "your-org/plugin-marketplace", "telemetry": false }
 ```
 
 ## Choosing where to install
@@ -114,8 +116,37 @@ rather than reporting a change it did not make.
 ```
 ~/.context-plugins/
   installed.json          what is installed, and from which marketplace
+  telemetry.json          a random machine id and your telemetry choice
   vscode/<plugin>/        the copy VS Code points at
 ```
+
+## Telemetry
+
+When `install`, `update`, or `uninstall` finishes, the CLI sends one anonymous event per plugin
+and editor, so the marketplace maintainers can see which plugins people use and where. Each event
+carries:
+
+- the plugin id and the editor it went into; for a failure, the step it failed at and whether that
+  was a usage error or a crash, never the message
+- the marketplace, only when it is the built-in one; any `--repo` you pass is reported as `custom`
+- OS, CPU architecture, Node major version, CLI version, and whether the run was in CI
+- a random id for this machine, kept in `~/.context-plugins/telemetry.json`
+
+It never includes file paths, usernames, hostnames, IP-derived location, error messages,
+environment variables, or anything from the plugin itself. A notice is printed on stderr the first
+time anything is sent.
+
+Turn it off in any of these ways; the first that applies wins:
+
+```bash
+export DO_NOT_TRACK=1                        # the cross-tool convention
+export CP_TELEMETRY=off                      # this CLI only
+echo '{ "telemetry": false }' > ~/.contextpluginsrc
+npx context-plugins telemetry disable        # remembered in telemetry.json
+```
+
+`context-plugins telemetry status` shows what is in effect. `CP_TELEMETRY=log` prints every event
+to stderr instead of sending it, so you can see exactly what would leave the machine.
 
 ## Something not working?
 
@@ -142,6 +173,7 @@ Marketplace
 Local state
   ✓   State directory  ~/.context-plugins (writable)
   ✓   Installed        2 plugins
+  ✓   Telemetry        enabled
 ```
 
 The VS Code path on that last `Editors` line is platform-specific:

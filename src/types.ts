@@ -29,7 +29,13 @@ export interface FetchResponseLike {
 
 export type FetchLike = (
   url: string,
-  init?: { headers?: Record<string, string>; redirect?: 'follow' | 'error' | 'manual' },
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    redirect?: 'follow' | 'error' | 'manual';
+    signal?: AbortSignal;
+  },
 ) => Promise<FetchResponseLike>;
 
 export interface MaterializedSource {
@@ -51,6 +57,8 @@ export interface Deps {
   confirm?: (question: string, defaultYes: boolean) => boolean | Promise<boolean>;
   which?: (cmd: string, env?: Env) => string | null;
   run?: RunCommand;
+  /** Where install/uninstall report what they did; absent means nobody is listening. */
+  track?: TrackFn;
 }
 
 /** PathOpts plus the process-runner seam the Claude harness reads. */
@@ -66,6 +74,10 @@ export interface Profile {
   ref?: string;
   label?: string;
   bin?: string;
+  /** Mixpanel project token; null ships the brand without telemetry. */
+  telemetryToken?: string | null;
+  /** Ingestion host, which must match the project's data residency. */
+  telemetryHost?: string;
 }
 
 export interface RcFile {
@@ -74,6 +86,17 @@ export interface RcFile {
   marketplace?: string;
   displayName?: string;
   marketplaceLabel?: string;
+  telemetry?: boolean;
+}
+
+export interface BrandTelemetry {
+  /** null: this brand ships no telemetry. */
+  readonly token: string | null;
+  readonly host: string;
+  /** The marketplace this build ships with; any other --repo is reported as "custom". */
+  readonly defaultRepo: string;
+  /** `"telemetry": false` in an rc file. */
+  readonly rcOptOut: boolean;
 }
 
 export interface Brand {
@@ -83,6 +106,7 @@ export interface Brand {
   readonly displayName: string;
   readonly label: string;
   readonly bin: string;
+  readonly telemetry: BrandTelemetry;
 }
 
 export type HarnessName = 'claude' | 'cursor' | 'vscode';
@@ -283,4 +307,28 @@ export interface ListResult {
 export interface Prompter {
   confirm(question: string, defaultYes?: boolean): Promise<boolean>;
   close(): void;
+}
+
+/** Flat by design: a property is a fact about the run, never a structure that could carry more. */
+export type TelemetryValue = string | number | boolean | null;
+
+export interface TelemetryEvent {
+  name: string;
+  properties: Record<string, TelemetryValue>;
+}
+
+export type TrackFn = (name: string, properties?: Record<string, TelemetryValue>) => void;
+
+/** `log` prints what would be sent, to stderr, and sends nothing. */
+export type TelemetryMode = 'on' | 'off' | 'log';
+
+/** Which switch turned telemetry off; `user` is the state file `telemetry disable` writes. */
+export type TelemetryOptOut = 'no-token' | 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'user';
+
+export interface TelemetryStatus {
+  mode: TelemetryMode;
+  optOut: TelemetryOptOut | null;
+  /** The anonymous machine id, once one has been minted. */
+  id: string | null;
+  file: string;
 }

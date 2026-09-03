@@ -8,6 +8,7 @@ import { resolveTargets, NAMES } from '../src/harness/index.js';
 import { UserError } from '../src/util.js';
 import { silenceConsole, tmpDir, cleanupAll, stubFetch } from './helpers.js';
 import { rawUrl } from '../src/catalog.js';
+import type { FetchLike } from '../src/types.js';
 
 test.after(cleanupAll);
 
@@ -165,14 +166,27 @@ const STATE_MANIFEST = {
   ],
 };
 
-/** run() reads the brand from the ambient cwd, home and CP_* env, so pin all three. */
-const AMBIENT = ['CP_STATE_DIR', 'CP_REPO', 'CP_REF', 'CP_MARKETPLACE', 'HOME', 'USERPROFILE'];
+/** run() reads the brand from the ambient cwd, home and CP_* env, so pin all of them. */
+const AMBIENT = [
+  'CP_STATE_DIR',
+  'CP_REPO',
+  'CP_REF',
+  'CP_MARKETPLACE',
+  'CP_TELEMETRY',
+  'DO_NOT_TRACK',
+  'HOME',
+  'USERPROFILE',
+];
 
 const noAnsi = (text: string): string => text.replace(/\x1b\[\d+m/g, '');
 
 /** Runs one command against a manifest - and a brand - only this test can see. */
-async function runWith(args: string[], manifestDoc: unknown, env: Record<string, string> = {}) {
-  const root = tmpDir('cp-installed-');
+async function runWith(
+  args: string[],
+  manifestDoc: unknown,
+  env: Record<string, string> = {},
+  root = tmpDir('cp-installed-'),
+) {
   const state = path.join(root, 'state');
   fs.mkdirSync(state, { recursive: true });
   fs.writeFileSync(path.join(state, 'installed.json'), JSON.stringify(manifestDoc), 'utf8');
@@ -185,6 +199,9 @@ async function runWith(args: string[], manifestDoc: unknown, env: Record<string,
   process.env.CP_STATE_DIR = state;
   process.env.HOME = root;
   process.env.USERPROFILE = root;
+  // run() has no deps seam, so the real Mixpanel endpoint is one env var away:
+  // off unless a test pins fetch and says otherwise.
+  process.env.CP_TELEMETRY = 'off';
   process.chdir(root);
 
   Object.assign(process.env, env);
@@ -196,7 +213,13 @@ async function runWith(args: string[], manifestDoc: unknown, env: Record<string,
     // wrapped warning can be matched as the one sentence it is.
     const flatten = (lines: string[]) =>
       noAnsi(lines.join(' ')).split(' ').filter(Boolean).join(' ');
-    return { code, out: con.out.join('\n'), text: flatten(con.out), err: flatten(con.err) };
+    return {
+      code,
+      root,
+      out: con.out.join('\n'),
+      text: flatten(con.out),
+      err: flatten(con.err),
+    };
   } finally {
     con.restore();
     process.chdir(prevCwd);
@@ -294,4 +317,107 @@ test('the human list puts those warnings on stdout with the listing', async () =
   assert.equal(err, '');
   assert.ok(text.includes("Listing 'code-review' without unknown target(s): zed"));
   assert.ok(!text.includes('other-sdk'));
+});
+
+const NO_PLUGINS = { version: 1, plugins: [] };
+
+test('telemetry disable and enable round-trip through the state file, and status names the switch in effect', async () => {
+  const root = tmpDir('cp-telemetry-cli-');
+  const env = { CP_TELEMETRY: 'on' };
+
+  const off = await runWith(['telemetry', 'disable'], NO_PLUGINS, env, root);
+  assert.equal(off.code, 0);
+  assert.ok(off.text.includes('Telemetry disabled.'), off.text);
+  const state = JSON.parse(fs.readFileSync(path.join(root, 'state', 'telemetry.json'), 'utf8'));
+  assert.equal(state.enabled, false);
+
+  const status = await runWith(['telemetry', 'status'], NO_PLUGINS, env, root);
+  assert.ok(
+    status.text.includes('Telemetry is disabled (context-plugins telemetry disable).'),
+    status.text,
+  );
+  assert.ok(status.text.includes(`Anonymous machine id: ${state.id}`));
+
+  const on = await runWith(['telemetry', 'enable'], NO_PLUGINS, env, root);
+  assert.ok(on.text.includes('Telemetry enabled.'), on.text);
+  const after = await runWith(['telemetry'], NO_PLUGINS, env, root);
+  assert.ok(after.text.includes('Telemetry is enabled.'), after.text);
+
+  const dnt = await runWith(
+    ['telemetry', 'enable'],
+    NO_PLUGINS,
+    { ...env, DO_NOT_TRACK: '1' },
+    root,
+  );
+  assert.ok(
+    dnt.text.includes('disabled (DO_NOT_TRACK)'),
+    `a broader switch is named when it overrides the saved choice, got: ${dnt.text}`,
+  );
+
+  const bad = await runWith(['telemetry', 'frobnicate'], NO_PLUGINS, env, root);
+  assert.equal(bad.code, 1);
+  assert.ok(bad.err.includes('Unknown telemetry action: frobnicate'), bad.err);
+});
+
+test('a failed install still leaves one event, with the command and no message, and the notice on stderr', async () => {
+  const saved = globalThis.fetch;
+  const requests: { url: string; body: string }[] = [];
+  const registry = stubFetch({
+    [rawUrl(REPO, 'main', '.claude-plugin/marketplace.json')]: {
+      body: { name: 'context-plugins', plugins: [{ name: 'other', source: './plugins/other' }] },
+    },
+  });
+  const pinned: FetchLike = async (url, init) => {
+    if (!url.startsWith('https://api.mixpanel.com/')) return registry(url, init);
+    requests.push({ url, body: init?.body ?? '' });
+    return {
+      ok: true,
+      status: 200,
+      text: async () => '{"status":1}',
+      json: async () => ({ status: 1 }),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    };
+  };
+  globalThis.fetch = pinned as unknown as typeof fetch;
+  try {
+    const { code, out, err } = await runWith(['install', 'my-sdk'], NO_PLUGINS, {
+      CP_TELEMETRY: 'on',
+    });
+    assert.equal(code, 1);
+    assert.equal(requests.length, 1, 'one request for the run');
+    assert.equal(requests[0]?.url, 'https://api.mixpanel.com/track?ip=0&verbose=1');
+    const events: { event: string; properties: Record<string, unknown> }[] = JSON.parse(
+      requests[0]?.body ?? '[]',
+    );
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.event, 'Context Plugin Install Failed');
+    assert.equal(events[0]?.properties.command, 'install');
+    assert.equal(events[0]?.properties.plugin, 'my-sdk');
+    assert.equal(events[0]?.properties.stage, 'resolve');
+    assert.equal(events[0]?.properties.error_kind, 'user');
+    assert.ok(!JSON.stringify(events).includes('not listed'), 'the error message stays home');
+    assert.ok(err.includes('collects anonymous usage data'), `notice on stderr, got: ${err}`);
+    assert.ok(!out.includes('collects anonymous usage data'), 'and not on stdout');
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test('with CP_TELEMETRY=off the same failure sends nothing and says nothing about telemetry', async () => {
+  const saved = globalThis.fetch;
+  let hits = 0;
+  const registry = stubFetch({});
+  const pinned: FetchLike = async (url, init) => {
+    if (url.startsWith('https://api.mixpanel.com/')) hits += 1;
+    return registry(url, init);
+  };
+  globalThis.fetch = pinned as unknown as typeof fetch;
+  try {
+    const { code, err } = await runWith(['install', 'my-sdk'], NO_PLUGINS, { CP_TELEMETRY: 'off' });
+    assert.equal(code, 1);
+    assert.equal(hits, 0);
+    assert.ok(!err.includes('anonymous usage data'));
+  } finally {
+    globalThis.fetch = saved;
+  }
 });

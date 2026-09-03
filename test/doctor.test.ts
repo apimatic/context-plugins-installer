@@ -171,3 +171,18 @@ test('doctor reports a row it can only read in part, rather than calling it heal
     /'code-review' records target\(s\) this build does not know \(zed\)/,
   );
 });
+
+test('doctor names the telemetry switch in effect, and never counts it against the machine', async () => {
+  const on = await diagnose({ brand: brand(), deps: deps(), ...machine() });
+  assert.equal(find(on, 'Telemetry').status, 'ok');
+  assert.equal(find(on, 'Telemetry').detail, 'enabled');
+
+  const off = await diagnose({
+    brand: brand(),
+    deps: deps({ env: { DO_NOT_TRACK: '1' } }),
+    ...machine(),
+  });
+  assert.equal(find(off, 'Telemetry').status, 'ok');
+  assert.equal(find(off, 'Telemetry').detail, 'disabled (DO_NOT_TRACK)');
+  assert.equal(off.warnings, on.warnings, 'opting out adds no warning');
+});

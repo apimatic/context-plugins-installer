@@ -63,6 +63,10 @@ jobs:
   smoke:
     name: real marketplace smoke test
     runs-on: ubuntu-latest
+    # A CI install is a real install as far as telemetry is concerned, so this
+    # job opts out explicitly rather than count itself as a user.
+    env:
+      CP_TELEMETRY: off
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

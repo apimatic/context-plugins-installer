@@ -14,9 +14,13 @@ const files = fs
   .sort()
   .map((f) => path.join('test', f));
 
+// A test that reaches the real CLI entry point must never send telemetry; the
+// tests that exercise telemetry pin fetch and set CP_TELEMETRY themselves.
+const env = { ...process.env, CP_TELEMETRY: process.env.CP_TELEMETRY || 'off' };
+
 const result = spawnSync(
   process.execPath,
   [require.resolve('tsx/cli'), '--test', ...process.argv.slice(2), ...files],
-  { stdio: 'inherit' },
+  { stdio: 'inherit', env },
 );
 process.exit(result.status === null ? 1 : result.status);
