@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/apimatic/context-plugins-installer/compare/v0.5.0...v0.6.0) (2026-09-03)
+
+
+### Features
+
+* port the CLI to TypeScript and ship its type declarations ([#8](https://github.com/apimatic/context-plugins-installer/issues/8)) ([a2e403d](https://github.com/apimatic/context-plugins-installer/commit/a2e403d9389a173a449c39f509e17ed8c50e49b3))
+
 # [0.5.0](https://github.com/apimatic/context-plugins-installer/compare/v0.4.2...v0.5.0) (2026-08-03)
 
 
