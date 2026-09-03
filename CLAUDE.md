@@ -85,7 +85,18 @@ is the type model for the whole surface; keep it in sync when behavior changes.
 
 - **Harnesses** (`src/harness/`): one module per editor implementing the `Harness`
   interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
-  `needsSource`); `harness/index.ts` is the registry, and `byName` is total over
+  `needsSource`). `uninstall` returns `'removed' | 'absent' | 'failed'`, never a
+  boolean: only `removed` is reported and tracked, but `absent` also clears the
+  target from the manifest row, because "there was nothing there" means the
+  _record_ drifted and leaving it strands the plugin — unremovable, and failing
+  every `update`. `failed` covers a real failure and "cannot tell" alike (the
+  `claude` CLI off `PATH`, no marketplace name), and keeps the row; only an
+  explicit `--force` clears a target that could not be confirmed. Never widen
+  `absent` to a case the harness cannot positively verify: the Claude path asks
+  `claude plugin list --json` and only falls back to a message regex when that
+  listing cannot answer, and a listing whose rows carry no `id` counts as
+  unanswered rather than as proof of absence.
+  `harness/index.ts` is the registry, and `byName` is total over
   `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
   and VS Code copy files and need the fetched source. To add an editor, use the

@@ -347,6 +347,8 @@ export interface UninstallOptions {
   brand: Brand;
   plugin: string;
   targets?: readonly string[] | null;
+  /** Clear the record even for editors that could not confirm the removal. */
+  force?: boolean;
   deps?: Deps;
   pathOpts?: PathOpts;
 }
@@ -377,6 +379,7 @@ async function runUninstall({
   brand,
   plugin,
   targets,
+  force = false,
   deps = {},
   pathOpts,
 }: UninstallOptions): Promise<UninstallResult> {
@@ -399,25 +402,39 @@ async function runUninstall({
   log.rule();
 
   const removed: HarnessName[] = [];
+  // Targets the record should no longer claim. An editor that had nothing to
+  // remove belongs here too: the row is what drifted, not the run, and leaving
+  // it would strand the plugin - unremovable, and failing every `update`.
+  const clear: HarnessName[] = [];
+  const failed: HarnessName[] = [];
   for (const name of want) {
     const harness = byName(name);
     log.step(`[${harness.title}]`);
-    if (await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts)) {
-      removed.push(name);
-    }
+    const outcome = await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts);
+    if (outcome === 'removed') removed.push(name);
+    if (outcome !== 'failed' || force) clear.push(name);
+    else failed.push(name);
   }
 
   // Foreign target names stay on the record for whichever tool wrote them.
   const recordedTargets: unknown[] =
     recorded && Array.isArray(recorded.targets) ? recorded.targets : [];
-  const remaining = recordedTargets.filter((t) => !removed.some((r) => r === t));
+  const remaining = recordedTargets.filter((t) => !clear.some((c) => c === t));
   if (recorded && remaining.length === 0) {
     manifest.remove(manifestFile, { plugin, repo: brand.repo });
   } else if (recorded) {
     manifest.upsert(manifestFile, { ...recorded, targets: remaining });
   }
 
-  summarize(removed, 'Uninstalled from');
+  summarizeUninstall({
+    removed,
+    plugin,
+    cleared: Boolean(recorded) && remaining.length < recordedTargets.length,
+    // Only what this run could not settle: a foreign target is also left
+    // behind, on purpose, and --force does not clear it either.
+    stuck: failed.some((n) => recordedTargets.includes(n)),
+    bin: brand.bin,
+  });
   return { plugin, targets: removed };
 }
 
@@ -548,6 +565,34 @@ export async function listPlugins({
       };
     }),
   };
+}
+
+interface UninstallSummary {
+  removed: HarnessName[];
+  plugin: string;
+  /** The record was corrected, whether or not this run removed anything. */
+  cleared: boolean;
+  /** A target this run could not confirm is still on the record. */
+  stuck: boolean;
+  bin: string;
+}
+
+function summarizeUninstall({ removed, plugin, cleared, stuck, bin }: UninstallSummary): void {
+  log.plain('');
+  log.rule();
+  if (removed.length) {
+    log.ok(`Uninstalled from: ${removed.map((n) => byName(n).title).join(', ')}`);
+  } else if (cleared) {
+    log.ok(`Nothing was installed - cleared the stale record for '${plugin}'.`);
+  } else {
+    log.warn('Nothing was changed. Are Claude Code / Cursor / VS Code installed?');
+  }
+  if (stuck) {
+    log.info(
+      `'${plugin}' is still on the record - \`${bin} uninstall ${plugin} --force\` clears it.`,
+    );
+  }
+  log.plain('');
 }
 
 function summarize(done: HarnessName[], verb: string, unchanged: HarnessName[] = []): void {

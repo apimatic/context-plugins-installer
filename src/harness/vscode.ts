@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { log } from '../log.js';
 import * as paths from '../paths.js';
 import { addPluginLocation, removePluginLocation, KEY, toKey } from '../settings-merge.js';
-import type { HarnessContext, HarnessName, HarnessOpts } from '../types.js';
+import type { HarnessContext, HarnessName, HarnessOpts, UninstallOutcome } from '../types.js';
 import { replaceDir, rmrf, exists, shortPath } from '../util.js';
 
 // VS Code loads a plugin from any folder listed in chat.pluginLocations, so the
@@ -51,7 +51,10 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   return true;
 }
 
-export async function uninstall({ plugin }: HarnessContext, opts?: HarnessOpts) {
+export async function uninstall(
+  { plugin }: HarnessContext,
+  opts?: HarnessOpts,
+): Promise<UninstallOutcome> {
   const dest = destFor(plugin, opts);
   const settings = paths.vscodeSettingsPath(opts);
   const result = removePluginLocation(settings, dest);
@@ -60,14 +63,14 @@ export async function uninstall({ plugin }: HarnessContext, opts?: HarnessOpts) 
 
   if (!had && result.action !== 'removed') {
     log.info(`Nothing to remove at ${shortPath(dest)}`);
-    return false;
+    return 'absent';
   }
   log.ok(`Removed -> ${shortPath(dest)}`);
   if (result.action === 'removed')
     log.info(`Unregistered from chat.pluginLocations (${shortPath(settings)})`);
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
-  return true;
+  return 'removed';
 }
 
 export const location = (opts?: HarnessOpts): string => shortPath(paths.vscodeUserDir(opts));

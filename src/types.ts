@@ -119,6 +119,13 @@ export interface HarnessContext {
   session?: Session;
 }
 
+/**
+ * `absent` is what keeps a drifted record from sticking: there was nothing to
+ * remove, so the row is wrong rather than the run, and it is cleared. `failed`
+ * covers both a real failure and "cannot tell" - the row survives either way.
+ */
+export type UninstallOutcome = 'removed' | 'absent' | 'failed';
+
 export interface Harness {
   name: HarnessName;
   title: string;
@@ -129,7 +136,7 @@ export interface Harness {
   location(opts?: HarnessOpts): string;
   /** false means "skipped", not failed. */
   install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean>;
-  uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean>;
+  uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome>;
 }
 
 /** An entry read() could act on: at least one target this build knows. */

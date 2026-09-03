@@ -151,7 +151,8 @@ Options
   --marketplace <name>  Marketplace name              (default: read from the marketplace)
   --targets <list>      Comma-separated: ${NAMES.join(', ')}, all   (skips the prompt)
   -y, --yes             Accept every detected harness without asking
-  --force               Replace a plugin installed from another marketplace
+  --force               install: replace a plugin from another marketplace
+                        uninstall: clear the record even if nothing was removed
   --long                Show plugin descriptions (list)
   --json                Machine-readable output (list, installed)
   --verbose             Show underlying git / CLI detail
@@ -297,7 +298,7 @@ export async function run(
         if (!plugin) {
           throw new UserError('No plugin specified.', { hint: `Usage: ${bin} uninstall <plugin>` });
         }
-        await uninstallPlugin({ brand, plugin, targets, deps });
+        await uninstallPlugin({ brand, plugin, targets, force: flags.force, deps });
         return 0;
       }
       case 'update': {

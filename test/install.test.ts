@@ -249,6 +249,78 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
   assert.deepEqual(settings['chat.pluginLocations'], {});
 });
 
+// The record is the only thing wrong here: nothing is on disk to remove. Left
+// on the row, the plugin could never be uninstalled and `update` would fail on
+// it every run - so a clean machine and a stale row is a cleanup, not a failure.
+test('a row nothing has installed is cleared rather than left stuck', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [{ plugin: 'ghost-sdk', repo, marketplace: 'apimatic', targets: TARGETS }],
+    }),
+  );
+
+  const result = await quietly(() =>
+    uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'ghost-sdk',
+      targets: TARGETS,
+      deps: { fetchImpl: stubFetch({}), env: {} },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(result.targets, [], 'nothing was removed, because nothing was there');
+  assert.equal(manifest.list(file).length, 0, 'and the row it drifted from is gone');
+});
+
+test('a target that could not be confirmed keeps the row until --force', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const seed = () =>
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        plugins: [
+          { plugin: 'ghost-sdk', repo, marketplace: 'apimatic', targets: ['claude', 'cursor'] },
+        ],
+      }),
+    );
+  seed();
+
+  // An empty PATH is Claude Code out of reach: nothing can be said about it, so
+  // its target stays on the record even though Cursor's is cleared.
+  const offPath = { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } };
+  const args = {
+    brand: brandFor(repo),
+    plugin: 'ghost-sdk',
+    targets: ['claude', 'cursor'],
+    deps: { fetchImpl: stubFetch({}), env: {} },
+    pathOpts: offPath,
+  };
+
+  const con = silenceConsole();
+  try {
+    await uninstallPlugin(args);
+  } finally {
+    con.restore();
+  }
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).plugins[0].targets, ['claude']);
+  assert.match(con.lines.join(' '), /--force/, 'and the summary says how to clear it');
+
+  seed();
+  await quietly(() => uninstallPlugin({ ...args, force: true }));
+  assert.equal(manifest.list(file).length, 0, '--force clears what could not be confirmed');
+});
+
 test('asking for an editor that is not installed fails, naming it', async () => {
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
@@ -746,18 +818,24 @@ test('uninstall still works offline for rows the sanitized view hides', async ()
   const offline = () => {
     throw new Error('network touched');
   };
-  const result = await quietly(() =>
-    uninstallPlugin({
+  const con = silenceConsole();
+  let result;
+  try {
+    result = await uninstallPlugin({
       brand: brandFor(repo),
       plugin: 'future-sdk',
       deps: { fetchImpl: offline, env: {} },
       pathOpts: m.pathOpts,
-    }),
-  );
+    });
+  } finally {
+    con.restore();
+  }
+  const out = con.lines.join(' ');
 
   assert.deepEqual(result.targets, ['cursor']);
   const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins;
   assert.deepEqual(after[0].targets, ['zed'], 'the foreign target stays on the record');
+  assert.doesNotMatch(out, /--force/, 'which --force would not clear either');
 });
 
 test('a row mixing a known target with a foreign one keeps the foreign name', async () => {

@@ -207,8 +207,68 @@ test('uninstall targets the name Claude knows the marketplace by', async () => {
     'plugin marketplace list': listing([{ name: 'apimatic-plugins', repo: REPO }]),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), true);
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'removed');
   assert.ok(run.calls.includes('plugin uninstall xero-sdk@apimatic-plugins --scope user'));
+});
+
+// The bug this guards: a record that has drifted from what Claude actually has.
+// Reporting it as a failure leaves the row unremovable and `update` failing on
+// it forever, so an uninstall Claude answers with "not installed" is `absent`.
+const NOT_INSTALLED: Partial<RunResult> = {
+  code: 1,
+  stderr: 'Plugin "xero-sdk@context-plugins" not found in installed plugins',
+};
+
+const plugins = (ids: unknown[]): Partial<RunResult> => ({
+  code: 0,
+  stdout: JSON.stringify(ids.map((id) => ({ id, scope: 'user', enabled: true }))),
+});
+
+test('a plugin Claude does not have is absent, not a failed uninstall', async () => {
+  const run = fakeCli({
+    'plugin uninstall': NOT_INSTALLED,
+    'plugin list': plugins(['other-sdk@context-plugins']),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'absent');
+});
+
+test('a plugin Claude still lists is a failure, whatever the message says', async () => {
+  const run = fakeCli({
+    'plugin uninstall': NOT_INSTALLED,
+    // Installed at a scope this run cannot reach: still installed.
+    'plugin list': plugins(['xero-sdk@context-plugins']),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+test('absence falls back to the message when the CLI cannot list plugins', async () => {
+  const stale = fakeCli({ 'plugin uninstall': NOT_INSTALLED, 'plugin list': { code: 1 } });
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(stale))), 'absent');
+
+  const broken = fakeCli({
+    'plugin uninstall': { code: 1, stderr: 'EACCES: permission denied' },
+    'plugin list': { code: 1 },
+  });
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(broken))), 'failed');
+});
+
+test('a listing whose rows carry no id is unknown, not proof of absence', async () => {
+  const run = fakeCli({
+    'plugin uninstall': { code: 1, stderr: 'EACCES: permission denied' },
+    // A future CLI moves the id; reading that as "nothing installed" would
+    // clear a record for a plugin that is still there.
+    'plugin list': { code: 0, stdout: JSON.stringify([{ name: 'xero-sdk' }]) },
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+test('no claude to ask is a failure, so the record survives', async () => {
+  const run = fakeCli({});
+  assert.equal(await quietly(() => claude.uninstall(CTX, { env: { PATH: '' }, run })), 'failed');
+  assert.equal(run.calls.length, 0);
 });
 
 test('no claude on PATH is a skip, not a failure', async () => {

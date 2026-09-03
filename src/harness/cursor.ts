@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { log } from '../log.js';
 import * as paths from '../paths.js';
-import type { HarnessContext, HarnessName, HarnessOpts } from '../types.js';
+import type { HarnessContext, HarnessName, HarnessOpts, UninstallOutcome } from '../types.js';
 import { replaceDir, rmrf, exists, shortPath } from '../util.js';
 
 export const name: HarnessName = 'cursor';
@@ -39,16 +39,19 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   return true;
 }
 
-export async function uninstall({ plugin }: HarnessContext, opts?: HarnessOpts) {
+export async function uninstall(
+  { plugin }: HarnessContext,
+  opts?: HarnessOpts,
+): Promise<UninstallOutcome> {
   const dest = destFor(plugin, opts);
   if (!exists(dest)) {
     log.info(`Nothing to remove at ${shortPath(dest)}`);
-    return false;
+    return 'absent';
   }
   rmrf(dest);
   log.ok(`Removed -> ${shortPath(dest)}`);
   log.info('Please reload Cursor: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
-  return true;
+  return 'removed';
 }
 
 export const location = (opts?: HarnessOpts): string => shortPath(paths.cursorRoot(opts));
