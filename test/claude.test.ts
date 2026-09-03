@@ -286,6 +286,28 @@ test('absence falls back to the message when the CLI cannot list plugins', async
   assert.equal(await quietly(() => claude.uninstall(CTX, opts(broken))), 'failed');
 });
 
+// The fallback pattern has to be about a plugin. A bare "is not installed" also
+// matches a marketplace's own failure, which would clear a record off a real error.
+test('a failure about something other than the plugin is not absence', async () => {
+  const run = fakeCli({
+    'plugin uninstall': { code: 1, stderr: "marketplace 'context-plugins' is not installed" },
+    'plugin list': { code: 1 },
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
+// An unrecognised scope word must not be the thing that reads as absence: the
+// same conservatism the id and the marketplace name already get.
+test('a scope this build has never seen counts as possibly ours', async () => {
+  const run = fakeCli({
+    'plugin uninstall': NOT_INSTALLED,
+    'plugin list': plugins(['xero-sdk@context-plugins'], 'Global'),
+  });
+
+  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+});
+
 test('a listing whose rows carry no id is unknown, not proof of absence', async () => {
   const run = fakeCli({
     'plugin uninstall': { code: 1, stderr: 'EACCES: permission denied' },

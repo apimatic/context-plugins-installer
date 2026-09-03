@@ -93,16 +93,24 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   widened into it: an editor `detect` cannot find (Cursor's copy lives inside
   Cursor's own root, so a missing root makes the path unverifiable — VS Code's
   lives in this tool's state dir, which is why it needs no such gate), a
-  `settings.json` naming the plugin in a form the splice did not write
-  (`'unremovable'`, not `'absent'`), the `claude` CLI off `PATH`, or no
-  marketplace name — all `'failed'`, all keeping the row, with `--force` as the
-  user's only escape. The Claude path asks `claude plugin list --json` rather
+  `claude` CLI off `PATH`, or no marketplace name — all `'failed'`, all keeping
+  the row, with `--force` as the user's only escape. `'unremovable'` from
+  `settings-merge` is the one thing that is _not_ read as failure: with no plugin
+  files there is nothing for VS Code to load whatever the settings file still
+  says, so the outcome follows `had` and the leftover entry is warned about
+  instead — unmentioned it survives the uninstall and the next install reports
+  "Already registered" for an entry that never loads the plugin.
+  The Claude path asks `claude plugin list --json` rather
   than matching on the failure text, compares **the plugin id alone** (the
   marketplace half is whatever name Claude filed it under, so comparing the whole
   `plugin@marketplace` would read an unresolved name as proof of absence) and
-  only at `SCOPE`, the one scope every install and uninstall names. A listing
-  whose rows carry no `id` counts as unanswered, not as proof of absence, and
-  `listJson` is the single validated boundary for every `claude ... --json` read.
+  only at `SCOPE`, the one scope every install and uninstall names — excluding
+  only `OTHER_SCOPES`, so a scope word this build has never seen counts as
+  possibly ours. That is the invariant to hold on to: an unrecognised _anything_
+  from Claude — a row with no `id`, a marketplace it cannot name, a new scope
+  word, a reworded failure that does not name the plugin — counts as unanswered,
+  never as proof of absence. `listJson` is the single validated boundary for every
+  `claude ... --json` read.
   `harness/index.ts` is the registry, and `byName` is total over
   `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
@@ -130,11 +138,22 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   this build does not know); `upsert`/`remove` work on the raw file and carry every other row
   through verbatim. An entry with zero known targets must be _dropped_ from the read
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
-  harness". `uninstall` writes the row in a `finally`, so a harness that throws
-  cannot cost the removals already done, and it leaves a row whose `targets` this
-  build cannot read (not an array) entirely alone rather than rebuilding it from
-  an empty list. Editor names in prose come from `everyEditor()`, never a literal:
-  the add-harness skill lists the hand-written ones, and `install.ts` is
+  harness", which is why `uninstall` classifies the row with `rowShape` before
+  touching it. A `list` is shortened per target. A row with nothing to act on per
+  target (`unusable`: no `targets`, or an empty one) is dropped whole when nothing
+  contradicted it, or on `--force` — never left, because `read()` files it under
+  `ignored` and `update` would then fail on it on every future run. A `targets`
+  some other tool wrote (`foreign`) is never rebuilt and only ever dropped by an
+  explicit `--force`. `uninstall` catches per harness, so one editor's I/O failure
+  neither hides the others nor loses the removals already done; it records
+  `'failed'`, finishes the run, prints the summary, and only then throws — which
+  is also why the write is _not_ in a `finally` (that would let a write failure on
+  the success path pass silently). `summarizeUninstall` prints one line per thing
+  that happened and nothing that did not: no line may stand in for another, since
+  every earlier shape of it managed to assert a finding — "cleared the stale
+  record" over a `--force` that confirmed nothing, "nothing was changed" over a row
+  it had just shortened. Editor names in prose come from `everyEditor()`, never a
+  literal: the add-harness skill lists the hand-written ones, and `install.ts` is
   deliberately not among them. The same rule holds _within_ a row: writers rebuild from the raw record
   (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
   survives a rewrite. Never write a row back from the sanitized view. Every command that

@@ -207,8 +207,8 @@ test('a document with no object to splice into fails instead of reporting succes
   assert.equal(backupsIn(file).length, 0);
 });
 
-// Reporting this as 'absent' would let a caller clear its own record while VS
-// Code carries on loading the path.
+// 'absent' would say the file does not name this path at all; a caller has to be
+// able to tell that apart and report the leftover entry.
 test('remove: a path named in a form this tool did not write is not absence', () => {
   const source = `{\n  "chat.pluginLocations": {\n    "${KEY}": false\n  }\n}\n`;
   const file = settingsWith(source);

@@ -61,16 +61,18 @@ export async function uninstall(
   const had = exists(dest);
   if (had) rmrf(dest);
 
-  // The settings file still names this path, in a form the splice does not
-  // recognise (hand-edited to `false`, or a shape its patterns miss). VS Code
-  // may well still be loading it, so nothing here is established.
-  if (!had && result.action === 'unremovable') {
+  // The settings file names this path in a form the splice does not recognise
+  // (hand-edited to `false`, or a shape its patterns miss). Always say so: left
+  // unmentioned it survives the uninstall, and the next install then reports
+  // "Already registered" for an entry that never loads the plugin.
+  if (result.action === 'unremovable') {
     log.warn(`${shortPath(settings)} names ${shortPath(dest)} in a form this tool did not write.`);
-    log.info('Remove that entry by hand; the record is left alone until it is gone.');
-    return 'failed';
+    log.info('Remove that entry by hand - nothing here can take it out safely.');
   }
-  // No detect() gate, unlike Cursor: the copy lives in this tool's own state
-  // dir, so its absence is a fact about the plugin even with VS Code missing.
+  // The outcome follows the files, not that entry. No detect() gate either,
+  // unlike Cursor: the copy lives in this tool's own state dir, so `had` is a
+  // fact about the plugin even with VS Code missing - and with no copy there is
+  // nothing for VS Code to load, whatever the settings file still says.
   if (!had && result.action !== 'removed') {
     log.info(`Nothing to remove at ${shortPath(dest)}`);
     return 'absent';

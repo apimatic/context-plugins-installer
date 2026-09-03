@@ -29,12 +29,21 @@ const tail = (res: RunResult): string =>
 const LOOKS_STALE = /not found in marketplace|out of date|marketplace update/i;
 
 // Only consulted when the plugin listing cannot answer; the wording is Claude's
-// and has no compatibility promise, so it is the fallback, not the test.
-const LOOKS_ABSENT = /not found in installed plugins|is not installed|no such plugin/i;
+// and has no compatibility promise, so it is the fallback, not the test. Every
+// alternative has to be about a plugin - a bare "is not installed" also matches
+// "marketplace 'x' is not installed", which would clear a record off a real error.
+const LOOKS_ABSENT =
+  /not found in installed plugins|no such plugin|plugin\b[^:]{0,80}\bis not installed/i;
 
 // Every install and uninstall names this scope, so it is also the only scope
-// whose contents can tell us whether a record has drifted.
+// whose contents can say whether a record has drifted.
 const SCOPE = 'user';
+
+// Scopes that are definitely not this tool's. Anything else - including a name
+// this build has never seen - counts as possibly ours, the same way an
+// unreadable id and an unnameable marketplace do: an unrecognised word must
+// never be the thing that reads as absence and deletes a live record.
+const OTHER_SCOPES = new Set(['project', 'local']);
 
 const REPO_IN = /(?:github\.com[/:]|^)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/i;
 
@@ -288,8 +297,13 @@ async function isAbsent(
   res: RunResult,
 ): Promise<boolean> {
   const rows = await installedPlugins(exec, claude);
-  if (!rows) return LOOKS_ABSENT.test(`${res.stderr || ''}${res.stdout || ''}`);
-  return !rows.some((r) => r.plugin === plugin && (r.scope === null || r.scope === SCOPE));
+  if (!rows) {
+    // The failure has to be about this plugin, not merely worded like it.
+    const text = `${res.stderr || ''}${res.stdout || ''}`;
+    return text.includes(plugin) && LOOKS_ABSENT.test(text);
+  }
+  const ours = (scope: string | null): boolean => !OTHER_SCOPES.has((scope || SCOPE).toLowerCase());
+  return !rows.some((r) => r.plugin === plugin && ours(r.scope));
 }
 
 export async function uninstall(

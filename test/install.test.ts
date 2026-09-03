@@ -70,6 +70,9 @@ function deps({ repo, marketplace = 'apimatic', plugin = 'my-sdk', srcDir }: Dep
 const brandFor = (repo: string) =>
   resolveBrand({ env: { CP_REPO: repo }, cwd: tmpDir('cp-cwd-'), home: tmpDir('cp-home-') });
 
+/** Console output as one line, with `log`'s column wrapping collapsed. */
+const flat = (con: { lines: string[] }): string => con.lines.join(' ').replace(/\s+/g, ' ');
+
 async function quietly<T>(fn: () => Promise<T>): Promise<T> {
   const con = silenceConsole();
   try {
@@ -388,10 +391,48 @@ test('--force names what it dropped without confirming', async () => {
     con.restore();
   }
 
-  assert.match(
-    con.lines.join(' '),
-    /Dropped from the record without confirming removal: Claude Code/,
+  const out = con.lines.join(' ');
+  assert.match(out, /Dropped from the record without confirming removal: Claude Code/);
+  // Nothing looked, so no line may report a finding - in either direction.
+  assert.doesNotMatch(out, /cleared the stale record|Nothing was installed/);
+  assert.doesNotMatch(out, /Nothing was changed/);
+  assert.equal(manifest.list(file).length, 0);
+});
+
+// One editor removed and another found empty are two different things, and the
+// row is gone either way - so the summary has to say both.
+test('a removal does not hide a target cleared alongside it', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const dest = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'mix-sdk');
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, 'plugin.json'), '{}');
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [{ plugin: 'mix-sdk', repo, marketplace: 'apimatic', targets: TARGETS }],
+    }),
   );
+
+  const con = silenceConsole();
+  try {
+    await uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'mix-sdk',
+      targets: TARGETS,
+      deps: { fetchImpl: stubFetch({}), env: {} },
+      pathOpts: m.pathOpts,
+    });
+  } finally {
+    con.restore();
+  }
+
+  const out = con.lines.join(' ');
+  assert.match(out, /Uninstalled from: Cursor/);
+  assert.match(out, /Nothing was installed in VS Code - cleared that from the record/);
   assert.equal(manifest.list(file).length, 0);
 });
 
@@ -425,17 +466,17 @@ test('an editor that is not installed leaves its target recorded', async () => {
   assert.deepEqual(manifest.list(file)[0].targets, ['cursor'], 'nothing could be established');
 });
 
-// settings.json still names the path, in a form the splice does not recognise -
-// VS Code may well still be loading it, so this is not absence.
-test('a settings entry this tool did not write keeps the record', async () => {
+// No plugin files means nothing for VS Code to load, whatever settings.json
+// still says - so the record clears. The leftover entry is a separate mess, and
+// has to be named: unmentioned, it survives and the next install reports
+// "Already registered" for an entry that never loads the plugin.
+test('an unrecognised settings entry is reported, not silently kept or hidden', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const dest = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'ghost-sdk');
   const settings = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
-  fs.writeFileSync(
-    settings,
-    `{\n  "chat.pluginLocations": {\n    "${dest.replace(/\\/g, '/')}": false\n  }\n}\n`,
-  );
+  const source = `{\n  "chat.pluginLocations": {\n    "${dest.replace(/\\/g, '/')}": false\n  }\n}\n`;
+  fs.writeFileSync(settings, source);
   const file = paths.manifestPath(m.pathOpts);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
@@ -446,18 +487,53 @@ test('a settings entry this tool did not write keeps the record', async () => {
     }),
   );
 
-  await quietly(() =>
-    uninstallPlugin({
+  const con = silenceConsole();
+  try {
+    await uninstallPlugin({
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['vscode'],
       deps: { fetchImpl: stubFetch({}), env: {} },
       pathOpts: m.pathOpts,
-    }),
+    });
+  } finally {
+    con.restore();
+  }
+
+  assert.equal(manifest.list(file).length, 0, 'no files means nothing is installed');
+  assert.equal(fs.readFileSync(settings, 'utf8'), source, 'the entry is left for the user');
+  assert.match(flat(con), /in a form this tool did not write/);
+});
+
+// The same entry with the files still present: the removal succeeds, and the
+// leftover entry must still be named rather than riding along unmentioned.
+test('an unrecognised settings entry is named even when the files did go', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const dest = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'ghost-sdk');
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, 'plugin.json'), '{}');
+  const settings = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
+  fs.writeFileSync(
+    settings,
+    `{\n  "chat.pluginLocations": {\n    "${dest.replace(/\\/g, '/')}": false\n  }\n}\n`,
   );
 
-  assert.deepEqual(manifest.list(file)[0].targets, ['vscode']);
-  assert.match(fs.readFileSync(settings, 'utf8'), /: false/, 'and the entry is left for the user');
+  const con = silenceConsole();
+  try {
+    await uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'ghost-sdk',
+      targets: ['vscode'],
+      deps: { fetchImpl: stubFetch({}), env: {} },
+      pathOpts: m.pathOpts,
+    });
+  } finally {
+    con.restore();
+  }
+
+  assert.ok(!fs.existsSync(dest));
+  assert.match(flat(con), /in a form this tool did not write/, 'said, not swallowed');
 });
 
 // A throw must not cost the removals already done: leaving them recorded is the
@@ -480,16 +556,21 @@ test('a harness that throws still records what was already removed', async () =>
   fs.mkdirSync(settings, { recursive: true });
 
   const file = paths.manifestPath(m.pathOpts);
+  const con = silenceConsole();
   await assert.rejects(
-    quietly(() =>
-      uninstallPlugin({
-        brand,
-        plugin: 'my-sdk',
-        targets: TARGETS,
-        deps: d,
-        pathOpts: m.pathOpts,
-      }),
-    ),
+    (async () => {
+      try {
+        await uninstallPlugin({
+          brand,
+          plugin: 'my-sdk',
+          targets: TARGETS,
+          deps: d,
+          pathOpts: m.pathOpts,
+        });
+      } finally {
+        con.restore();
+      }
+    })(),
     'the failure still reaches the caller',
   );
 
@@ -498,6 +579,11 @@ test('a harness that throws still records what was already removed', async () =>
     manifest.list(file)[0].targets,
     ['vscode'],
     'Cursor is off the record, VS Code is still on it',
+  );
+  assert.match(
+    con.lines.join(' '),
+    /Uninstalled from: Cursor/,
+    'the throw is caught per editor, so the run still reaches its summary',
   );
 });
 
@@ -524,7 +610,87 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
   }
 
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).plugins, [row], 'untouched');
-  assert.match(con.lines.join(' '), /lists targets this version cannot read/);
+  const out = con.lines.join(' ');
+  assert.match(out, /has a target list this version cannot read/);
+  assert.match(out, /--force/, 'and there is a way out of it');
+
+  await quietly(() =>
+    uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'future-sdk',
+      targets: ['cursor'],
+      force: true,
+      deps: { fetchImpl: stubFetch({}), env: {} },
+      pathOpts: m.pathOpts,
+    }),
+  );
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).plugins, [], '--force takes it');
+});
+
+// The regression this pair guards: a row with no target list at all was left on
+// disk by every uninstall, --force included, while `read()` filed it under
+// `ignored` - so `update` failed on it on every future run, forever.
+test('a row that names no editor is dropped when nothing contradicts it', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [{ plugin: 'no-targets-sdk', repo, marketplace: 'apimatic' }],
+    }),
+  );
+
+  await quietly(() =>
+    uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'no-targets-sdk',
+      targets: TARGETS,
+      deps: { fetchImpl: stubFetch({}), env: {} },
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.equal(manifest.read(file).ignored.length, 0, 'and `update` stops failing on it');
+  assert.equal(manifest.list(file).length, 0);
+});
+
+test('a row that names no editor survives an editor that could not answer', async () => {
+  const m = machine();
+  fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
+  const repo = 'context-plugins/plugin-marketplace';
+  const file = paths.manifestPath(m.pathOpts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // `targets: []` reads as "every harness", so it is this same shape.
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [{ plugin: 'empty-sdk', repo, marketplace: 'apimatic', targets: [] }],
+    }),
+  );
+
+  const con = silenceConsole();
+  try {
+    await uninstallPlugin({
+      brand: brandFor(repo),
+      plugin: 'empty-sdk',
+      targets: ['cursor'],
+      deps: { fetchImpl: stubFetch({}), env: {} },
+      pathOpts: m.pathOpts,
+    });
+  } finally {
+    con.restore();
+  }
+
+  assert.equal(
+    JSON.parse(fs.readFileSync(file, 'utf8')).plugins.length,
+    1,
+    'Cursor could not be looked at, so nothing established the row is stale',
+  );
+  assert.doesNotMatch(con.lines.join(' '), /cleared|dropped it/i);
 });
 
 test('asking for an editor that is not installed fails, naming it', async () => {
