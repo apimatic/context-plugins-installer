@@ -322,8 +322,12 @@ export type TrackFn = (name: string, properties?: Record<string, TelemetryValue>
 /** `log` prints what would be sent, to stderr, and sends nothing. */
 export type TelemetryMode = 'on' | 'off' | 'log';
 
-/** Which switch turned telemetry off; `user` is the state file `telemetry disable` writes. */
-export type TelemetryOptOut = 'no-token' | 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'user';
+/**
+ * Which switch turned telemetry off; `user` is the state file `telemetry disable`
+ * writes, `state` that same file when it exists but cannot be read.
+ */
+export type TelemetryOptOut =
+  'no-token' | 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'state' | 'user';
 
 export interface TelemetryStatus {
   mode: TelemetryMode;

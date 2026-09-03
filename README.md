@@ -129,12 +129,15 @@ carries:
 - the plugin id and the editor it went into; for a failure, the step it failed at and whether that
   was a usage error or a crash, never the message
 - the marketplace, only when it is the built-in one; any `--repo` you pass is reported as `custom`
-- OS, CPU architecture, Node major version, CLI version, and whether the run was in CI
+- the command (`install`, `update`, or `uninstall`), whether the editors were named with
+  `--targets`, how long the install took, and whether the run was interactive or in CI
+- OS, CPU architecture, Node major version, and CLI version
 - a random id for this machine, kept in `~/.context-plugins/telemetry.json`
 
-It never includes file paths, usernames, hostnames, IP-derived location, error messages,
-environment variables, or anything from the plugin itself. A notice is printed on stderr the first
-time anything is sent.
+Each request also carries the Mixpanel project token, a public routing key that says which
+project the events belong to. It never includes file paths, usernames, hostnames, IP-derived
+location, error messages, environment variables, or anything from the plugin itself. A notice is
+printed on stderr the first time anything is sent.
 
 Turn it off in any of these ways; the first that applies wins:
 

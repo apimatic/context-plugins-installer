@@ -9,6 +9,7 @@ import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import {
+  COLLECTED,
   createTelemetry,
   describeTelemetry,
   setTelemetryEnabled,
@@ -186,7 +187,7 @@ function report(err: unknown): void {
 const TELEMETRY_ACTIONS = ['status', 'enable', 'disable'];
 
 function telemetryCommand(action: string | undefined, brand: Brand, bin: string): number {
-  const verb = action || 'status';
+  const verb = action ?? 'status';
   if (!TELEMETRY_ACTIONS.includes(verb)) {
     throw new UserError(`Unknown telemetry action: ${verb}`, {
       hint: `Usage: ${bin} telemetry [status|enable|disable]`,
@@ -196,7 +197,9 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
     const enabled = verb === 'enable';
     if (!setTelemetryEnabled(enabled)) {
       throw new UserError(`Could not write ${shortPath(paths.telemetryPath())}.`, {
-        hint: 'CP_TELEMETRY=off in the environment needs no file.',
+        hint: enabled
+          ? 'Check the permissions on the state directory, or point CP_STATE_DIR somewhere writable.'
+          : 'CP_TELEMETRY=off in the environment needs no file.',
       });
     }
     log.ok(`Telemetry ${enabled ? 'enabled' : 'disabled'}.`);
@@ -206,13 +209,14 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
   const effective = describeTelemetry(status, bin);
   if (verb === 'status') {
     log.plain(`Telemetry is ${effective}.`);
-  } else if ((verb === 'enable') !== (status.mode === 'on')) {
+  } else if (status.mode !== (verb === 'enable' ? 'on' : 'off')) {
     // The choice is saved, but a broader switch still decides what happens.
     log.info(`Right now it is ${effective}; that setting takes precedence.`);
   }
   if (status.id) log.info(`Anonymous machine id: ${status.id} (${shortPath(status.file)})`);
+  log.info(`Collected: ${COLLECTED}.`);
   log.info(
-    `Collected: plugin id, editor, OS, Node and CLI version. Change it with '${bin} telemetry enable|disable', CP_TELEMETRY=off, or DO_NOT_TRACK=1.`,
+    `Change it with '${bin} telemetry enable|disable', CP_TELEMETRY=off, or DO_NOT_TRACK=1.`,
   );
   return 0;
 }
@@ -260,8 +264,13 @@ export async function run(
   const plugin = args[0] || process.env.CP_PLUGIN || null;
 
   // One instance per run: install and uninstall report into it, and whatever
-  // they reported leaves in a single request once the command is done.
-  const telemetry = createTelemetry({ brand, command, version: packageVersion() });
+  // they reported leaves in a single request once the command is done. `remove`
+  // is the same operation as `uninstall`, so it reports as one.
+  const telemetry = createTelemetry({
+    brand,
+    command: command === 'remove' ? 'uninstall' : command,
+    version: packageVersion,
+  });
   const deps: Deps = { track: telemetry.track };
 
   try {

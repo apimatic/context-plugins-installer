@@ -25,6 +25,20 @@ const nowIso = (): string => new Date().toISOString();
 
 const noTrack: TrackFn = () => {};
 
+// A sink listens; it never takes part. Whatever it throws stays out of the run,
+// which has already written its files by the time the success events fire.
+function sinkOf(deps: Deps | undefined): TrackFn {
+  const track = deps?.track;
+  if (!track) return noTrack;
+  return (name, properties) => {
+    try {
+      track(name, properties);
+    } catch (err) {
+      log.debug(`telemetry: ${errorMessage(err)}`);
+    }
+  };
+}
+
 /** How far a run got before it threw; coarse on purpose, so no message travels. */
 type Stage = 'resolve' | 'harnesses' | 'fetch' | 'install';
 
@@ -145,7 +159,7 @@ export async function installPlugin({
       progress,
     });
   } catch (err) {
-    trackFailure(deps.track ?? noTrack, EVENTS.installFailed, {
+    trackFailure(sinkOf(deps), EVENTS.installFailed, {
       plugin,
       brand,
       stage: progress.stage,
@@ -179,7 +193,7 @@ async function runInstall({
   progress,
 }: RunInstallArgs): Promise<InstallResult> {
   assertPlugin(plugin);
-  const track = deps.track ?? noTrack;
+  const track = sinkOf(deps);
   const startedAt = Date.now();
   const effectiveRef = ref || brand.ref;
   const manifestFile = paths.manifestPath(pathOpts);
@@ -338,7 +352,7 @@ export interface UninstallOptions {
 }
 
 export async function uninstallPlugin(options: UninstallOptions): Promise<UninstallResult> {
-  const track = options.deps?.track ?? noTrack;
+  const track = sinkOf(options.deps);
   try {
     const result = await runUninstall(options);
     for (const name of result.targets) {

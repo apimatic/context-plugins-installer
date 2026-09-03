@@ -421,3 +421,48 @@ test('with CP_TELEMETRY=off the same failure sends nothing and says nothing abou
     globalThis.fetch = saved;
   }
 });
+
+test('remove is reported as uninstall, and an id that failed validation is not echoed back', async () => {
+  const saved = globalThis.fetch;
+  const bodies: string[] = [];
+  const pinned: FetchLike = async (url, init) => {
+    if (url.startsWith('https://api.mixpanel.com/')) bodies.push(init?.body ?? '');
+    return {
+      ok: true,
+      status: 200,
+      text: async () => '{"status":1}',
+      json: async () => ({ status: 1 }),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    };
+  };
+  globalThis.fetch = pinned as unknown as typeof fetch;
+  try {
+    const { code } = await runWith(['remove', 'Not_Valid'], NO_PLUGINS, { CP_TELEMETRY: 'on' });
+    assert.equal(code, 1);
+    const events: { event: string; properties: Record<string, unknown> }[] = JSON.parse(
+      bodies[0] ?? '[]',
+    );
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.event, 'Context Plugin Uninstall Failed');
+    assert.equal(events[0]?.properties.command, 'uninstall');
+    assert.equal(events[0]?.properties.plugin, null);
+    assert.equal(events[0]?.properties.error_kind, 'user');
+  } finally {
+    globalThis.fetch = saved;
+  }
+});
+
+test('telemetry disable under CP_TELEMETRY=log says the log mode still wins', async () => {
+  const { code, text } = await runWith(['telemetry', 'disable'], NO_PLUGINS, {
+    CP_TELEMETRY: 'log',
+  });
+  assert.equal(code, 0);
+  assert.ok(text.includes('Telemetry disabled.'), text);
+  assert.ok(text.includes('Right now it is log only (CP_TELEMETRY=log)'), text);
+});
+
+test('the read-only commands never touch telemetry.json', async () => {
+  const { code, root } = await runWith(['installed'], NO_PLUGINS, { CP_TELEMETRY: 'on' });
+  assert.equal(code, 0);
+  assert.equal(fs.existsSync(path.join(root, 'state', 'telemetry.json')), false);
+});

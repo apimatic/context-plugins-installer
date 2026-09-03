@@ -3,9 +3,27 @@ import { stdin, stdout } from 'node:process';
 
 import { log } from './log.js';
 import type { Env, Prompter } from './types.js';
+import { envFlag } from './util.js';
+
+const CI_VARS = [
+  'CI',
+  'CONTINUOUS_INTEGRATION',
+  'BUILD_NUMBER',
+  'GITHUB_ACTIONS',
+  'GITLAB_CI',
+  'TF_BUILD',
+  'BUILDKITE',
+  'CIRCLECI',
+  'TRAVIS',
+  'JENKINS_URL',
+  'TEAMCITY_VERSION',
+];
+
+/** The one definition of "running in CI": the prompt and telemetry must agree on it. */
+export const isCi = (env: Env = process.env): boolean => CI_VARS.some((name) => envFlag(env[name]));
 
 export function isInteractive(env: Env = process.env): boolean {
-  if (env.CI) return false;
+  if (isCi(env)) return false;
   if (env.CP_NO_INPUT) return false;
   return Boolean(stdin.isTTY && stdout.isTTY);
 }

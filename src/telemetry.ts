@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 import { log } from './log.js';
 import * as paths from './paths.js';
-import { isInteractive } from './prompt.js';
+import { isCi, isInteractive } from './prompt.js';
 import type {
   Brand,
   Deps,
@@ -17,7 +17,16 @@ import type {
   TelemetryValue,
   TrackFn,
 } from './types.js';
-import { ensureDir, errorMessage, isPlainObject, nonEmptyString, stripBom } from './util.js';
+import {
+  ENV_OFF,
+  ensureDir,
+  envFlag,
+  errorCode,
+  errorMessage,
+  isPlainObject,
+  nonEmptyString,
+  stripBom,
+} from './util.js';
 
 // Title case with a product prefix, the convention of the Mixpanel project
 // these land in.
@@ -31,66 +40,93 @@ export const EVENTS = Object.freeze({
 /** The request is a courtesy to the run, so it never gets to hold the exit. */
 export const FLUSH_TIMEOUT_MS = 1500;
 
-const OFF_VALUES = new Set(['0', 'off', 'false', 'no']);
-
-const CI_VARS = [
-  'CI',
-  'CONTINUOUS_INTEGRATION',
-  'BUILD_NUMBER',
-  'GITHUB_ACTIONS',
-  'GITLAB_CI',
-  'TF_BUILD',
-  'BUILDKITE',
-  'CIRCLECI',
-  'TRAVIS',
-  'JENKINS_URL',
-  'TEAMCITY_VERSION',
-];
+/**
+ * What an event may carry, in the words the notice and `telemetry status` use.
+ * Keep it in step with `common` below and the properties install.ts sends.
+ */
+export const COLLECTED =
+  'the plugin id, the editor it went into, the marketplace when it is the built-in one, ' +
+  'the command, OS, CPU architecture, Node and CLI version, whether the run was interactive ' +
+  'or in CI, how long it took, and a random id for this machine';
 
 interface TelemetryState {
-  id: string;
+  id: string | null;
   enabled?: boolean;
   noticeShown?: boolean;
 }
 
-/** Set to anything but an explicit "no"; `DO_NOT_TRACK=1` and `=true` both count. */
-const isSet = (value: string | undefined): boolean =>
-  value !== undefined && value !== '' && !OFF_VALUES.has(value.toLowerCase());
+/** `null` is a missing file; `unreadable` is a file that exists but cannot be trusted. */
+type StateRead = TelemetryState | null | 'unreadable';
 
-export const isCi = (env: Env): boolean => CI_VARS.some((name) => isSet(env[name]));
-
-// A corrupt file is replaced, not honoured: it holds an id and two flags this
-// CLI wrote itself, so unlike the rc file there is no user intent to protect.
-function readState(file: string): TelemetryState | null {
+// A missing file is the fresh-machine case. Anything else that cannot be read is
+// not "absent": treating it so would drop a saved opt-out, so it fails closed.
+function readState(file: string): StateRead {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    const code = errorCode(err);
+    return code === 'ENOENT' || code === 'ENOTDIR' ? null : 'unreadable';
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
+    parsed = JSON.parse(stripBom(text));
   } catch {
-    return null;
+    return 'unreadable';
   }
-  if (!isPlainObject(parsed) || !nonEmptyString(parsed.id)) return null;
-  const state: TelemetryState = { id: parsed.id };
+  if (!isPlainObject(parsed)) return 'unreadable';
+  const state: TelemetryState = { id: nonEmptyString(parsed.id) ? parsed.id : null };
   if (typeof parsed.enabled === 'boolean') state.enabled = parsed.enabled;
   if (typeof parsed.noticeShown === 'boolean') state.noticeShown = parsed.noticeShown;
   return state;
 }
 
+// Written whole through a rename, so a crash mid-write cannot leave the half
+// file that would read as unreadable above.
 function writeState(file: string, state: TelemetryState): boolean {
+  const tmp = `${file}.${process.pid}.tmp`;
   try {
     ensureDir(path.dirname(file));
-    fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp, file);
     return true;
-  } catch {
+  } catch (err) {
+    log.debug(`telemetry: could not write ${file}: ${errorMessage(err)}`);
+    fs.rmSync(tmp, { force: true });
     return false;
   }
 }
 
-function optOutOf(brand: Brand, env: Env, state: TelemetryState | null): TelemetryOptOut | null {
-  if (isSet(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK';
-  if (OFF_VALUES.has((env.CP_TELEMETRY || '').toLowerCase())) return 'CP_TELEMETRY';
+const withId = (state: TelemetryState | null, newId: () => string): TelemetryState =>
+  state?.id ? state : { ...state, id: newId() };
+
+function optOutOf(brand: Brand, env: Env, read: StateRead): TelemetryOptOut | null {
+  if (envFlag(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK';
+  if (ENV_OFF.has((env.CP_TELEMETRY || '').toLowerCase())) return 'CP_TELEMETRY';
   if (brand.telemetry.rcOptOut) return 'rc';
-  if (state?.enabled === false) return 'user';
+  if (read === 'unreadable') return 'state';
+  if (read?.enabled === false) return 'user';
   return null;
+}
+
+// Precedence: no token beats everything, then `log` (the user asked to see the
+// payload, whatever else is set), then the switches from broadest to narrowest.
+function resolve(
+  brand: Brand,
+  env: Env,
+  pathOpts?: PathOpts,
+): { status: TelemetryStatus; read: StateRead } {
+  const file = paths.telemetryPath(pathOpts);
+  const read = readState(file);
+  const id = read && read !== 'unreadable' ? read.id : null;
+  const status = (mode: TelemetryStatus['mode'], optOut: TelemetryOptOut | null) => ({
+    status: { mode, optOut, id, file },
+    read,
+  });
+  if (!brand.telemetry?.token) return status('off', 'no-token');
+  if ((env.CP_TELEMETRY || '').toLowerCase() === 'log') return status('log', null);
+  const optOut = optOutOf(brand, env, read);
+  return status(optOut ? 'off' : 'on', optOut);
 }
 
 export interface StatusOptions {
@@ -99,22 +135,11 @@ export interface StatusOptions {
   pathOpts?: PathOpts;
 }
 
-// Precedence: no token beats everything, then `log` (the user asked to see the
-// payload, whatever else is set), then the switches from broadest to narrowest.
-export function telemetryStatus({
+export const telemetryStatus = ({
   brand,
   env = process.env,
   pathOpts,
-}: StatusOptions): TelemetryStatus {
-  const file = paths.telemetryPath(pathOpts);
-  const state = readState(file);
-  const id = state?.id ?? null;
-  if (!brand.telemetry.token) return { mode: 'off', optOut: 'no-token', id, file };
-  if ((env.CP_TELEMETRY || '').toLowerCase() === 'log')
-    return { mode: 'log', optOut: null, id, file };
-  const optOut = optOutOf(brand, env, state);
-  return { mode: optOut ? 'off' : 'on', optOut, id, file };
-}
+}: StatusOptions): TelemetryStatus => resolve(brand, env, pathOpts).status;
 
 /** One phrase for `doctor` and `telemetry status`, naming the switch that is in effect. */
 export function describeTelemetry(status: TelemetryStatus, bin: string): string {
@@ -125,29 +150,34 @@ export function describeTelemetry(status: TelemetryStatus, bin: string): string 
       return 'not configured';
     case 'rc':
       return 'disabled (.contextpluginsrc)';
+    case 'state':
+      return 'disabled (telemetry.json could not be read)';
     case 'user':
       return `disabled (${bin} telemetry disable)`;
     default:
-      return `disabled (${status.optOut})`;
+      return `disabled (${status.optOut ?? 'unknown'})`;
   }
 }
 
 /** `telemetry enable|disable`; false when the state file could not be written. */
 export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): boolean {
   const file = paths.telemetryPath(pathOpts);
-  const state = readState(file) ?? { id: randomUUID() };
-  return writeState(file, { ...state, enabled });
+  const read = readState(file);
+  // An explicit choice may replace a file that could not be read; nothing else does.
+  const base = read === 'unreadable' ? null : read;
+  return writeState(file, { ...withId(base, randomUUID), enabled });
 }
 
 /** The marketplace as an event property: named only when it is the one this build ships with. */
 export const marketplaceLabel = (brand: Brand): string =>
-  brand.repo === brand.telemetry.defaultRepo ? brand.repo : 'custom';
+  brand.repo === brand.telemetry?.defaultRepo ? brand.repo : 'custom';
 
 export interface TelemetryOptions {
   brand: Brand;
   /** The CLI command this run is for; rides on every event. */
   command: string | null;
-  version: string;
+  /** Read only once there is something to send. */
+  version: () => string;
   deps?: Deps;
   pathOpts?: PathOpts;
   timeoutMs?: number;
@@ -156,12 +186,14 @@ export interface TelemetryOptions {
 }
 
 export interface Telemetry {
-  readonly status: TelemetryStatus;
   track: TrackFn;
   /** Sends everything tracked so far in one request; never throws, never outlives the timeout. */
   flush(): Promise<void>;
 }
 
+// Construction does no I/O. The mode, the state file, the version and the fetch
+// implementation are all resolved in flush(), and only once something was tracked,
+// so a read-only command touches nothing and a missing global fetch breaks nothing.
 export function createTelemetry({
   brand,
   command,
@@ -172,50 +204,57 @@ export function createTelemetry({
   now = Date.now,
   newId = randomUUID,
 }: TelemetryOptions): Telemetry {
-  const env = deps.env || process.env;
-  const fetchImpl: FetchLike = deps.fetchImpl || fetch;
-  const status = telemetryStatus({ brand, env, pathOpts });
-  const token = brand.telemetry.token;
   const queue: TelemetryEvent[] = [];
   const runId = newId();
 
-  // The id is minted the first time there is something to send, so a read-only
-  // command such as `list` leaves no file behind.
-  function ensureState(): TelemetryState {
-    const existing = readState(status.file);
-    if (existing) return existing;
-    const fresh = { id: newId() };
-    writeState(status.file, fresh);
-    return fresh;
-  }
+  const versionOrUnknown = (): string => {
+    try {
+      return version();
+    } catch {
+      return 'unknown';
+    }
+  };
 
-  function disclose(state: TelemetryState): void {
+  function disclose(file: string, state: TelemetryState): void {
     if (state.noticeShown) return;
     log.notice(
-      `${brand.displayName} collects anonymous usage data: the plugin id, the editor it went into, ` +
-        `OS, Node and CLI version, and a random id for this machine. No paths, usernames or tokens. ` +
-        `Opt out with '${brand.bin} telemetry disable' or DO_NOT_TRACK=1.`,
+      `${brand.displayName} collects anonymous usage data: ${COLLECTED}. Nothing else: no file ` +
+        `paths, usernames, messages or secrets. Opt out with '${brand.bin} telemetry disable' or ` +
+        `DO_NOT_TRACK=1; CP_TELEMETRY=log shows each event instead of sending it.`,
     );
-    writeState(status.file, { ...state, noticeShown: true });
+    writeState(file, { ...state, noticeShown: true });
   }
 
-  const common = (): Record<string, TelemetryValue> => ({
-    command,
-    cli_version: version,
-    node_major: Number(process.versions.node.split('.')[0]),
-    os: process.platform,
-    arch: process.arch,
-    ci: isCi(env),
-    interactive: isInteractive(env),
-    run_id: runId,
-  });
+  async function send(events: TelemetryEvent[]): Promise<void> {
+    const env = deps.env || process.env;
+    const { status, read } = resolve(brand, env, pathOpts);
+    const token = brand.telemetry?.token;
+    if (status.mode === 'off' || !token) return;
 
-  // Fixed fields last, so no event can rename the token or the identity.
-  const payload = (state: TelemetryState, events: TelemetryEvent[]) =>
-    events.map((e) => ({
+    // A fresh id is persisted before anything is sent: without a stable id there
+    // is no per-machine count, and without the file the notice would repeat.
+    const base = read === 'unreadable' ? null : read;
+    const state = withId(base, newId);
+    if (state !== base && !writeState(status.file, state)) {
+      log.debug('telemetry: no writable state directory; nothing sent');
+      return;
+    }
+
+    const common: Record<string, TelemetryValue> = {
+      command,
+      cli_version: versionOrUnknown(),
+      node_major: Number(process.versions.node.split('.')[0]),
+      os: process.platform,
+      arch: process.arch,
+      ci: isCi(env),
+      interactive: isInteractive(env),
+      run_id: runId,
+    };
+    // Fixed fields last, so no event can rename the token or the identity.
+    const body = events.map((e) => ({
       event: e.name,
       properties: {
-        ...common(),
+        ...common,
         ...e.properties,
         token,
         $device_id: state.id,
@@ -225,11 +264,6 @@ export function createTelemetry({
       },
     }));
 
-  async function flush(): Promise<void> {
-    const events = queue.splice(0);
-    if (!events.length || status.mode === 'off' || !token) return;
-    const state = ensureState();
-    const body = payload(state, events);
     if (status.mode === 'log') {
       // One line per event, unwrapped, so the payload can be read or piped as JSON.
       for (const e of body) {
@@ -237,25 +271,42 @@ export function createTelemetry({
       }
       return;
     }
-    disclose(state);
+
+    const fetchImpl: FetchLike | undefined = deps.fetchImpl ?? globalThis.fetch;
+    if (typeof fetchImpl !== 'function') {
+      log.debug('telemetry: no fetch implementation; nothing sent');
+      return;
+    }
+
+    disclose(status.file, state);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    timer.unref();
     try {
       const res = await fetchImpl(`${brand.telemetry.host}/track?ip=0&verbose=1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/plain' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: controller.signal,
       });
       log.debug(`telemetry: ${res.status} ${(await res.text()).trim()}`);
-    } catch (err) {
-      log.debug(`telemetry: ${errorMessage(err)}`);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
   return {
-    status,
     track(name, properties = {}) {
-      if (status.mode !== 'off') queue.push({ name, properties });
+      queue.push({ name, properties });
     },
-    flush,
+    async flush() {
+      const events = queue.splice(0);
+      if (!events.length) return;
+      try {
+        await send(events);
+      } catch (err) {
+        log.debug(`telemetry: ${errorMessage(err)}`);
+      }
+    },
   };
 }

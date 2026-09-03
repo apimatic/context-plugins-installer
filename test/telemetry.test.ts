@@ -5,17 +5,18 @@ import * as path from 'node:path';
 
 import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
 import * as paths from '../src/paths.js';
+import { isCi } from '../src/prompt.js';
 import {
+  COLLECTED,
   EVENTS,
   createTelemetry,
   describeTelemetry,
-  isCi,
   marketplaceLabel,
   setTelemetryEnabled,
   telemetryStatus,
   type TelemetryOptions,
 } from '../src/telemetry.js';
-import type { Brand, FetchLike, FetchResponseLike, PathOpts } from '../src/types.js';
+import type { Brand, Env, FetchLike, FetchResponseLike, PathOpts } from '../src/types.js';
 import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 
 test.after(cleanupAll);
@@ -27,11 +28,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const brand = (over: ResolveBrandOptions = {}): Brand =>
   resolveBrand({ env: {}, cwd: tmpDir('cp-cwd-'), home: tmpDir('cp-home-'), ...over });
 
+interface Machine {
+  root: string;
+  pathOpts: PathOpts;
+  file: string;
+}
+
 /** A sandboxed state dir, so the id file never lands in the developer's home. */
-function machine(): { pathOpts: PathOpts; file: string } {
+function machine(): Machine {
   const root = tmpDir('cp-telemetry-');
   const pathOpts = { env: { CP_STATE_DIR: path.join(root, 'state') }, home: root };
-  return { pathOpts, file: paths.telemetryPath(pathOpts) };
+  return { root, pathOpts, file: paths.telemetryPath(pathOpts) };
 }
 
 interface Sent {
@@ -61,20 +68,20 @@ function sink(status = 200, body = '{"status":1}'): FetchLike & { sent: Sent[] }
   return Object.assign(impl, { sent });
 }
 
-const eventsIn = (sent: Sent): SentEvent[] => JSON.parse(sent.init?.body ?? '[]') as SentEvent[];
+const eventsIn = (sent: Sent | undefined): SentEvent[] =>
+  JSON.parse(sent?.init?.body ?? '[]') as SentEvent[];
 
 const readState = (file: string): Record<string, unknown> =>
   JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
 
-function telemetryFor(
-  m: { pathOpts: PathOpts },
-  fetchImpl: FetchLike,
-  over: Partial<TelemetryOptions> = {},
-) {
+const statusOf = (m: Machine, env: Env = {}, b: Brand = brand()) =>
+  telemetryStatus({ brand: b, env, pathOpts: m.pathOpts });
+
+function telemetryFor(m: Machine, fetchImpl: FetchLike, over: Partial<TelemetryOptions> = {}) {
   return createTelemetry({
     brand: brand(),
     command: 'install',
-    version: '9.9.9',
+    version: () => '9.9.9',
     deps: { env: {}, fetchImpl },
     pathOpts: m.pathOpts,
     ...over,
@@ -91,6 +98,14 @@ async function flushQuietly(t: { flush(): Promise<void> }) {
   return con;
 }
 
+/** Console lines rewrapped as one sentence: a phrase may straddle a wrap and an ANSI code. */
+const flat = (lines: string[]): string =>
+  lines
+    .join(' ')
+    .replace(/\x1b\[\d+m/g, '')
+    .split(/\s+/)
+    .join(' ');
+
 test('one flush is one request carrying the token, the anonymous id, and the run-level facts', async () => {
   const m = machine();
   const mixpanel = sink();
@@ -106,7 +121,7 @@ test('one flush is one request carrying the token, the anonymous id, and the run
   assert.equal(req?.init?.headers?.['Content-Type'], 'application/json');
   assert.ok(req?.init?.signal instanceof AbortSignal, 'the request is bounded');
 
-  const events = eventsIn(req as Sent);
+  const events = eventsIn(req);
   const id = readState(m.file).id;
   assert.match(String(id), UUID, 'the machine id is a random uuid, not a fingerprint');
   assert.deepEqual(
@@ -137,7 +152,7 @@ test('an event cannot rename the token or the identity', async () => {
   const t = telemetryFor(m, mixpanel);
   t.track(EVENTS.installed, { token: 'evil', $device_id: 'someone-else', distinct_id: 'x' });
   await flushQuietly(t);
-  const [e] = eventsIn(mixpanel.sent[0] as Sent);
+  const [e] = eventsIn(mixpanel.sent[0]);
   assert.equal(e?.properties.token, brand().telemetry.token);
   assert.equal(e?.properties.$device_id, readState(m.file).id);
 });
@@ -153,34 +168,39 @@ test('the anonymous id survives across runs', async () => {
   t2.track(EVENTS.installed, { plugin: 'b' });
   await flushQuietly(t2);
   assert.equal(
-    eventsIn(second.sent[0] as Sent)[0]?.properties.$device_id,
-    eventsIn(first.sent[0] as Sent)[0]?.properties.$device_id,
+    eventsIn(second.sent[0])[0]?.properties.$device_id,
+    eventsIn(first.sent[0])[0]?.properties.$device_id,
   );
 });
 
-test('nothing tracked means nothing sent, no id minted, and no notice', async () => {
+test('nothing tracked means nothing read, nothing sent, no id minted, and no notice', async () => {
   const m = machine();
   const mixpanel = sink();
-  const con = await flushQuietly(telemetryFor(m, mixpanel));
+  let versionReads = 0;
+  const t = telemetryFor(m, mixpanel, {
+    version: () => {
+      versionReads += 1;
+      return '9.9.9';
+    },
+  });
+  const con = await flushQuietly(t);
   assert.equal(mixpanel.sent.length, 0);
+  assert.equal(versionReads, 0, 'package.json is not even read');
   assert.equal(fs.existsSync(m.file), false, 'a read-only command leaves no file behind');
   assert.deepEqual(con.lines, []);
 });
 
-test('the notice is printed once, on stderr, and then remembered', async () => {
+test('the notice is printed once, on stderr, says what is collected, and is then remembered', async () => {
   const m = machine();
   const t1 = telemetryFor(m, sink());
   t1.track(EVENTS.installed, { plugin: 'a' });
   const first = await flushQuietly(t1);
-  // Rewrapped: the notice is wrapped to the terminal width, and a phrase may straddle a break.
-  const notice = first.err
-    .join(' ')
-    .replace(/\x1b\[\d+m/g, '')
-    .split(/\s+/)
-    .join(' ');
+  const notice = flat(first.err);
   assert.ok(notice.includes('collects anonymous usage data'), `got: ${notice}`);
+  assert.ok(notice.includes(COLLECTED), 'the inventory is the one the code sends from');
   assert.ok(notice.includes('context-plugins telemetry disable'), 'says how to opt out');
   assert.ok(notice.includes('DO_NOT_TRACK=1'));
+  assert.ok(!notice.includes('or tokens'), 'the project token is in every request');
   assert.deepEqual(first.out, [], 'stdout stays clean');
   assert.equal(readState(m.file).noticeShown, true);
 
@@ -195,7 +215,7 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
     label: string;
     env?: Record<string, string>;
     brand?: () => Brand;
-    before?: (m: { pathOpts: PathOpts }) => void;
+    before?: (m: Machine) => void;
     optOut: string;
     described: string;
   }[] = [
@@ -240,6 +260,24 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
       described: 'disabled (context-plugins telemetry disable)',
     },
     {
+      label: 'hand-written opt-out with no id',
+      before: (m) => {
+        fs.mkdirSync(path.dirname(m.file), { recursive: true });
+        fs.writeFileSync(m.file, '{ "enabled": false }');
+      },
+      optOut: 'user',
+      described: 'disabled (context-plugins telemetry disable)',
+    },
+    {
+      label: 'unreadable state file',
+      before: (m) => {
+        fs.mkdirSync(path.dirname(m.file), { recursive: true });
+        fs.writeFileSync(m.file, '{ not json');
+      },
+      optOut: 'state',
+      described: 'disabled (telemetry.json could not be read)',
+    },
+    {
       label: 'no token',
       brand: () => brand({ profile: { telemetryToken: null } }),
       optOut: 'no-token',
@@ -250,9 +288,10 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
   for (const c of cases) {
     const m = machine();
     c.before?.(m);
+    const before = fs.existsSync(m.file) ? fs.readFileSync(m.file, 'utf8') : null;
     const b = c.brand ? c.brand() : brand();
     const env = c.env ?? {};
-    const status = telemetryStatus({ brand: b, env, pathOpts: m.pathOpts });
+    const status = statusOf(m, env, b);
     assert.equal(status.mode, 'off', c.label);
     assert.equal(status.optOut, c.optOut, c.label);
     assert.equal(describeTelemetry(status, 'context-plugins'), c.described, c.label);
@@ -263,26 +302,59 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
     const con = await flushQuietly(t);
     assert.equal(mixpanel.sent.length, 0, `${c.label}: nothing sent`);
     assert.deepEqual(con.lines, [], `${c.label}: nothing said`);
+    const after = fs.existsSync(m.file) ? fs.readFileSync(m.file, 'utf8') : null;
+    assert.equal(after, before, `${c.label}: the state file is left exactly as it was`);
   }
 });
 
 test('a "no" value on DO_NOT_TRACK or CP_TELEMETRY leaves telemetry on', () => {
   const m = machine();
   for (const env of [{ DO_NOT_TRACK: '0' }, { DO_NOT_TRACK: '' }, { CP_TELEMETRY: 'on' }, {}]) {
-    const status = telemetryStatus({ brand: brand(), env, pathOpts: m.pathOpts });
+    const status = statusOf(m, env);
     assert.equal(status.mode, 'on', JSON.stringify(env));
     assert.equal(describeTelemetry(status, 'context-plugins'), 'enabled');
   }
 });
 
-test('telemetry enable undoes telemetry disable', () => {
+test('telemetry enable undoes telemetry disable and keeps the id', () => {
   const m = machine();
   assert.equal(setTelemetryEnabled(false, m.pathOpts), true);
   const id = readState(m.file).id;
+  assert.match(String(id), UUID);
   assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
-  const status = telemetryStatus({ brand: brand(), env: {}, pathOpts: m.pathOpts });
+  const status = statusOf(m);
   assert.equal(status.mode, 'on');
-  assert.equal(status.id, id, 'the id is kept across the toggle');
+  assert.equal(status.id, id);
+});
+
+test('an explicit enable/disable may replace an unreadable file; a hand-written one gains an id', () => {
+  const m = machine();
+  fs.mkdirSync(path.dirname(m.file), { recursive: true });
+  fs.writeFileSync(m.file, '{ not json');
+  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.match(String(readState(m.file).id), UUID);
+  assert.equal(statusOf(m).mode, 'on');
+
+  fs.writeFileSync(m.file, JSON.stringify({ enabled: false }));
+  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  const state = readState(m.file);
+  assert.match(String(state.id), UUID);
+  assert.equal(state.enabled, true);
+});
+
+test('a file that remembers the notice but has no id gets an id and keeps the flag', async () => {
+  const m = machine();
+  fs.mkdirSync(path.dirname(m.file), { recursive: true });
+  fs.writeFileSync(m.file, JSON.stringify({ noticeShown: true }));
+  const mixpanel = sink();
+  const t = telemetryFor(m, mixpanel);
+  t.track(EVENTS.installed, { plugin: 'a' });
+  const con = await flushQuietly(t);
+  assert.equal(mixpanel.sent.length, 1);
+  assert.deepEqual(con.lines, [], 'the notice is not repeated');
+  const state = readState(m.file);
+  assert.match(String(state.id), UUID);
+  assert.equal(state.noticeShown, true);
 });
 
 test('CP_TELEMETRY=log prints the payload to stderr and sends nothing, whatever else is set', async () => {
@@ -290,16 +362,17 @@ test('CP_TELEMETRY=log prints the payload to stderr and sends nothing, whatever 
   const mixpanel = sink();
   const env = { CP_TELEMETRY: 'log', DO_NOT_TRACK: '1' };
   const t = telemetryFor(m, mixpanel, { deps: { env, fetchImpl: mixpanel } });
-  assert.equal(t.status.mode, 'log');
-  assert.equal(describeTelemetry(t.status, 'context-plugins'), 'log only (CP_TELEMETRY=log)');
+  const status = statusOf(m, env);
+  assert.equal(status.mode, 'log');
+  assert.equal(describeTelemetry(status, 'context-plugins'), 'log only (CP_TELEMETRY=log)');
   t.track(EVENTS.uninstalled, { plugin: 'my-sdk', harness: 'cursor' });
   const con = await flushQuietly(t);
   assert.equal(mixpanel.sent.length, 0);
   assert.deepEqual(con.out, []);
   const line = con.err.find((l) => l.includes('telemetry (not sent)'));
   assert.ok(line, `expected the payload on stderr, got ${JSON.stringify(con.err)}`);
-  assert.ok(line.includes('Context Plugin Uninstalled'));
-  assert.ok(!con.err.join(' ').includes('collects anonymous'), 'no notice when nothing is sent');
+  assert.ok(line.includes('"event":"Context Plugin Uninstalled"'), 'one unwrapped JSON line');
+  assert.ok(!flat(con.err).includes('collects anonymous'), 'no notice when nothing is sent');
 });
 
 test('a failing, rejected, or hanging request never fails the run', async () => {
@@ -321,23 +394,57 @@ test('a failing, rejected, or hanging request never fails the run', async () => 
     });
   const t = telemetryFor(m, hanging, { timeoutMs: 20 });
   t.track(EVENTS.installed, { plugin: 'a' });
-  await Promise.race([
-    flushQuietly(t),
-    new Promise((_resolve, reject) => setTimeout(() => reject(new Error('flush hung')), 2000)),
-  ]);
+  let guard: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      flushQuietly(t),
+      new Promise((_resolve, reject) => {
+        guard = setTimeout(() => reject(new Error('flush hung')), 2000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(guard);
+  }
 });
 
-test('a corrupt state file is replaced rather than honoured', async () => {
+test('an unwritable state directory means nothing is sent, and nothing thrown', async () => {
   const m = machine();
-  fs.mkdirSync(path.dirname(m.file), { recursive: true });
-  fs.writeFileSync(m.file, '{ not json');
-  const t = telemetryFor(m, sink());
+  const blocker = path.join(m.root, 'blocker');
+  fs.writeFileSync(blocker, 'a file where a directory should be');
+  const pathOpts = { env: { CP_STATE_DIR: path.join(blocker, 'state') }, home: m.root };
+  const mixpanel = sink();
+  const t = telemetryFor({ ...m, pathOpts }, mixpanel);
+  t.track(EVENTS.installed, { plugin: 'a' });
+  const con = await flushQuietly(t);
+  assert.equal(mixpanel.sent.length, 0, 'no stable id, so no event');
+  assert.deepEqual(con.lines, [], 'and no notice that would repeat every run');
+});
+
+test('a runtime without a global fetch sends nothing rather than crashing', async () => {
+  const m = machine();
+  const g = globalThis as { fetch?: unknown };
+  const saved = g.fetch;
+  delete g.fetch;
+  try {
+    const t = telemetryFor(m, undefined as unknown as FetchLike, { deps: { env: {} } });
+    t.track(EVENTS.installed, { plugin: 'a' });
+    await flushQuietly(t);
+  } finally {
+    g.fetch = saved;
+  }
+});
+
+test('a version that cannot be read is reported as unknown, not as a failure', async () => {
+  const m = machine();
+  const mixpanel = sink();
+  const t = telemetryFor(m, mixpanel, {
+    version: () => {
+      throw new Error('no package.json');
+    },
+  });
   t.track(EVENTS.installed, { plugin: 'a' });
   await flushQuietly(t);
-  assert.match(String(readState(m.file).id), UUID);
-
-  fs.writeFileSync(m.file, JSON.stringify({ enabled: false }), 'utf8'); // no id: not ours
-  assert.equal(telemetryStatus({ brand: brand(), env: {}, pathOpts: m.pathOpts }).mode, 'on');
+  assert.equal(eventsIn(mixpanel.sent[0])[0]?.properties.cli_version, 'unknown');
 });
 
 test('CI is detected from the usual variables, and "false" is not CI', () => {
@@ -351,6 +458,8 @@ test('CI is detected from the usual variables, and "false" is not CI', () => {
 test('the marketplace is named only when it is the one this build ships with', () => {
   assert.equal(marketplaceLabel(brand()), REPO);
   assert.equal(marketplaceLabel(brand({ env: { CP_REPO: 'acme/plugin-marketplace' } })), 'custom');
-  const acme = brand({ profile: { repo: 'acme/plugin-marketplace' } });
+  const acme = brand({ profile: { repo: 'acme/plugin-marketplace', telemetryToken: 'abc' } });
   assert.equal(marketplaceLabel(acme), 'acme/plugin-marketplace', "a brand's own repo is built in");
+  const legacy = { ...brand(), telemetry: undefined } as unknown as Brand;
+  assert.equal(marketplaceLabel(legacy), 'custom', 'a Brand from an older caller does not throw');
 });

@@ -25,6 +25,13 @@ export const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 export const nonEmptyString = (v: unknown): v is string => typeof v === 'string' && v !== '';
 
+/** The values an environment switch uses to mean "no". */
+export const ENV_OFF: ReadonlySet<string> = new Set(['0', 'off', 'false', 'no']);
+
+/** Set to anything but an explicit "no": `CI=1`, `CI=true` and `DO_NOT_TRACK=1` all count. */
+export const envFlag = (value: string | undefined): boolean =>
+  value !== undefined && value !== '' && !ENV_OFF.has(value.toLowerCase());
+
 export const isPluginId = (id: unknown): id is string =>
   typeof id === 'string' && PLUGIN_RE.test(id) && id.length <= 64;
 

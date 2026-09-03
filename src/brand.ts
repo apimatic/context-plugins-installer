@@ -102,23 +102,32 @@ export function resolveBrand({
   cwd = process.cwd(),
   home = os.homedir(),
 }: ResolveBrandOptions = {}): Brand {
-  const rc = readRc(cwd) || readRc(home) || {};
+  // Both files are read: the first found sets the defaults, but an opt-out in
+  // either is honoured, or a project rc that only names a repo would silence the
+  // one in the home directory.
+  const cwdRc = readRc(cwd);
+  const homeRc = readRc(home);
+  const rc = cwdRc || homeRc || {};
 
   const displayName =
     pick(env.CP_DISPLAY_NAME, rc.displayName, profile.displayName) ?? DEFAULT_PROFILE.displayName;
 
-  // Telemetry is the brand's to configure and the user's to refuse: the token and
-  // host come from the profile only, the opt-out from the rc file (env switches
-  // are read where the event is sent).
-  const defaultRepo = assertRepo(profile.repo ?? DEFAULT_PROFILE.repo);
+  // Telemetry is the brand's to configure and the user's to refuse. A brand with
+  // its own marketplace opts in by naming a token: the default token belongs to
+  // this project, and must not collect on another's behalf. The env switches are
+  // read where the event is sent.
+  const ownRepo = pick(profile.repo);
+  const inherits = !ownRepo || ownRepo === DEFAULT_PROFILE.repo;
   const telemetry = Object.freeze({
     token:
       profile.telemetryToken === undefined
-        ? DEFAULT_PROFILE.telemetryToken
-        : profile.telemetryToken,
+        ? inherits
+          ? DEFAULT_PROFILE.telemetryToken
+          : null
+        : profile.telemetryToken || null,
     host: pick(profile.telemetryHost) ?? DEFAULT_PROFILE.telemetryHost,
-    defaultRepo,
-    rcOptOut: rc.telemetry === false,
+    defaultRepo: assertRepo(ownRepo ?? DEFAULT_PROFILE.repo),
+    rcOptOut: cwdRc?.telemetry === false || homeRc?.telemetry === false,
   });
 
   const brand: Brand = {
