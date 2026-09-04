@@ -4,6 +4,8 @@ import * as path from 'node:path';
 
 import { ghHeaders } from './catalog.js';
 import { log } from './log.js';
+import { GitRef } from './types/ids/git-ref.js';
+import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps, FetchLike, MaterializedSource, RunResult } from './types/ports.js';
 import type { RepoHandle } from './types/session.js';
 import {
@@ -14,7 +16,6 @@ import {
   which,
   run,
   pool,
-  isSha,
   countFiles,
   isPlainObject,
   errorMessage,
@@ -74,13 +75,13 @@ interface CloneRequest {
 
 export async function cloneRepo({ git, repo, ref, work }: CloneRequest): Promise<string> {
   const clone = path.join(work, 'repo');
-  const url = `https://github.com/${repo}.git`;
+  const url = new RepoSlug(repo).cloneUrl();
   log.info('Fetching marketplace via git ...');
   log.debug(`${url} (${ref})`);
 
   const base = ['clone', '--quiet', '--depth', '1', '--filter=blob:none', '--sparse'];
 
-  if (isSha(ref)) {
+  if (new GitRef(ref).isSha()) {
     // --branch does not accept a commit sha.
     await expect(run(git, [...base, url, clone]), `git clone ${url}`);
     await expect(
@@ -187,7 +188,7 @@ export async function fetchTree({
 }): Promise<GitTree> {
   const fetchImpl: FetchLike = deps.fetchImpl || fetch;
   const env = deps.env || process.env;
-  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/${ref}?recursive=1`;
+  const treeUrl = new RepoSlug(repo).treeUrl(ref);
   let body: unknown;
   try {
     const res = await fetchImpl(treeUrl, { headers: ghHeaders(env) });
@@ -234,6 +235,7 @@ export async function downloadPath({
     throw new UserError(`Plugin folder '${sourcePath}' has no files in ${repo}@${ref}.`);
   }
 
+  const slug = new RepoSlug(repo);
   await pool(blobs, DOWNLOAD_CONCURRENCY, async (blob) => {
     const rel = blob.path.slice(prefix.length);
     const target = path.join(dest, ...rel.split('/'));
@@ -242,7 +244,7 @@ export async function downloadPath({
       throw new UserError(`Refusing to write outside the checkout: ${blob.path}`);
     }
     ensureDir(path.dirname(target));
-    const raw = `https://raw.githubusercontent.com/${repo}/${ref}/${blob.path}`;
+    const raw = slug.rawUrl(ref, blob.path);
     const res = await fetchImpl(raw, { headers: ghHeaders(env) });
     if (!res.ok) throw new UserError(`Download failed (${res.status}): ${blob.path}`);
     fs.writeFileSync(target, Buffer.from(await res.arrayBuffer()));

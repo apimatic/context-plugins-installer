@@ -8,7 +8,6 @@ import {
   assertPlugin,
   assertRepo,
   assertRef,
-  isSha,
   copyDir,
   replaceDir,
   countFiles,
@@ -23,47 +22,36 @@ import { tmpDir, cleanupAll } from './helpers.js';
 
 test.after(cleanupAll);
 
-test('plugin ids must be kebab-case', () => {
+// The rules themselves live with the identifier types, in test/types/ids. What
+// is left here is the wrapper: a rejected value becomes a UserError carrying the
+// message and hint the type wrote, which is what the CLI prints.
+test('a valid identifier passes straight through the assert wrappers', () => {
   assert.equal(assertPlugin('acme-payments-sdk'), 'acme-payments-sdk');
-  assert.equal(assertPlugin('sdk1'), 'sdk1');
-  for (const bad of [
-    '',
-    'Has-Caps',
-    'trailing-',
-    '-leading',
-    'has_underscore',
-    'has space',
-    '../etc',
-    'a'.repeat(65),
-  ]) {
-    assert.throws(() => assertPlugin(bad), UserError, `expected rejection: ${JSON.stringify(bad)}`);
-  }
-});
-
-test('repos must be owner/repo', () => {
   assert.equal(
     assertRepo('context-plugins/plugin-marketplace'),
     'context-plugins/plugin-marketplace',
   );
-  for (const bad of ['plugin-marketplace', 'a/b/c', 'a/b;rm -rf /', 'https://github.com/a/b', '']) {
-    assert.throws(() => assertRepo(bad), UserError, `expected rejection: ${JSON.stringify(bad)}`);
-  }
-});
-
-test('refs reject anything that could be read as a git option', () => {
-  assert.equal(assertRef('main'), 'main');
-  assert.equal(assertRef('v1.2.0'), 'v1.2.0');
   assert.equal(assertRef('release/2024-06'), 'release/2024-06');
-  for (const bad of ['--upload-pack=x', '-b', '', 'a ref']) {
-    assert.throws(() => assertRef(bad), UserError, `expected rejection: ${JSON.stringify(bad)}`);
-  }
 });
 
-test('commit shas are recognized so the clone path can switch strategy', () => {
-  assert.equal(isSha('a1b2c3d'), true);
-  assert.equal(isSha('0d5e6f70d5e6f70d5e6f70d5e6f70d5e6f70d5e6'), true);
-  assert.equal(isSha('main'), false);
-  assert.equal(isSha('v1.0.0'), false);
+test('a rejected identifier throws a UserError carrying the hint its type wrote', () => {
+  assert.throws(
+    () => assertPlugin('Has-Caps'),
+    (err) =>
+      err instanceof UserError &&
+      err.message === 'Invalid plugin id: "Has-Caps"' &&
+      err.hint === 'Expected kebab-case, e.g. acme-payments',
+  );
+  assert.throws(
+    () => assertRepo('a/b/c'),
+    (err) =>
+      err instanceof UserError && err.hint === 'Expected owner/repo, e.g. acme/plugin-marketplace',
+  );
+  assert.throws(
+    () => assertRef('--upload-pack=x'),
+    (err) =>
+      err instanceof UserError && err.hint === 'Expected a branch, tag, or commit sha, e.g. main',
+  );
 });
 
 test('copyDir reproduces a nested tree', () => {

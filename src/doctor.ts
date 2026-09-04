@@ -7,6 +7,7 @@ import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import { describeTelemetry, telemetryStatus } from './telemetry.js';
+import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Brand } from './types/brand.js';
 import type { DoctorCheck, DoctorReport } from './types/doctor.js';
 import type { PathOpts } from './types/env.js';
@@ -23,7 +24,6 @@ import {
 } from './util.js';
 
 export const MIN_NODE = 18;
-const MARKETPLACE_RE = /^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i;
 
 const ok = (label: string, detail: string): DoctorCheck => ({ status: 'ok', label, detail });
 const warn = (label: string, detail: string, hint?: string): DoctorCheck => ({
@@ -136,12 +136,12 @@ async function checkMarketplace(brand: Brand, deps: Deps): Promise<DoctorCheck[]
 
   const name = catalog.marketplace;
   checks.push(
-    name && MARKETPLACE_RE.test(name)
+    name && MarketplaceName.create(name)
       ? ok('Registry', `${name}, ${catalog.plugins.length} plugins`)
       : fail(
           'Registry',
           `name ${JSON.stringify(name)} is not a valid identifier`,
-          `It must be kebab-case with no spaces. Fix 'name' in ${REGISTRY_FILES[0]}.`,
+          `It must be ${MarketplaceName.RULE}. Fix 'name' in ${REGISTRY_FILES[0]}.`,
         ),
   );
 

@@ -1,6 +1,8 @@
 import { log } from './log.js';
 import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from './types/catalog.js';
 import type { Env } from './types/env.js';
+import { MarketplaceName } from './types/ids/marketplace-name.js';
+import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps, FetchLike } from './types/ports.js';
 import {
   UserError,
@@ -19,11 +21,8 @@ export const REGISTRY_FILES = [
   '.cursor-plugin/marketplace.json',
 ];
 
-// Claude Code's marketplace schema: kebab-case identifier, no spaces.
-const MARKETPLACE_RE = /^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i;
-
 export const rawUrl = (repo: string, ref: string, filePath: string): string =>
-  `https://raw.githubusercontent.com/${repo}/${ref}/${filePath}`;
+  new RepoSlug(repo).rawUrl(ref, filePath);
 
 export function ghHeaders(env: Env = process.env): Record<string, string> {
   const headers: Record<string, string> = {
@@ -182,9 +181,9 @@ export async function resolvePlugin({
   }
 
   // Otherwise the failure surfaces later as a bare "plugin not found" from claude.
-  if (!MARKETPLACE_RE.test(resolvedMarketplace)) {
+  if (!MarketplaceName.create(resolvedMarketplace)) {
     throw new UserError(`Marketplace name '${resolvedMarketplace}' is not a valid identifier.`, {
-      hint: `It must be kebab-case with no spaces (e.g. my-marketplace). Fix 'name' in ${REGISTRY_FILES[0]}.`,
+      hint: `It must be ${MarketplaceName.RULE} (e.g. my-marketplace). Fix 'name' in ${REGISTRY_FILES[0]}.`,
     });
   }
 

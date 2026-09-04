@@ -21,11 +21,12 @@ import type {
   HarnessOpts,
   UninstallOutcome,
 } from './types/harness.js';
+import { PluginId } from './types/ids/plugin-id.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
 import type { TrackFn } from './types/telemetry.js';
-import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } from './util.js';
+import { assertPlugin, nonEmptyString, UserError, errorMessage } from './util.js';
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -231,7 +232,7 @@ function trackFailure(
   { plugin, brand, stage, err }: { plugin: string; brand: Brand; stage?: Stage; err: unknown },
 ): void {
   track(event, {
-    plugin: isPluginId(plugin) ? plugin : null,
+    plugin: PluginId.create(plugin)?.toString() ?? null,
     marketplace: marketplaceLabel(brand),
     stage: stage ?? null,
     error_kind: err instanceof UserError ? 'user' : 'unexpected',

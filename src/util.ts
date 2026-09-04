@@ -4,7 +4,12 @@ import * as path from 'node:path';
 import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from 'node:child_process';
 
 import type { Env } from './types/env.js';
+import type { Failure } from './types/failure.js';
+import { GitRef } from './types/ids/git-ref.js';
+import { PluginId } from './types/ids/plugin-id.js';
+import { RepoSlug } from './types/ids/repo-slug.js';
 import type { RunResult } from './types/ports.js';
+import type { Result } from './types/result.js';
 
 /** A problem the user can fix; the CLI prints it as one line with no stack trace. */
 export class UserError extends Error {
@@ -17,11 +22,6 @@ export class UserError extends Error {
   }
 }
 
-const PLUGIN_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
-const SHA_RE = /^[0-9a-f]{7,40}$/i;
-
 export const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 export const nonEmptyString = (v: unknown): v is string => typeof v === 'string' && v !== '';
@@ -33,39 +33,21 @@ export const ENV_OFF: ReadonlySet<string> = new Set(['0', 'off', 'false', 'no'])
 export const envFlag = (value: string | undefined): boolean =>
   value !== undefined && value !== '' && !ENV_OFF.has(value.toLowerCase());
 
-export const isPluginId = (id: unknown): id is string =>
-  typeof id === 'string' && PLUGIN_RE.test(id) && id.length <= 64;
-
-// These three are interpolated into URLs and passed as argv, so they are
-// validated at the edge rather than trusted from flags, env, or rc files.
-export function assertPlugin(id: unknown): string {
-  if (!isPluginId(id)) {
-    throw new UserError(`Invalid plugin id: ${JSON.stringify(id)}`, {
-      hint: 'Expected kebab-case, e.g. acme-payments',
-    });
-  }
-  return id;
+// Each identifier's rule now lives with its type. These three are the throwing
+// edge their callers still expect: a plugin id, a repo and a ref are all
+// interpolated into URLs and passed as argv, so they are refused where they
+// enter rather than trusted from a flag, an env var, or an rc file. Phase 2
+// reads the Result itself and takes this helper with the last of them.
+function orThrow<T>(parsed: Result<T, Failure>): T {
+  if (!parsed.ok) throw new UserError(parsed.error.message, { hint: parsed.error.hint });
+  return parsed.value;
 }
 
-export function assertRepo(repo: unknown): string {
-  if (typeof repo !== 'string' || !REPO_RE.test(repo)) {
-    throw new UserError(`Invalid repo: ${JSON.stringify(repo)}`, {
-      hint: 'Expected owner/repo, e.g. acme/plugin-marketplace',
-    });
-  }
-  return repo;
-}
+export const assertPlugin = (id: unknown): string => orThrow(PluginId.parse(id)).toString();
 
-export function assertRef(ref: unknown): string {
-  if (typeof ref !== 'string' || !REF_RE.test(ref)) {
-    throw new UserError(`Invalid ref: ${JSON.stringify(ref)}`, {
-      hint: 'Expected a branch, tag, or commit sha, e.g. main',
-    });
-  }
-  return ref;
-}
+export const assertRepo = (repo: unknown): string => orThrow(RepoSlug.parse(repo)).toString();
 
-export const isSha = (ref: string): boolean => SHA_RE.test(ref);
+export const assertRef = (ref: unknown): string => orThrow(GitRef.parse(ref)).toString();
 
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);
