@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import type { AddLocationResult, RemoveLocationResult } from './types.js';
+import type { AddLocationResult, RemoveLocationResult } from './types/vscode-settings.js';
 import { ensureDir, timestamp, stripBom } from './util.js';
 
 // settings.json is JSONC and users care about its formatting, so every edit is

@@ -1,5 +1,7 @@
 import { log } from './log.js';
-import type { Catalog, CatalogPluginEntry, Deps, Env, FetchLike, ResolvedPlugin } from './types.js';
+import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from './types/catalog.js';
+import type { Env } from './types/env.js';
+import type { Deps, FetchLike } from './types/ports.js';
 import {
   UserError,
   assertRepo,

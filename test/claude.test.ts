@@ -4,7 +4,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import * as claude from '../src/harness/claude.js';
-import type { Env, HarnessContext, HarnessOpts, RunCommand, RunResult } from '../src/types.js';
+import type { Env } from '../src/types/env.js';
+import type { HarnessContext, HarnessOpts } from '../src/types/harness.js';
+import type { RunCommand, RunResult } from '../src/types/ports.js';
 import { UserError } from '../src/util.js';
 import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 

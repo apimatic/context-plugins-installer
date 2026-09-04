@@ -7,7 +7,9 @@ import { resolveBrand } from '../src/brand.js';
 import { rawUrl } from '../src/catalog.js';
 import { diagnose } from '../src/doctor.js';
 import * as paths from '../src/paths.js';
-import type { Deps, DoctorCheck, DoctorReport, Env } from '../src/types.js';
+import type { DoctorCheck, DoctorReport } from '../src/types/doctor.js';
+import type { Env } from '../src/types/env.js';
+import type { Deps } from '../src/types/ports.js';
 import { tmpDir, cleanupAll, stubFetch } from './helpers.js';
 
 test.after(cleanupAll);

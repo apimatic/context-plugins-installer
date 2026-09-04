@@ -16,7 +16,9 @@ import {
   telemetryStatus,
   type TelemetryOptions,
 } from '../src/telemetry.js';
-import type { Brand, Env, FetchLike, FetchResponseLike, PathOpts } from '../src/types.js';
+import type { Brand } from '../src/types/brand.js';
+import type { Env, PathOpts } from '../src/types/env.js';
+import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
 import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 
 test.after(cleanupAll);

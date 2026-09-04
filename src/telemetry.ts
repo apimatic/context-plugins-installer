@@ -6,18 +6,16 @@ import { BIN } from './brand.js';
 import { log } from './log.js';
 import * as paths from './paths.js';
 import { isCi, isInteractive } from './prompt.js';
+import type { Brand } from './types/brand.js';
+import type { Env, PathOpts } from './types/env.js';
+import type { Deps, FetchLike } from './types/ports.js';
 import type {
-  Brand,
-  Deps,
-  Env,
-  FetchLike,
-  PathOpts,
   TelemetryEvent,
   TelemetryOptOut,
   TelemetryStatus,
   TelemetryValue,
   TrackFn,
-} from './types.js';
+} from './types/telemetry.js';
 import {
   ENV_OFF,
   ensureDir,

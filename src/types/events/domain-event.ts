@@ -1,4 +1,4 @@
-import type { TelemetryValue } from '../../types.js';
+import type { TelemetryValue } from '../telemetry.js';
 
 /**
  * Something that already happened, named in the past tense.

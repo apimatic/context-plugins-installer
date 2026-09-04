@@ -8,7 +8,7 @@ import { resolveTargets, NAMES } from '../src/harness/index.js';
 import { UserError } from '../src/util.js';
 import { silenceConsole, tmpDir, cleanupAll, stubFetch } from './helpers.js';
 import { rawUrl } from '../src/catalog.js';
-import type { FetchLike } from '../src/types.js';
+import type { FetchLike } from '../src/types/ports.js';
 
 test.after(cleanupAll);
 

@@ -3,7 +3,12 @@ import * as path from 'node:path';
 import { log } from '../log.js';
 import * as paths from '../paths.js';
 import { addPluginLocation, removePluginLocation, KEY, toKey } from '../settings-merge.js';
-import type { HarnessContext, HarnessName, HarnessOpts, UninstallOutcome } from '../types.js';
+import type {
+  HarnessContext,
+  HarnessName,
+  HarnessOpts,
+  UninstallOutcome,
+} from '../types/harness.js';
 import { replaceDir, rmrf, exists, shortPath } from '../util.js';
 
 // VS Code loads a plugin from any folder listed in chat.pluginLocations, so the

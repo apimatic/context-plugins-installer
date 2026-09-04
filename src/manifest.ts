@@ -2,7 +2,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { NAMES } from './harness/index.js';
-import type { ElidedTargets, IgnoredManifestEntry, Manifest, ManifestEntry } from './types.js';
+import type {
+  ElidedTargets,
+  IgnoredManifestEntry,
+  Manifest,
+  ManifestEntry,
+} from './types/installed-record.js';
 import { ensureDir, stripBom, isPlainObject, nonEmptyString } from './util.js';
 
 export const MANIFEST_VERSION = 1;

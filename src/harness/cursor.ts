@@ -3,7 +3,12 @@ import * as path from 'node:path';
 
 import { log } from '../log.js';
 import * as paths from '../paths.js';
-import type { HarnessContext, HarnessName, HarnessOpts, UninstallOutcome } from '../types.js';
+import type {
+  HarnessContext,
+  HarnessName,
+  HarnessOpts,
+  UninstallOutcome,
+} from '../types/harness.js';
 import { replaceDir, rmrf, exists, shortPath } from '../util.js';
 
 export const name: HarnessName = 'cursor';

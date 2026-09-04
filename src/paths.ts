@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { PathOpts } from './types.js';
+import type { PathOpts } from './types/env.js';
 
 // The joiner follows the *target* platform, not the host, so the cross-platform
 // table is exactly assertable from any host.

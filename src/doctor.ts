@@ -7,7 +7,10 @@ import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import { describeTelemetry, telemetryStatus } from './telemetry.js';
-import type { Brand, Deps, DoctorCheck, DoctorReport, FetchLike, PathOpts } from './types.js';
+import type { Brand } from './types/brand.js';
+import type { DoctorCheck, DoctorReport } from './types/doctor.js';
+import type { PathOpts } from './types/env.js';
+import type { Deps, FetchLike } from './types/ports.js';
 import {
   UserError,
   which,

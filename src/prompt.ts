@@ -2,7 +2,8 @@ import * as readline from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
 import { log } from './log.js';
-import type { Env, Prompter } from './types.js';
+import type { Env } from './types/env.js';
+import type { Prompter } from './types/ports.js';
 import { envFlag } from './util.js';
 
 const CI_VARS = [

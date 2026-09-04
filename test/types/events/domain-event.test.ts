@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import { DomainEvent } from '../../../src/types/events/domain-event.js';
-import type { TelemetryValue } from '../../../src/types.js';
+import type { TelemetryValue } from '../../../src/types/telemetry.js';
 
 /** Stands in for the real events Phase 6 adds; the shape is what is under test. */
 class PluginInstalledEvent extends DomainEvent {

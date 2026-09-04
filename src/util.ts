@@ -3,7 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from 'node:child_process';
 
-import type { Env, RunResult } from './types.js';
+import type { Env } from './types/env.js';
+import type { RunResult } from './types/ports.js';
 
 /** A problem the user can fix; the CLI prints it as one line with no stack trace. */
 export class UserError extends Error {

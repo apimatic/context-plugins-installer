@@ -4,7 +4,8 @@ import * as path from 'node:path';
 
 import { ghHeaders } from './catalog.js';
 import { log } from './log.js';
-import type { Deps, FetchLike, MaterializedSource, RepoHandle, RunResult } from './types.js';
+import type { Deps, FetchLike, MaterializedSource, RunResult } from './types/ports.js';
+import type { RepoHandle } from './types/session.js';
 import {
   UserError,
   ensureDir,

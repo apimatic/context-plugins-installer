@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import { resolvePlugin, loadCatalog, sourcePathFor, rawUrl, ghHeaders } from '../src/catalog.js';
-import type { Deps } from '../src/types.js';
+import type { Deps } from '../src/types/ports.js';
 import { UserError } from '../src/util.js';
 import { stubFetch, type StubRoute } from './helpers.js';
 

@@ -2,7 +2,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { Brand, Env, Flags, RcFile } from './types.js';
+import type { Flags } from './types/args.js';
+import type { Brand, RcFile } from './types/brand.js';
+import type { Env } from './types/env.js';
 import { UserError, assertRepo, assertRef, stripBom, isPlainObject } from './util.js';
 
 /**

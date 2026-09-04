@@ -1,6 +1,8 @@
 import { loadCatalog } from './catalog.js';
 import { openRepo } from './fetch.js';
-import type { Catalog, Deps, RepoHandle, Session } from './types.js';
+import type { Catalog } from './types/catalog.js';
+import type { Deps } from './types/ports.js';
+import type { RepoHandle, Session } from './types/session.js';
 
 const keyOf = (repo: string, ref: string): string => `${repo}@${ref}`;
 

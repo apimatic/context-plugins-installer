@@ -4,11 +4,10 @@ import type {
   HarnessName,
   HarnessOpts,
   MarketplaceListing,
-  RunCommand,
-  RunResult,
-  Session,
   UninstallOutcome,
-} from '../types.js';
+} from '../types/harness.js';
+import type { RunCommand, RunResult } from '../types/ports.js';
+import type { Session } from '../types/session.js';
 import { which, run, UserError, stripBom, isPlainObject, nonEmptyString } from '../util.js';
 
 export const name: HarnessName = 'claude';

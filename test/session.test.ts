@@ -7,7 +7,8 @@ import { rawUrl } from '../src/catalog.js';
 import { openRepo, materialize } from '../src/fetch.js';
 import * as claude from '../src/harness/claude.js';
 import { createSession } from '../src/session.js';
-import type { Env, RunCommand, RunResult } from '../src/types.js';
+import type { Env } from '../src/types/env.js';
+import type { RunCommand, RunResult } from '../src/types/ports.js';
 import { cleanupAll, stubFetch, silenceConsole } from './helpers.js';
 
 test.after(cleanupAll);

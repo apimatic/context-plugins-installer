@@ -15,7 +15,11 @@ import {
   setTelemetryEnabled,
   telemetryStatus,
 } from './telemetry.js';
-import type { Brand, Deps, DoctorStatus, Flags, Manifest, ParsedArgs } from './types.js';
+import type { Flags, ParsedArgs } from './types/args.js';
+import type { Brand } from './types/brand.js';
+import type { DoctorStatus } from './types/doctor.js';
+import type { Manifest } from './types/installed-record.js';
+import type { Deps } from './types/ports.js';
 import { UserError, isPlainObject, errorMessage, shortPath } from './util.js';
 
 // package.json is one directory up from both src/ (tests) and lib/ (published).

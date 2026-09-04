@@ -14,20 +14,17 @@ import * as paths from './paths.js';
 import { isInteractive, createPrompter } from './prompt.js';
 import { createSession } from './session.js';
 import { EVENTS, marketplaceLabel } from './telemetry.js';
+import type { Brand } from './types/brand.js';
 import type {
-  Brand,
-  Deps,
   HarnessContext,
   HarnessName,
   HarnessOpts,
-  InstallResult,
-  ListResult,
-  Session,
-  TrackFn,
   UninstallOutcome,
-  UninstallResult,
-  UpdateResult,
-} from './types.js';
+} from './types/harness.js';
+import type { Deps } from './types/ports.js';
+import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
+import type { Session } from './types/session.js';
+import type { TrackFn } from './types/telemetry.js';
 import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } from './util.js';
 
 const nowIso = (): string => new Date().toISOString();

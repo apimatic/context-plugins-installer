@@ -14,7 +14,9 @@ import {
 } from '../src/install.js';
 import * as manifest from '../src/manifest.js';
 import * as paths from '../src/paths.js';
-import type { Brand, Deps, HarnessName } from '../src/types.js';
+import type { Brand } from '../src/types/brand.js';
+import type { HarnessName } from '../src/types/harness.js';
+import type { Deps } from '../src/types/ports.js';
 import { UserError, isPlainObject } from '../src/util.js';
 import { tmpDir, cleanupAll, stubFetch, silenceConsole, parseJsonc } from './helpers.js';
 

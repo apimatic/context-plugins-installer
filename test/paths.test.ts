@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import * as paths from '../src/paths.js';
-import type { PathOpts } from '../src/types.js';
+import type { PathOpts } from '../src/types/env.js';
 
 // The cross-platform table from the distribution plan, asserted from any host.
 const WIN: PathOpts = {
