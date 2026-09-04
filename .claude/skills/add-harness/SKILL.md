@@ -54,8 +54,10 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      `needsSource`.
    - `detect(opts)` is cheap and side-effect free; `location(opts)` returns where it
      looked, because that string is printed as "not installed (looked in ...)" and shown
-     by `doctor`. Run both through `f.path` from `prompts/format.ts` so the user's
-     home reads as `~`.
+     by `doctor`. Run both through `f.path` from `prompts/format.ts`, passing the run's
+     home as the second argument - `f.path(paths.zedRoot(opts), opts?.home)` - so the
+     home reads as `~`. Omit it and it shortens against the developer's real home
+     instead of the machine under test, which compiles, lints and passes.
    - `install` returns `false` to mean "skipped, and said why" - not installed, nothing to
      do. A failure the user can fix is a thrown `UserError` with a `hint`. Never throw a
      bare `Error` for a predictable condition.
@@ -77,7 +79,8 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      tells the user how to make the editor pick the change up (reload window, restart).
    - Treat anything read from the editor (a config file, a CLI's JSON output) as a JSON
      boundary: `isPlainObject` / `nonEmptyString` checks, never an `as` cast. If it edits
-     a config file the user also edits by hand, splice text like `settings-merge.ts`
+     a config file the user also edits by hand, splice text like
+     `infrastructure/vscode-settings.ts`
      does and take a backup first - do not parse-and-reserialize their file.
 
 4. **Register it in `src/harness/index.ts`**: import it, add it to `HARNESSES` (this is

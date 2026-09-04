@@ -650,7 +650,12 @@ back into a `UserError`. That helper is the bridge; Phase 5 removes its last cal
   a caller can no longer hand it a bare string and lose the path's own rules. Take the
   chance to memoise the per-blob `mkdirSync` in the API download, which runs once per file
   rather than once per directory.
-- **2b · network**: `github-registry-client.ts`, `source-fetcher.ts`, `session.ts`. The 15
+- **2b · network**: `github-registry-client.ts`, `source-fetcher.ts`, `session.ts`.
+  Take `paths.ts` with them: it is infrastructure, and while it sits at `src/` root the
+  boundary rule cannot say what `src/infrastructure` may import, so `telemetry-service.ts`
+  reaching for `../paths.js` passes a rule whose message reads "nothing above it". `BIN`
+  is the other such import, and Phase 3 moves it into `types/brand.ts`; once both are
+  gone the rule can name the root modules and mean it. The 15
   thrown errors in `fetch.ts` and `catalog.ts` become `err(new Failure(...))` with the same
   text and hint. The "git not found" warning and the "downloaded N files" line become facts
   on the result.

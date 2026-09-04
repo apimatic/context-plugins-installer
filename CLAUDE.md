@@ -32,7 +32,8 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
 - **Commit types are release decisions.** semantic-release publishes to npm from commit
   messages: `fix:` / `feat:` / `perf:` trigger a release; `refactor:` / `chore:` /
   `docs:` / `style:` do not. commitlint enforces conventional commits on every PR.
-- **Never `shell: true`.** Spawning goes through `util.run()`, which routes Windows
+- **Never `shell: true`.** Spawning goes through `run()` in
+  `src/infrastructure/process-runner.ts`, which routes Windows
   `.cmd` shims through cmd.exe with explicit quoting (Node refuses to spawn `.cmd`
   directly since the CVE-2024-27980 hardening).
 - **All terminal output goes through `src/prompts/terminal.ts`** — no `console.log` elsewhere.
@@ -57,7 +58,8 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   today). TypeScript 7 is also what breaks eslint-plugin-sonarjs v2+, which is why
   sonarjs is pinned to v1.
 - **Telemetry is anonymous, flat, and optional.** Events leave only through
-  `src/telemetry.ts`, in one POST to Mixpanel's `/track` at the end of `cli.run`
+  `src/infrastructure/telemetry-service.ts` and the `mixpanel-client.ts` it calls, in
+  one POST to Mixpanel's `/track` at the end of `cli.run`
   (`ip=1`: Mixpanel adds city, region and country from the request address at ingestion
   and discards the address; the CLI never sends location itself), bounded by a timeout
   and never allowed to fail or hold a run. The project token in `brand.ts` is a public
@@ -104,7 +106,7 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   `--force` as the user's only escape, but only `failed` fails the run: an editor
   that was never there must not turn a clean uninstall into a non-zero exit, and
   a real error must not exit 0. `'unremovable'` from
-  `settings-merge` is the one thing that is _not_ read as failure: with no plugin
+  `infrastructure/vscode-settings.ts` is the one thing that is _not_ read as failure: with no plugin
   files there is nothing for VS Code to load whatever the settings file still
   says, so the outcome follows `had` and the leftover entry is warned about
   instead — unmentioned it survives the uninstall and the next install reports
@@ -214,7 +216,7 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   as a check — on stderr under `--json` so the payload stays parseable, and
   silenced by `--quiet` like any other warning. `list` scopes its warnings to the
   marketplace it is listing, which is why both gap types carry `repo`.
-- **VS Code settings** (`src/settings-merge.ts`) are JSONC. Edits are targeted string
+- **VS Code settings** (`src/infrastructure/vscode-settings.ts`) are JSONC. Edits are targeted string
   splices, never parse-and-reserialize, so user comments and formatting survive. A
   backup is taken before every mutation. Both entry points test for the path
   **as a key** (`namedAsKey`), never as a bare quoted string: the path also
@@ -231,7 +233,10 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   that suggests a command interpolates rather than spelling out. There is no brand
   profile and no way to embed this CLI: it is a command, not a library, so the token in
   `DEFAULTS` is always this project's.
-- **Telemetry** (`src/telemetry.ts`): `createTelemetry` queues, `flush` sends once.
+- **Telemetry** (`src/infrastructure/telemetry-service.ts`, over `telemetry-state.ts` for
+  the id file and `mixpanel-client.ts` for the POST): `createTelemetry` queues, `flush`
+  sends once and returns the lines it would have printed, which `prompts/telemetry.ts`
+  renders - infrastructure never writes to the terminal.
   `install.ts` reports through the `deps.track` seam, so a
   test captures events with an array. `cli.run` owns the one instance per process and
   flushes in a `finally`, which makes a whole `update` one request. `telemetryStatus`
