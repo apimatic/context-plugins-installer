@@ -3,9 +3,26 @@ import assert from 'node:assert';
 
 import { isCi, isInteractive, packageVersion } from '../../src/infrastructure/environment.js';
 
-test('CI and CP_NO_INPUT both force non-interactive', () => {
-  assert.equal(isInteractive({ CI: '1' }), false);
-  assert.equal(isInteractive({ CP_NO_INPUT: '1' }), false);
+/**
+ * The TTY state is described rather than read, because under a test runner
+ * neither end is a terminal: without this the third clause answered false for
+ * every environment, and both assertions passed with the guards deleted.
+ */
+const ATTACHED = { stdin: true, stdout: true };
+
+test('a real terminal with nothing in the way is interactive', () => {
+  assert.equal(isInteractive({}, ATTACHED), true);
+});
+
+test('CI and CP_NO_INPUT each force non-interactive on a real terminal', () => {
+  assert.equal(isInteractive({ CI: '1' }, ATTACHED), false);
+  assert.equal(isInteractive({ CP_NO_INPUT: '1' }, ATTACHED), false);
+  assert.equal(isInteractive({ GITHUB_ACTIONS: 'true' }, ATTACHED), false);
+});
+
+test('either end detached is enough to rule out a prompt', () => {
+  assert.equal(isInteractive({}, { stdin: true, stdout: false }), false);
+  assert.equal(isInteractive({}, { stdin: false, stdout: true }), false);
 });
 
 test('CI is detected from the usual variables, and "false" is not CI', () => {

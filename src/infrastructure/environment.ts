@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { stdin, stdout } from 'node:process';
 
 import type { Env } from '../types/env.js';
-import { envFlag, isPlainObject } from '../util.js';
+import { envFlag, isPlainObject, stripBom } from '../util.js';
 
 // What this process can tell about the machine and the session it runs in.
 // Whether the *terminal* can render a glyph or a colour is a separate question,
@@ -27,10 +27,24 @@ const CI_VARS = [
 /** The one definition of "running in CI": the prompt and telemetry must agree on it. */
 export const isCi = (env: Env = process.env): boolean => CI_VARS.some((name) => envFlag(env[name]));
 
-export function isInteractive(env: Env = process.env): boolean {
+/** Whether each end of the terminal is attached; a parameter so it can be described. */
+export interface TtyState {
+  stdin: boolean;
+  stdout: boolean;
+}
+
+const hostTty = (): TtyState => ({ stdin: Boolean(stdin.isTTY), stdout: Boolean(stdout.isTTY) });
+
+/**
+ * `tty` is a parameter because under a test runner neither end is a terminal,
+ * so a test that only varies the environment cannot tell whether the CI and
+ * CP_NO_INPUT guards decided anything - the TTY check answers false either way
+ * and every assertion passes with both guards deleted.
+ */
+export function isInteractive(env: Env = process.env, tty: TtyState = hostTty()): boolean {
   if (isCi(env)) return false;
   if (env.CP_NO_INPUT) return false;
-  return Boolean(stdin.isTTY && stdout.isTTY);
+  return tty.stdin && tty.stdout;
 }
 
 // Two directories up from both src/infrastructure (tests) and lib/infrastructure
@@ -39,7 +53,7 @@ export function isInteractive(env: Env = process.env): boolean {
 // version it could not read would be worse than saying so.
 export function packageVersion(): string {
   const parsed: unknown = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'),
+    stripBom(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')),
   );
   return isPlainObject(parsed) && typeof parsed.version === 'string' ? parsed.version : 'unknown';
 }

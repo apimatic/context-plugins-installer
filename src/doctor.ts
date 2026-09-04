@@ -32,7 +32,7 @@ const fail = (label: string, detail: string, hint?: string): DoctorCheck => ({
   hint,
 });
 
-async function checkEnvironment(deps: Deps): Promise<DoctorCheck[]> {
+async function checkEnvironment(deps: Deps, pathOpts?: PathOpts): Promise<DoctorCheck[]> {
   const whichImpl = deps.which || which;
   const runImpl = deps.run || run;
   const env = deps.env || process.env;
@@ -48,7 +48,7 @@ async function checkEnvironment(deps: Deps): Promise<DoctorCheck[]> {
 
   const git = whichImpl('git', env);
   if (git) {
-    let detail = f.path(git);
+    let detail = f.path(git, pathOpts?.home);
     try {
       const res = await runImpl(git, ['--version']);
       if (res.code === 0 && res.stdout.trim()) detail = res.stdout.trim();
@@ -231,7 +231,7 @@ export async function diagnose({
   pathOpts,
 }: DiagnoseOptions): Promise<DoctorReport> {
   const groups = [
-    { title: 'Environment', checks: await checkEnvironment(deps) },
+    { title: 'Environment', checks: await checkEnvironment(deps, pathOpts) },
     { title: 'Editors', checks: checkEditors(pathOpts) },
     { title: 'Marketplace', checks: await checkMarketplace(brand, deps) },
     { title: 'Local state', checks: checkState(brand, deps, pathOpts) },

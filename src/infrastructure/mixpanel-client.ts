@@ -37,7 +37,12 @@ export async function track({
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    return ok(`${res.status} ${(await res.text()).trim()}`);
+    const said = `${res.status} ${(await res.text()).trim()}`;
+    // A completed request is not a delivered event. `verbose=1` answers a
+    // rejected batch with HTTP 200 and an error body, and a bad token answers
+    // 401; both used to come back as ok. The text is the same either way, so
+    // nothing printed changes - but a caller that branches on this now can.
+    return res.ok ? ok(said) : err(new Failure(said));
   } catch (e) {
     return err(new Failure(errorMessage(e)));
   } finally {
