@@ -507,3 +507,33 @@ test('nothing tracked means no lines at all', async () => {
   const m = machine();
   assert.deepEqual(await telemetryFor(m, sink()).flush(), []);
 });
+
+/**
+ * The one telemetry path that reports two lines, and the order matters: the
+ * writer names the file and the reason, then the sender says it gave up. Both
+ * used to be printed from inside infrastructure, one from each function, so
+ * moving them into a returned list is exactly where an order could be lost.
+ *
+ * Forced by pointing the state directory below a regular file, which is the
+ * only portable way to make a recursive mkdir fail.
+ */
+test('an unwritable state directory reports both lines, in order, and sends nothing', async () => {
+  const root = tmpDir('cp-unwritable-');
+  const blocker = path.join(root, 'blocker');
+  fs.writeFileSync(blocker, 'not a directory');
+  const pathOpts = { env: { CP_STATE_DIR: path.join(blocker, 'state') }, home: root };
+
+  const fetchImpl = sink();
+  const t = telemetryFor(machine(), fetchImpl, { pathOpts });
+  t.track(EVENTS.installed, { plugin: 'my-sdk' });
+  const lines = await t.flush();
+
+  assert.deepEqual(
+    lines.map((l) => l.kind),
+    ['debug', 'debug'],
+    `expected two debug lines: ${JSON.stringify(lines)}`,
+  );
+  assert.match(lines[0].text, /^telemetry: could not write /);
+  assert.equal(lines[1].text, 'telemetry: no writable state directory; nothing sent');
+  assert.deepEqual(fetchImpl.sent, [], 'nothing may be sent without a stable id');
+});
