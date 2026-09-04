@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { BIN } from './brand.js';
 import { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } from './catalog.js';
 import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
@@ -169,7 +170,7 @@ async function checkMarketplace(brand: Brand, deps: Deps): Promise<DoctorCheck[]
 // Every outcome is `ok`: opting out is a choice, not a problem to fix.
 function checkTelemetry(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck {
   const status = telemetryStatus({ brand, env: deps.env || process.env, pathOpts });
-  return ok('Telemetry', describeTelemetry(status, brand.bin));
+  return ok('Telemetry', describeTelemetry(status, BIN));
 }
 
 function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[] {

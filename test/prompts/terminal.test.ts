@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { log } from '../src/log.js';
-import { silenceConsole } from './helpers.js';
+import { log } from '../../src/prompts/terminal.js';
+import { silenceConsole } from '../helpers.js';
 
 test('width honours COLUMNS and stays within sane bounds', () => {
   const saved = process.env.COLUMNS;

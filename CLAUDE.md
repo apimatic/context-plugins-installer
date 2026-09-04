@@ -20,9 +20,8 @@ only, by explicit decision — contributor and agent knowledge belongs here, not
 - `npm run syntax` — bare `node --check` of the plain-JS entry points
 
 Tests run the TypeScript in `src/` directly through tsx — there is no build in the loop, on
-purpose. `bin/cli.js` and `run.js` require the compiled `lib/`, so exercising the real
-entry point (`node bin/cli.js ...`) needs `npm run build` first; CI's smoke job does exactly
-that.
+purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry point
+(`node bin/cli.js ...`) needs `npm run build` first; CI's smoke job does exactly that.
 
 ## Hard constraints
 
@@ -224,14 +223,13 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   green install of a plugin VS Code never loads, and splicing a second entry in
   would just leave a duplicate key.
 - **Configuration** resolves flag → `CP_*` env → `.contextpluginsrc` (cwd, then home)
-  → preset profile → defaults (`src/brand.ts`). `run.js` exists so another brand can
-  ship this CLI preconfigured. The Mixpanel token and host are profile fields
-  (`telemetryToken`, `telemetryHost`). Telemetry is opt-in for brands: a profile that
-  names its own `repo` gets no token unless it also sets one, because the default token
-  is this project's and must not collect on another's behalf. A profile that keeps the
-  default marketplace inherits it.
+  → defaults (`src/brand.ts`). `DEFAULTS` holds the marketplace, ref, display name and
+  the Mixpanel token and host; `BIN` is the published command name, which every message
+  that suggests a command interpolates rather than spelling out. There is no brand
+  profile and no way to embed this CLI: it is a command, not a library, so the token in
+  `DEFAULTS` is always this project's.
 - **Telemetry** (`src/telemetry.ts`): `createTelemetry` queues, `flush` sends once.
-  `install.ts` reports through `deps.track`, so library callers never phone home and a
+  `install.ts` reports through the `deps.track` seam, so a
   test captures events with an array. `cli.run` owns the one instance per process and
   flushes in a `finally`, which makes a whole `update` one request. `telemetryStatus`
   and `describeTelemetry` back both `doctor` and `telemetry status`; the id file is

@@ -66,20 +66,6 @@ export interface HarnessOpts extends PathOpts {
   run?: RunCommand;
 }
 
-export interface Profile {
-  /** null means "read the name from the repo's marketplace.json". */
-  id?: string | null;
-  displayName?: string;
-  repo?: string;
-  ref?: string;
-  label?: string;
-  bin?: string;
-  /** Mixpanel project token; null ships the brand without telemetry. */
-  telemetryToken?: string | null;
-  /** Ingestion host, which must match the project's data residency. */
-  telemetryHost?: string;
-}
-
 export interface RcFile {
   repo?: string;
   ref?: string;
@@ -90,7 +76,7 @@ export interface RcFile {
 }
 
 export interface BrandTelemetry {
-  /** null: this brand ships no telemetry. */
+  /** null: telemetry is not configured, so nothing is ever sent. */
   readonly token: string | null;
   readonly host: string;
   /** The marketplace this build ships with; any other --repo is reported as "custom". */
@@ -105,7 +91,6 @@ export interface Brand {
   readonly id: string | null;
   readonly displayName: string;
   readonly label: string;
-  readonly bin: string;
   readonly telemetry: BrandTelemetry;
 }
 

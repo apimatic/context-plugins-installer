@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
+import { BIN } from './brand.js';
 import { log } from './log.js';
 import * as paths from './paths.js';
 import { isCi, isInteractive } from './prompt.js';
@@ -220,7 +221,7 @@ export function createTelemetry({
     if (state.noticeShown) return;
     log.notice(
       `${brand.displayName} collects anonymous usage data: ${COLLECTED}. Nothing else: no file ` +
-        `paths, usernames, messages or secrets. Opt out with '${brand.bin} telemetry disable' or ` +
+        `paths, usernames, messages or secrets. Opt out with '${BIN} telemetry disable' or ` +
         `DO_NOT_TRACK=1; CP_TELEMETRY=log shows each event instead of sending it.`,
     );
     writeState(file, { ...state, noticeShown: true });

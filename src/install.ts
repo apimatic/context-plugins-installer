@@ -1,3 +1,4 @@
+import { BIN } from './brand.js';
 import { resolvePlugin, loadCatalog } from './catalog.js';
 import {
   byName,
@@ -629,7 +630,7 @@ async function runUninstall({
   }
 
   // Nothing to say means a failure the thrown error reports; no empty framing.
-  const lines = uninstallLines(decision, { plugin, bin: brand.bin });
+  const lines = uninstallLines(decision, { plugin, bin: BIN });
   if (lines.length) {
     log.plain('');
     log.rule();

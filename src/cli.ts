@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand } from './brand.js';
+import { BIN, resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
 import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
@@ -15,7 +15,7 @@ import {
   setTelemetryEnabled,
   telemetryStatus,
 } from './telemetry.js';
-import type { Brand, Deps, DoctorStatus, Flags, Manifest, ParsedArgs, Profile } from './types.js';
+import type { Brand, Deps, DoctorStatus, Flags, Manifest, ParsedArgs } from './types.js';
 import { UserError, isPlainObject, errorMessage, shortPath } from './util.js';
 
 // package.json is one directory up from both src/ (tests) and lib/ (published).
@@ -230,10 +230,7 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
 const DOCTOR_SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
 
 /** Returns the process exit code. */
-export async function run(
-  argv: readonly string[] = process.argv.slice(2),
-  profile: Profile = {},
-): Promise<number> {
+export async function run(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   let parsed: ParsedArgs;
   try {
     parsed = parseArgs(argv);
@@ -254,15 +251,14 @@ export async function run(
 
   let brand: Brand;
   try {
-    brand = resolveBrand({ flags, profile });
+    brand = resolveBrand({ flags });
   } catch (err) {
     report(err);
     return 2;
   }
 
-  const bin = profile.bin || brand.bin;
   if (flags.help || !command || command === 'help') {
-    log.plain(helpText(bin, brand));
+    log.plain(helpText(BIN, brand));
     return command || flags.help ? 0 : 2;
   }
 
@@ -290,7 +286,7 @@ export async function run(
       case 'install': {
         if (!plugin) {
           throw new UserError('No plugin specified.', {
-            hint: `Usage: ${bin} install <plugin>   (or set CP_PLUGIN)`,
+            hint: `Usage: ${BIN} install <plugin>   (or set CP_PLUGIN)`,
           });
         }
         await installPlugin({
@@ -307,7 +303,7 @@ export async function run(
       case 'uninstall':
       case 'remove': {
         if (!plugin) {
-          throw new UserError('No plugin specified.', { hint: `Usage: ${bin} uninstall <plugin>` });
+          throw new UserError('No plugin specified.', { hint: `Usage: ${BIN} uninstall <plugin>` });
         }
         await uninstallPlugin({ brand, plugin, targets, force: flags.force, deps });
         return 0;
@@ -363,8 +359,8 @@ export async function run(
           log.info(`${log.MARK} installed on this machine (${count})`);
         }
         for (const msg of gaps) log.warn(msg);
-        if (!flags.long) log.info(`Run \`${bin} list --long\` for descriptions.`);
-        log.info(`Install one with \`${bin} install <plugin>\`.`);
+        if (!flags.long) log.info(`Run \`${BIN} list --long\` for descriptions.`);
+        log.info(`Install one with \`${BIN} install <plugin>\`.`);
         return 0;
       }
       case 'doctor': {
@@ -421,7 +417,7 @@ export async function run(
         if (!entries.length) {
           warnGaps(log.warn);
           log.info(scope ? `No plugins installed${scope}.` : 'No plugins installed yet.');
-          log.info(`Browse what is available with:  ${bin} list`);
+          log.info(`Browse what is available with:  ${BIN} list`);
           return 0;
         }
         log.banner(`${log.plural(entries.length, 'plugin')} installed${scope}`);
@@ -437,10 +433,10 @@ export async function run(
         return 0;
       }
       case 'telemetry':
-        return telemetryCommand(args[0], brand, bin);
+        return telemetryCommand(args[0], brand, BIN);
       default:
         throw new UserError(`Unknown command: ${command}`, {
-          hint: `Run \`${bin} --help\` for usage.`,
+          hint: `Run \`${BIN} --help\` for usage.`,
         });
     }
   } catch (err) {

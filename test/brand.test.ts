@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand, DEFAULT_PROFILE, type ResolveBrandOptions } from '../src/brand.js';
+import { BIN, DEFAULTS, resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
 import { UserError } from '../src/util.js';
 import { tmpDir, cleanupAll } from './helpers.js';
 
@@ -24,37 +24,23 @@ test('with nothing configured, the built-in defaults apply', () => {
   const brand = resolveBrand(clean());
   assert.equal(brand.repo, 'context-plugins/plugin-marketplace');
   assert.equal(brand.ref, 'main');
-  assert.equal(brand.bin, 'context-plugins');
   assert.equal(brand.id, null, 'marketplace name is read from the registry');
-  assert.equal(brand.displayName, DEFAULT_PROFILE.displayName);
+  assert.equal(brand.displayName, DEFAULTS.displayName);
+});
+
+// Every hint that tells the user to run something interpolates BIN, so a drift
+// from the installed command name would make all of them wrong.
+test('BIN is the command name package.json actually installs', () => {
+  const pkg: unknown = JSON.parse(
+    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
+  );
+  const bin = (pkg as { bin: Record<string, string> }).bin;
+  assert.deepEqual(Object.keys(bin), [BIN]);
 });
 
 test('the default marketplace name is not hardcoded', () => {
   const serialized = JSON.stringify(resolveBrand(clean())).toLowerCase();
   assert.ok(!serialized.includes('apimatic'), `unexpected default: ${serialized}`);
-});
-
-test('a preset profile overrides the defaults', () => {
-  const brand = resolveBrand({
-    ...clean(),
-    profile: {
-      id: 'acme',
-      repo: 'acme/plugin-marketplace',
-      displayName: 'Acme AI',
-      bin: 'acme-plugins',
-    },
-  });
-  assert.equal(brand.repo, 'acme/plugin-marketplace');
-  assert.equal(brand.id, 'acme');
-  assert.equal(brand.bin, 'acme-plugins');
-  assert.equal(brand.displayName, 'Acme AI');
-});
-
-test('an rc file in cwd beats the preset profile', () => {
-  const cwd = tmpDir('cp-cwd-');
-  writeRc(cwd, { repo: 'rc/marketplace' });
-  const brand = resolveBrand({ ...clean({ cwd }), profile: { repo: 'acme/plugin-marketplace' } });
-  assert.equal(brand.repo, 'rc/marketplace');
 });
 
 test('cwd rc beats home rc', () => {
@@ -85,7 +71,6 @@ test('a CLI flag beats everything', () => {
   writeRc(cwd, { repo: 'rc/marketplace' });
   const brand = resolveBrand({
     ...clean({ cwd, env: { CP_REPO: 'env/marketplace', CP_REF: 'envref' } }),
-    profile: { repo: 'acme/plugin-marketplace' },
     flags: { repo: 'flag/marketplace', ref: 'flagref', marketplace: 'flagmkt' },
   });
   assert.equal(brand.repo, 'flag/marketplace');
@@ -142,7 +127,7 @@ test('a null rc field means unset, exactly like the resolution chain treats it',
   const cwd = tmpDir('cp-cwd-');
   writeRc(cwd, { repo: null, marketplace: null });
   const brand = resolveBrand(clean({ cwd }));
-  assert.equal(brand.repo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.repo, DEFAULTS.repo);
   assert.equal(brand.id, null);
 });
 
@@ -159,48 +144,15 @@ test('an rc path that runs through a file is absence, not an unreadable rc', () 
   // ENOTDIR on POSIX, ENOENT on Windows: either way no rc file can be there,
   // so the CLI carries on rather than aborting every command.
   const brand = resolveBrand(clean({ cwd: notADir, home: notADir }));
-  assert.equal(brand.repo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.repo, DEFAULTS.repo);
 });
 
 test('telemetry defaults: the built-in token and US host, the built-in repo, no rc opt-out', () => {
   const brand = resolveBrand(clean());
-  assert.equal(brand.telemetry.token, DEFAULT_PROFILE.telemetryToken);
+  assert.equal(brand.telemetry.token, DEFAULTS.telemetryToken);
   assert.equal(brand.telemetry.host, 'https://api.mixpanel.com');
-  assert.equal(brand.telemetry.defaultRepo, DEFAULT_PROFILE.repo);
+  assert.equal(brand.telemetry.defaultRepo, DEFAULTS.repo);
   assert.equal(brand.telemetry.rcOptOut, false);
-});
-
-test('a brand with its own marketplace opts in to telemetry; the default brand inherits', () => {
-  const acme = { repo: 'acme/plugin-marketplace', displayName: 'Acme AI', bin: 'acme-plugins' };
-  const silent = resolveBrand({ ...clean(), profile: acme });
-  assert.equal(silent.telemetry.token, null, 'no token unless the brand names one');
-  assert.equal(silent.telemetry.defaultRepo, 'acme/plugin-marketplace');
-
-  const own = resolveBrand({
-    ...clean(),
-    profile: { ...acme, telemetryToken: 'abc', telemetryHost: 'https://api-eu.mixpanel.com' },
-  });
-  assert.equal(own.telemetry.token, 'abc');
-  assert.equal(own.telemetry.host, 'https://api-eu.mixpanel.com');
-
-  const mirror = resolveBrand({ ...clean(), profile: { displayName: 'Mirror' } });
-  assert.equal(
-    mirror.telemetry.token,
-    DEFAULT_PROFILE.telemetryToken,
-    'same marketplace, same data',
-  );
-
-  assert.equal(
-    resolveBrand({ ...clean(), profile: { telemetryToken: null } }).telemetry.token,
-    null,
-  );
-  assert.equal(resolveBrand({ ...clean(), profile: { telemetryToken: '' } }).telemetry.token, null);
-});
-
-test('an empty profile repo falls back to the default, as it did before telemetry', () => {
-  const brand = resolveBrand({ ...clean(), profile: { repo: '' } });
-  assert.equal(brand.repo, DEFAULT_PROFILE.repo);
-  assert.equal(brand.telemetry.defaultRepo, DEFAULT_PROFILE.repo);
 });
 
 test('a telemetry opt-out in the home rc survives a project rc that only names a repo', () => {

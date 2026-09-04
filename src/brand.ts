@@ -2,15 +2,21 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { Brand, Env, Flags, Profile, RcFile } from './types.js';
+import type { Brand, Env, Flags, RcFile } from './types.js';
 import { UserError, assertRepo, assertRef, stripBom, isPlainObject } from './util.js';
 
-export const DEFAULT_PROFILE: Readonly<{
+/**
+ * The published command name, and the one this CLI calls itself by. Every
+ * message that suggests a command interpolates it rather than spelling it out,
+ * so `package.json`'s `bin` key is the only other place it appears.
+ */
+export const BIN = 'context-plugins';
+
+export const DEFAULTS: Readonly<{
   id: string | null;
   displayName: string;
   repo: string;
   ref: string;
-  bin: string;
   telemetryToken: string | null;
   telemetryHost: string;
 }> = Object.freeze({
@@ -18,7 +24,6 @@ export const DEFAULT_PROFILE: Readonly<{
   displayName: 'Context Plugins',
   repo: 'context-plugins/plugin-marketplace',
   ref: 'main',
-  bin: 'context-plugins',
   // A Mixpanel project token is a routing key meant for untrusted clients, not
   // a secret; the project is US-resident, hence the default host.
   telemetryToken: 'c20ead2eb17ee9ae6aad08545e86c00d',
@@ -88,16 +93,14 @@ const pick = (...values: (string | null | undefined)[]): string | undefined =>
 
 export interface ResolveBrandOptions {
   flags?: Flags;
-  profile?: Profile;
   env?: Env;
   cwd?: string;
   home?: string;
 }
 
-// Resolution order: flag -> CP_* env -> rc (cwd, then home) -> profile -> defaults.
+// Resolution order: flag -> CP_* env -> rc (cwd, then home) -> defaults.
 export function resolveBrand({
   flags = {},
-  profile = {},
   env = process.env,
   cwd = process.cwd(),
   home = os.homedir(),
@@ -109,37 +112,23 @@ export function resolveBrand({
   const homeRc = readRc(home);
   const rc = cwdRc || homeRc || {};
 
-  const displayName =
-    pick(env.CP_DISPLAY_NAME, rc.displayName, profile.displayName) ?? DEFAULT_PROFILE.displayName;
+  const displayName = pick(env.CP_DISPLAY_NAME, rc.displayName) ?? DEFAULTS.displayName;
 
-  // Telemetry is the brand's to configure and the user's to refuse. A brand with
-  // its own marketplace opts in by naming a token: the default token belongs to
-  // this project, and must not collect on another's behalf. The env switches are
-  // read where the event is sent.
-  const ownRepo = pick(profile.repo);
-  const inherits = !ownRepo || ownRepo === DEFAULT_PROFILE.repo;
+  // Telemetry is this project's to configure and the user's to refuse. The
+  // switches that refuse it are read where the event is sent, not here.
   const telemetry = Object.freeze({
-    token:
-      profile.telemetryToken === undefined
-        ? inherits
-          ? DEFAULT_PROFILE.telemetryToken
-          : null
-        : profile.telemetryToken || null,
-    host: pick(profile.telemetryHost) ?? DEFAULT_PROFILE.telemetryHost,
-    defaultRepo: assertRepo(ownRepo ?? DEFAULT_PROFILE.repo),
+    token: DEFAULTS.telemetryToken,
+    host: DEFAULTS.telemetryHost,
+    defaultRepo: assertRepo(DEFAULTS.repo),
     rcOptOut: cwdRc?.telemetry === false || homeRc?.telemetry === false,
   });
 
   const brand: Brand = {
-    repo: assertRepo(pick(flags.repo, env.CP_REPO, rc.repo, profile.repo) ?? DEFAULT_PROFILE.repo),
-    ref: assertRef(pick(flags.ref, env.CP_REF, rc.ref, profile.ref) ?? DEFAULT_PROFILE.ref),
-    id:
-      pick(flags.marketplace, env.CP_MARKETPLACE, rc.marketplace, profile.id) ?? DEFAULT_PROFILE.id,
+    repo: assertRepo(pick(flags.repo, env.CP_REPO, rc.repo) ?? DEFAULTS.repo),
+    ref: assertRef(pick(flags.ref, env.CP_REF, rc.ref) ?? DEFAULTS.ref),
+    id: pick(flags.marketplace, env.CP_MARKETPLACE, rc.marketplace) ?? DEFAULTS.id,
     displayName,
-    label:
-      pick(env.CP_MARKETPLACE_LABEL, rc.marketplaceLabel, profile.label) ??
-      `${displayName} Marketplace`,
-    bin: pick(profile.bin) ?? DEFAULT_PROFILE.bin,
+    label: pick(env.CP_MARKETPLACE_LABEL, rc.marketplaceLabel) ?? `${displayName} Marketplace`,
     telemetry,
   };
 

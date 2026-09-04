@@ -29,16 +29,16 @@ Contents
 These were settled before the plan was written. Everything below assumes them; change one
 and the affected phase changes with it.
 
-| Decision       | Choice                              | Why                                                                                                        |
-| -------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Dependencies   | Zero at runtime, hand-rolled kernel | ActionResult, Result and the prompts layer are written in-repo. No oclif, clack or neverthrow.             |
-| Modules        | CommonJS stays                      | bin/cli.js keeps its require; no `.js` import suffixes; Node 18 floor untouched.                           |
-| Injection      | Constructor injection               | Actions, contexts and harnesses receive their services. Tests pass fakes. No sinon, no prototype stubs.    |
-| Library API    | Dropped                             | `src/index.ts` and package.json `main` / `types` / `exports` go. The CLI is the only consumer of its code. |
-| run.js         | Dropped, with Profile               | Brand config stays reachable through flags, `CP_*` env and `.contextpluginsrc`.                            |
-| Harness output | Listener port                       | Harnesses emit typed events; a prompts class turns them into prose. Progress stays live.                   |
-| Telemetry      | Events fired from commands          | Actions return facts; commands map them to event classes; a service sends.                                 |
-| Value objects  | Identifiers and paths               | PluginId, RepoSlug, GitRef, MarketplaceName, DirectoryPath, FilePath.                                      |
+| Decision       | Choice                              | Why                                                                                                               |
+| -------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Dependencies   | Zero at runtime, hand-rolled kernel | ActionResult, Result and the prompts layer are written in-repo. No oclif, clack or neverthrow.                    |
+| Modules        | CommonJS stays                      | bin/cli.js keeps its require; relative imports keep the `.js` suffix they already carry; Node 18 floor untouched. |
+| Injection      | Constructor injection               | Actions, contexts and harnesses receive their services. Tests pass fakes. No sinon, no prototype stubs.           |
+| Library API    | Dropped                             | `src/index.ts` and package.json `main` / `types` / `exports` go. The CLI is the only consumer of its code.        |
+| run.js         | Dropped, with Profile               | Brand config stays reachable through flags, `CP_*` env and `.contextpluginsrc`.                                   |
+| Harness output | Listener port                       | Harnesses emit typed events; a prompts class turns them into prose. Progress stays live.                          |
+| Telemetry      | Events fired from commands          | Actions return facts; commands map them to event classes; a service sends.                                        |
+| Value objects  | Identifiers and paths               | PluginId, RepoSlug, GitRef, MarketplaceName, DirectoryPath, FilePath.                                             |
 
 ## What the reference actually does
 
