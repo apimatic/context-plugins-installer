@@ -1,5 +1,5 @@
 import { BIN } from './brand.js';
-import { resolvePlugin, loadCatalog, readCatalog } from './catalog.js';
+import { resolvePlugin, loadCatalog } from './catalog.js';
 import {
   byName,
   resolveTargets,
@@ -12,7 +12,7 @@ import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './infrastructure/paths.js';
 import { createPrompter } from './prompt.js';
-import { announceSource } from './prompts/source.js';
+import { announceMarketplace } from './prompts/marketplace.js';
 import { isInteractive } from './infrastructure/environment.js';
 import { createSession } from './infrastructure/session.js';
 import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
@@ -329,7 +329,7 @@ export async function installPlugin({
   session,
 }: InstallOptions): Promise<InstallResult> {
   const ownSession = !session;
-  const run = session || createSession({ deps, notify: announceSource });
+  const run = session || createSession({ deps, notify: announceMarketplace });
   const progress = { stage: 'resolve' as Stage };
   try {
     return await runInstall({
@@ -391,7 +391,7 @@ async function runInstall({
     marketplace: brand.id,
     label: brand.label,
     deps,
-    catalog: readCatalog(await run.catalog({ repo: brand.repo, ref: effectiveRef }), brand.repo),
+    catalog: orThrow(await run.catalog({ repo: brand.repo, ref: effectiveRef })),
   });
 
   progress.stage = 'harnesses';
@@ -684,7 +684,7 @@ export async function updateAll({
     );
   }
 
-  const session = createSession({ deps, notify: announceSource });
+  const session = createSession({ deps, notify: announceMarketplace });
   try {
     for (const entry of entries) {
       const entryBrand: Brand = Object.freeze({

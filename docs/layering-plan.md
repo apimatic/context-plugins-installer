@@ -677,11 +677,13 @@ back into a `UserError`. That helper is the bridge; Phase 5 removes its last cal
   on the result. "git not found - falling back to the GitHub API" is only useful _before_
   the slow fallback it explains, and "Fetching marketplace via git ..." before the clone it
   announces; reporting either from the returned value moves it after the work, which is a
-  user-visible change in a phase that promises none. They are a `SourceEvent` emitted the
-  moment they happen, rendered by `prompts/source.ts` - the shape Phase 4 gives every
-  harness, arriving one phase early. The registry client's one line is different and does
-  ride on the result, because it describes a file already skipped; it is carried on the
-  failure arm too, so a later failure cannot swallow it.
+  user-visible change in a phase that promises none. They are a `MarketplaceEvent` emitted
+  the moment they happen, rendered by `prompts/marketplace.ts` - the shape Phase 4 gives
+  every harness, arriving one phase early. The registry client's one line joined them for
+  a second reason found in review: reported from the result it was said once per plugin
+  rather than once per run, because the session memoises the read but the caller reads
+  that memo again for every plugin. An event fires inside the cached promise, so the words
+  happen exactly as often as the work.
 - **2c · Claude CLI**: `claude-cli.ts` with `listMarketplaces`, `listPlugins`
   (whole-or-null), `marketplaceAdd`, `marketplaceUpdate`, `pluginInstall`,
   `pluginUninstall`. `harness/claude.ts` calls it instead of `exec` directly; its policy is

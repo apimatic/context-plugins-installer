@@ -1,4 +1,4 @@
-import type { RegistryRead } from '../types/catalog.js';
+import type { Catalog } from '../types/catalog.js';
 import { REGISTRY_FILES, normalize } from '../types/catalog.js';
 import type { Env } from '../types/env.js';
 import { Failure } from '../types/failure.js';
@@ -6,6 +6,7 @@ import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Deps, FetchLike } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
+import type { MarketplaceListener } from '../types/session.js';
 import { isPlainObject, stripBom, errorMessage } from '../util.js';
 
 export const rawUrl = (repo: string, ref: string, filePath: string): string =>
@@ -68,27 +69,32 @@ export interface RegistryRequest {
   repo: string;
   ref: string;
   deps?: Deps;
+  notify?: MarketplaceListener;
 }
+
+const nothing: MarketplaceListener = () => {};
 
 /** A successful `null` when the repo declares no registry at all. */
 export async function readRegistry({
   repo,
   ref,
   deps = {},
-}: RegistryRequest): Promise<RegistryRead> {
-  const skipped: string[] = [];
+  notify = nothing,
+}: RegistryRequest): Promise<Result<Catalog | null, Failure>> {
   const slug = RepoSlug.parse(repo);
-  if (!slug.ok) return { ...err(slug.error), skipped };
+  if (!slug.ok) return err(slug.error);
   const gitRef = GitRef.parse(ref);
-  if (!gitRef.ok) return { ...err(gitRef.error), skipped };
+  if (!gitRef.ok) return err(gitRef.error);
 
   for (const file of REGISTRY_FILES) {
     const read = await getJson(slug.value.rawUrl(ref, file), deps);
-    if (!read.ok) return { ...err(read.error), skipped };
-    if (isPlainObject(read.value)) return { ...ok(normalize(read.value, file)), skipped };
+    if (!read.ok) return err(read.error);
+    if (isPlainObject(read.value)) return ok(normalize(read.value, file));
     // A 404 is the ordinary "this repo uses the other folder"; anything else
-    // present but unreadable is worth a word before we move on.
-    if (read.value !== null) skipped.push(file);
+    // present but unreadable is worth a word before we move on. Said here, where
+    // it happens, so a later failure cannot swallow it and a caller that reads
+    // the memoised result again cannot repeat it.
+    if (read.value !== null) notify({ kind: 'registry-skipped', file, repo });
   }
-  return { ...ok(null), skipped };
+  return ok(null);
 }

@@ -145,13 +145,16 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   threads one session through all plugins; a lone `install` gets a throwaway one.
   It reads the registry through `infrastructure/github-registry-client.ts` and the
   plugin source through `infrastructure/source-fetcher.ts`, and like everything in
-  that directory it neither prints nor throws: both answer with a `Result`, and
-  what the fetcher used to say out loud is a `SourceEvent` the caller's
-  `prompts/source.ts` renders. Two of those lines only make sense before the work
-  they describe - the fallback to the GitHub API, and the clone - so they are
-  events at the moment they happen rather than fields on the result. The one line
-  that does ride on the result is the registry file skipped for being unreadable,
-  and it is carried on the failure arm too, so a later failure cannot swallow it.
+  that directory neither prints nor throws: both answer with a `Result`, and
+  everything they used to say out loud is a `MarketplaceEvent` that
+  `prompts/marketplace.ts` renders. Emitting rather than returning is what keeps
+  each line where it was: the fallback to the GitHub API and the start of a clone
+  explain a wait, so they have to arrive before it, and a registry file skipped
+  for being unreadable has to survive a later file failing. It is also what makes
+  the session's memo govern how often a line is said - the words happen inside the
+  cached promise, with the work, so three plugins from one repo produce one line
+  and not three. Reporting from the returned value instead put it at the caller
+  and said it once per plugin; that is a real regression this rule prevents.
 - **The test seam is dependency injection, everywhere.** `Deps` carries
   `fetchImpl` / `run` / `materialize` / `confirm`; `PathOpts` carries
   `platform` / `env` / `home`. The command options take `HarnessOpts`, not

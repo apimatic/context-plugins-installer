@@ -1,33 +1,22 @@
 import { readRegistry, type RegistryRequest } from './infrastructure/github-registry-client.js';
-import { log } from './log.js';
-import type { Catalog, CatalogPluginEntry, RegistryRead, ResolvedPlugin } from './types/catalog.js';
+import { announceMarketplace } from './prompts/marketplace.js';
+import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from './types/catalog.js';
 import { REGISTRY_FILES } from './types/catalog.js';
 import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Deps } from './types/ports.js';
 import { UserError, orThrow, suggest, isPlainObject, nonEmptyString } from './util.js';
 
 /**
- * The bridge in front of the registry client: it says the one thing the client
- * is no longer allowed to say, then throws the way its callers still expect.
- * Phase 5 gives this to the actions and the bridge goes.
- *
- * The debug lines come first deliberately. A file skipped before a later one
- * fails was announced by the old reader as it went, so announcing it before the
- * throw keeps `--verbose` output in the order it has always had.
+ * The bridge in front of the registry client: the client answers with a Result
+ * and a listener, and this throws the way its callers still expect. Phase 5
+ * gives the Result to the actions and the bridge goes.
  */
-export function readCatalog(read: RegistryRead, repo: string): Catalog | null {
-  for (const file of read.skipped) {
-    log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
-  }
-  return orThrow(read);
-}
-
 export async function loadCatalog({
   repo,
   ref,
   deps = {},
 }: RegistryRequest): Promise<Catalog | null> {
-  return readCatalog(await readRegistry({ repo, ref, deps }), repo);
+  return orThrow(await readRegistry({ repo, ref, deps, notify: announceMarketplace }));
 }
 
 const nameOf = (p: CatalogPluginEntry): string => (typeof p === 'string' ? p : p.name);

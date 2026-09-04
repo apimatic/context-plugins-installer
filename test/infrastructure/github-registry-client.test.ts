@@ -7,6 +7,7 @@ import {
   readRegistry,
 } from '../../src/infrastructure/github-registry-client.js';
 import type { Deps } from '../../src/types/ports.js';
+import type { MarketplaceEvent } from '../../src/types/session.js';
 import { stubFetch, type StubRoute } from '../helpers.js';
 
 const REPO = 'context-plugins/plugin-marketplace';
@@ -24,8 +25,13 @@ const deps = (routes: Record<string, StubRoute>): Deps => ({
   env: {},
 });
 
-const read = (routes: Record<string, StubRoute>) =>
-  readRegistry({ repo: REPO, ref: 'main', deps: deps(routes) });
+const recorder = () => {
+  const events: MarketplaceEvent[] = [];
+  return { events, notify: (e: MarketplaceEvent) => events.push(e) };
+};
+
+const read = (routes: Record<string, StubRoute>, notify?: (e: MarketplaceEvent) => void) =>
+  readRegistry({ repo: REPO, ref: 'main', deps: deps(routes), notify });
 
 test('a repo with no registry at all reads as a successful null', async () => {
   const result = await read({});
@@ -76,27 +82,44 @@ test('registry entries that cannot name a plugin are dropped on read', async () 
 });
 
 test('a wrong-shaped registry document falls through to the next file, and is named', async () => {
-  const result = await read({
-    [CLAUDE_REG]: { body: ['my-sdk'] }, // a bare array, not a registry object
-    [CURSOR_REG]: { body: registry({ name: 'acme' }) },
-  });
+  const seen = recorder();
+  const result = await read(
+    {
+      [CLAUDE_REG]: { body: ['my-sdk'] }, // a bare array, not a registry object
+      [CURSOR_REG]: { body: registry({ name: 'acme' }) },
+    },
+    seen.notify,
+  );
   assert.ok(result.ok);
   assert.equal(result.value?.from, '.cursor-plugin/marketplace.json');
-  assert.deepEqual(result.skipped, ['.claude-plugin/marketplace.json']);
+  assert.deepEqual(seen.events, [
+    { kind: 'registry-skipped', file: '.claude-plugin/marketplace.json', repo: REPO },
+  ]);
 });
 
 /**
- * `skipped` rides on the failure arm too. The old reader printed that debug line
- * as it went, so a file skipped before a later file failed was still mentioned;
- * a Result that only spoke on success would have silently dropped it.
+ * The line is said where the skip happens, not carried out on the result. The
+ * old reader printed it as it went, so a file skipped before a later file failed
+ * was still mentioned; anything reported only on the way out would have dropped
+ * it here.
  */
 test('a file skipped before a later failure is still reported', async () => {
-  const result = await read({
-    [CLAUDE_REG]: { body: ['my-sdk'] },
-    [CURSOR_REG]: { status: 403 },
-  });
+  const seen = recorder();
+  const result = await read(
+    { [CLAUDE_REG]: { body: ['my-sdk'] }, [CURSOR_REG]: { status: 403 } },
+    seen.notify,
+  );
   assert.equal(result.ok, false);
-  assert.deepEqual(result.skipped, ['.claude-plugin/marketplace.json']);
+  assert.deepEqual(seen.events, [
+    { kind: 'registry-skipped', file: '.claude-plugin/marketplace.json', repo: REPO },
+  ]);
+});
+
+test('a registry that reads first time says nothing at all', async () => {
+  const seen = recorder();
+  const result = await read({ [CLAUDE_REG]: { body: registry() } }, seen.notify);
+  assert.ok(result.ok);
+  assert.deepEqual(seen.events, []);
 });
 
 test('a body that is not JSON at all names the file it came from', async () => {

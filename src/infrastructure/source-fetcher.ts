@@ -8,7 +8,7 @@ import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Deps, FetchLike, MaterializedSource, RunResult } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
-import type { RepoHandle, SourceListener } from '../types/session.js';
+import type { MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../util.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
 import { ghHeaders } from './github-registry-client.js';
@@ -38,7 +38,7 @@ export async function pool<T, R>(
 // Nothing here prints. What the old code said out loud - that git is missing,
 // that a clone has started, how many files arrived - is emitted as an event the
 // moment it happens, so a caller renders it in the same order a `log` call did.
-const nothing: SourceListener = () => {};
+const nothing: MarketplaceListener = () => {};
 
 function tempWorkspace(): { work: string; cleanup: () => void } {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'context-plugins-'));
@@ -57,7 +57,7 @@ export interface SourceRequest {
   ref: string;
   sourcePath: string;
   deps?: Deps;
-  notify?: SourceListener;
+  notify?: MarketplaceListener;
 }
 
 /** Callers must call cleanup() when done, on the failure arm too. */
@@ -89,7 +89,7 @@ interface CloneRequest {
   repo: string;
   ref: string;
   work: string;
-  notify?: SourceListener;
+  notify?: MarketplaceListener;
 }
 
 export async function cloneRepo({
@@ -135,7 +135,7 @@ interface SparseRequest {
   repo: string;
   ref: string;
   sourcePath: string;
-  notify?: SourceListener;
+  notify?: MarketplaceListener;
 }
 
 // `add` rather than `set`, so later plugins join the same working tree
@@ -225,7 +225,7 @@ export async function fetchTree({
   repo: string;
   ref: string;
   deps?: Deps;
-  notify?: SourceListener;
+  notify?: MarketplaceListener;
 }): Promise<Result<GitTree, Failure>> {
   const fetchImpl: FetchLike = deps.fetchImpl || fetch;
   const env = deps.env || process.env;
@@ -333,7 +333,7 @@ export async function openRepo({
   repo: string;
   ref: string;
   deps?: Deps;
-  notify?: SourceListener;
+  notify?: MarketplaceListener;
 }): Promise<RepoHandle> {
   const { work, cleanup } = tempWorkspace();
 

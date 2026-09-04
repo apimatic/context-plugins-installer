@@ -12,7 +12,7 @@ import {
   type GitTree,
 } from '../../src/infrastructure/source-fetcher.js';
 import type { Env } from '../../src/types/env.js';
-import type { SourceEvent } from '../../src/types/session.js';
+import type { MarketplaceEvent } from '../../src/types/session.js';
 import { tmpDir, cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
 
 test.after(cleanupAll);
@@ -25,8 +25,8 @@ const rawFile = (p: string): string => `https://raw.githubusercontent.com/${REPO
 const NO_GIT: Env = { PATH: '', PATHEXT: '' };
 
 const recorder = () => {
-  const events: SourceEvent[] = [];
-  return { events, notify: (e: SourceEvent) => events.push(e) };
+  const events: MarketplaceEvent[] = [];
+  return { events, notify: (e: MarketplaceEvent) => events.push(e) };
 };
 
 test('a tree response that is not a JSON object is refused, not cast', async () => {

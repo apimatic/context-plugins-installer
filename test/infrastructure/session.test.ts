@@ -5,6 +5,7 @@ import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import * as claude from '../../src/harness/claude.js';
 import { createSession } from '../../src/infrastructure/session.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
+import type { MarketplaceEvent } from '../../src/types/session.js';
 import { cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
 
 test.after(cleanupAll);
@@ -33,6 +34,38 @@ test('a session reads a marketplace registry once however many plugins ask for i
   assert.equal(first.value?.marketplace, 'acme');
   assert.equal(second.value?.marketplace, 'acme');
   assert.equal(fetchImpl.calls.filter((u) => u === registry).length, 1);
+  await session.cleanup();
+});
+
+/**
+ * The reason the skipped-file line is an event and not a field on the result.
+ * Reporting it from what `catalog()` returns puts it at the caller, which reads
+ * the memoised value once per plugin - so `update` across three plugins in one
+ * repo said the same sentence three times. Emitted inside the cached promise, it
+ * is said as often as the work is done: once.
+ */
+test('a registry file skipped once is reported once, however many plugins ask', async () => {
+  const repo = 'acme/plugin-marketplace';
+  const fetchImpl = stubFetch({
+    [rawUrl(repo, 'main', '.claude-plugin/marketplace.json')]: { body: ['not', 'an', 'object'] },
+    [rawUrl(repo, 'main', '.cursor-plugin/marketplace.json')]: {
+      body: { name: 'acme', plugins: [{ name: 'alpha' }] },
+    },
+  });
+  const events: MarketplaceEvent[] = [];
+  const session = createSession({
+    deps: { fetchImpl, env: {} },
+    notify: (e) => events.push(e),
+  });
+
+  for (const _plugin of ['alpha', 'beta', 'gamma']) {
+    const read = await session.catalog({ repo, ref: 'main' });
+    assert.ok(read.ok);
+  }
+
+  assert.deepEqual(events, [
+    { kind: 'registry-skipped', file: '.claude-plugin/marketplace.json', repo },
+  ]);
   await session.cleanup();
 });
 

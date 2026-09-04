@@ -1,8 +1,8 @@
+import type { Catalog } from '../types/catalog.js';
 import type { Failure } from '../types/failure.js';
-import type { RegistryRead } from '../types/catalog.js';
 import type { Deps } from '../types/ports.js';
 import { ok, type Result } from '../types/result.js';
-import type { RepoHandle, Session, SourceListener } from '../types/session.js';
+import type { MarketplaceListener, RepoHandle, Session } from '../types/session.js';
 import { readRegistry } from './github-registry-client.js';
 import { openRepo } from './source-fetcher.js';
 
@@ -14,8 +14,8 @@ const keyOf = (repo: string, ref: string): string => `${repo}@${ref}`;
 export function createSession({
   deps = {},
   notify,
-}: { deps?: Deps; notify?: SourceListener } = {}): Session {
-  const catalogs = new Map<string, Promise<RegistryRead>>();
+}: { deps?: Deps; notify?: MarketplaceListener } = {}): Session {
+  const catalogs = new Map<string, Promise<Result<Catalog | null, Failure>>>();
   const repos = new Map<string, Promise<RepoHandle>>();
   const marketplaces: Session['marketplaces'] = new Map();
   const disposers: (() => void)[] = [];
@@ -27,7 +27,7 @@ export function createSession({
       const key = keyOf(repo, ref);
       let pending = catalogs.get(key);
       if (!pending) {
-        pending = readRegistry({ repo, ref, deps });
+        pending = readRegistry({ repo, ref, deps, notify });
         catalogs.set(key, pending);
       }
       return pending;
