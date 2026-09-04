@@ -1,6 +1,6 @@
 import { readRegistry, type RegistryRequest } from './infrastructure/github-registry-client.js';
 import { log } from './log.js';
-import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from './types/catalog.js';
+import type { Catalog, CatalogPluginEntry, RegistryRead, ResolvedPlugin } from './types/catalog.js';
 import { REGISTRY_FILES } from './types/catalog.js';
 import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Deps } from './types/ports.js';
@@ -15,16 +15,19 @@ import { UserError, orThrow, suggest, isPlainObject, nonEmptyString } from './ut
  * fails was announced by the old reader as it went, so announcing it before the
  * throw keeps `--verbose` output in the order it has always had.
  */
+export function readCatalog(read: RegistryRead, repo: string): Catalog | null {
+  for (const file of read.skipped) {
+    log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
+  }
+  return orThrow(read);
+}
+
 export async function loadCatalog({
   repo,
   ref,
   deps = {},
 }: RegistryRequest): Promise<Catalog | null> {
-  const read = await readRegistry({ repo, ref, deps });
-  for (const file of read.skipped) {
-    log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
-  }
-  return orThrow(read);
+  return readCatalog(await readRegistry({ repo, ref, deps }), repo);
 }
 
 const nameOf = (p: CatalogPluginEntry): string => (typeof p === 'string' ? p : p.name);

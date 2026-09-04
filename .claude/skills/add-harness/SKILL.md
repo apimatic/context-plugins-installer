@@ -35,14 +35,14 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    until the harness exists and is registered. That error list is the checklist for the
    code; the docs and CI items below are what the compiler cannot see.
 
-2. **Add the editor's directories to `src/paths.ts`.** One function for the directory
+2. **Add the editor's directories to `src/infrastructure/paths.ts`.** One function for the directory
    that proves the editor is installed (what `detect` checks) and one for where plugins
    go, if they differ. Two rules, both already visible in the file:
    - Every function takes `PathOpts` and returns a `DirectoryPath` or `FilePath` built
      from `ctx(o).rules` and `join` / `file` - the _target_ platform's rules, not the
      host's - with a `win32` / `darwin` / other branch where the editor's location
-     differs by OS. This is what lets `test/paths.test.ts` assert the Windows path from a
-     Linux runner.
+     differs by OS. This is what lets `test/infrastructure/paths.test.ts` assert the
+     Windows path from a Linux runner.
    - Honour a `CP_<EDITOR>_DIR` env override before the default, like `CP_CURSOR_DIR`
      and `CP_VSCODE_USER_DIR`. Tests and the CI smoke job build a sandboxed machine
      from these; without one, the new harness can only be tested against the developer's
@@ -88,7 +88,7 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    to `BY_NAME`. Export it with the others. The typecheck from step 1 goes green here.
 
 5. **Tests.** Copy the pattern nearest the shape:
-   - `test/paths.test.ts`: a row per platform for each new path function, including the
+   - `test/infrastructure/paths.test.ts`: a row per platform for each new path function, including the
      env override.
    - A CLI-driven harness gets `test/<name>.test.ts` modelled on `test/claude.test.ts`: a
      `fakeCli` that records argv and a PATH stub, so the real binary is never run.

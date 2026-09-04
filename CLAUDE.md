@@ -138,11 +138,20 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   and VS Code copy files and need the fetched source. To add an editor, use the
   `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
   editor names and CI steps the compiler cannot flag.
-- **Session** (`src/session.ts`): work shared by every plugin in one run — the
+- **Session** (`src/infrastructure/session.ts`): work shared by every plugin in one run — the
   registry fetch, the repo clone, the Claude marketplace registration — each done
   once, keyed `repo@ref`. Promises are cached rather than results, so concurrent
   callers share one request and a deterministic failure is not retried. `update`
   threads one session through all plugins; a lone `install` gets a throwaway one.
+  It reads the registry through `infrastructure/github-registry-client.ts` and the
+  plugin source through `infrastructure/source-fetcher.ts`, and like everything in
+  that directory it neither prints nor throws: both answer with a `Result`, and
+  what the fetcher used to say out loud is a `SourceEvent` the caller's
+  `prompts/source.ts` renders. Two of those lines only make sense before the work
+  they describe - the fallback to the GitHub API, and the clone - so they are
+  events at the moment they happen rather than fields on the result. The one line
+  that does ride on the result is the registry file skipped for being unreadable,
+  and it is carried on the failure arm too, so a later failure cannot swallow it.
 - **The test seam is dependency injection, everywhere.** `Deps` carries
   `fetchImpl` / `run` / `materialize` / `confirm`; `PathOpts` carries
   `platform` / `env` / `home`. The command options take `HarnessOpts`, not
@@ -152,7 +161,7 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   (`CP_STATE_DIR`, `CP_CURSOR_DIR`, `CP_VSCODE_USER_DIR`) and assert on real files.
   Never touch the developer's real home directory in tests; never add I/O that
   bypasses these seams.
-- **`src/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
+- **`src/infrastructure/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
   `path.posix` chosen by the `platform` override, not the host), so Windows paths are
   exactly assertable from Linux CI.
 - **State** is one file, `~/.context-plugins/installed.json` (`src/manifest.ts`),

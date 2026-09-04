@@ -1,3 +1,5 @@
+import type { Failure } from './failure.js';
+import type { Result } from './result.js';
 import { isPlainObject, nonEmptyString } from '../util.js';
 
 // A marketplace registry as this build reads it, and one plugin resolved out of
@@ -50,3 +52,14 @@ export function normalize(data: Record<string, unknown>, from: string): Catalog 
     from,
   };
 }
+
+/**
+ * A registry read: the catalog, or the reason there is none, plus the registry
+ * files that were present but not a JSON object. `skipped` rides on the failure
+ * arm as well as the success one - a file skipped before a later file failed is
+ * still something `--verbose` promised to mention, and a result that only spoke
+ * on success would have swallowed it.
+ */
+export type RegistryRead = Result<Catalog | null, Failure> & {
+  readonly skipped: readonly string[];
+};

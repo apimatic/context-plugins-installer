@@ -1,4 +1,4 @@
-import type { Catalog } from '../types/catalog.js';
+import type { RegistryRead } from '../types/catalog.js';
 import { REGISTRY_FILES, normalize } from '../types/catalog.js';
 import type { Env } from '../types/env.js';
 import { Failure } from '../types/failure.js';
@@ -63,17 +63,6 @@ export async function getJson(
     return err(new Failure(`${url} is not valid JSON: ${errorMessage(e)}`));
   }
 }
-
-/**
- * `skipped` names the registry files that answered with something other than a
- * JSON object, and it is carried on the failure arm as well as the success one.
- * Reading it costs the caller a line either way: a file skipped before a later
- * file fails is still something the user asked to be told about with
- * `--verbose`, and a Result that only spoke on success would swallow it.
- */
-export type RegistryRead = Result<Catalog | null, Failure> & {
-  readonly skipped: readonly string[];
-};
 
 export interface RegistryRequest {
   repo: string;

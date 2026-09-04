@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import * as claude from '../src/harness/claude.js';
-import { createSession } from '../src/session.js';
-import type { RunCommand, RunResult } from '../src/types/ports.js';
-import { cleanupAll, stubFetch, silenceConsole } from './helpers.js';
+import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
+import * as claude from '../../src/harness/claude.js';
+import { createSession } from '../../src/infrastructure/session.js';
+import type { RunCommand, RunResult } from '../../src/types/ports.js';
+import { cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -29,8 +29,9 @@ test('a session reads a marketplace registry once however many plugins ask for i
   const first = await session.catalog({ repo, ref: 'main' });
   const second = await session.catalog({ repo, ref: 'main' });
 
-  assert.equal(first?.marketplace, 'acme');
-  assert.equal(second?.marketplace, 'acme');
+  assert.ok(first.ok && second.ok);
+  assert.equal(first.value?.marketplace, 'acme');
+  assert.equal(second.value?.marketplace, 'acme');
   assert.equal(fetchImpl.calls.filter((u) => u === registry).length, 1);
   await session.cleanup();
 });
@@ -48,8 +49,11 @@ test('a session keeps separate registries for separate marketplaces', async () =
   });
   const session = createSession({ deps: { fetchImpl, env: {} } });
 
-  assert.equal((await session.catalog({ repo: one, ref: 'main' }))?.marketplace, 'acme');
-  assert.equal((await session.catalog({ repo: two, ref: 'main' }))?.marketplace, 'other');
+  const first = await session.catalog({ repo: one, ref: 'main' });
+  const second = await session.catalog({ repo: two, ref: 'main' });
+  assert.ok(first.ok && second.ok);
+  assert.equal(first.value?.marketplace, 'acme');
+  assert.equal(second.value?.marketplace, 'other');
   await session.cleanup();
 });
 

@@ -1,4 +1,4 @@
-import type { Catalog } from './catalog.js';
+import type { RegistryRead } from './catalog.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 
@@ -29,7 +29,11 @@ export interface RepoHandle {
 
 export interface Session {
   marketplaces: Map<string, Promise<{ known: string; updated: boolean }>>;
-  catalog(args: { repo: string; ref: string }): Promise<Catalog | null>;
-  source(args: { repo: string; ref: string; sourcePath: string }): Promise<string | null>;
+  catalog(args: { repo: string; ref: string }): Promise<RegistryRead>;
+  source(args: {
+    repo: string;
+    ref: string;
+    sourcePath: string;
+  }): Promise<Result<string | null, Failure>>;
   cleanup(): Promise<void>;
 }

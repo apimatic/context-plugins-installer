@@ -1,18 +1,21 @@
-import { loadCatalog } from './catalog.js';
-import { openRepo } from './infrastructure/source-fetcher.js';
-import { announceSource } from './prompts/source.js';
-import type { Catalog } from './types/catalog.js';
-import type { Deps } from './types/ports.js';
-import type { RepoHandle, Session } from './types/session.js';
-import { orThrow } from './util.js';
+import type { Failure } from '../types/failure.js';
+import type { RegistryRead } from '../types/catalog.js';
+import type { Deps } from '../types/ports.js';
+import { ok, type Result } from '../types/result.js';
+import type { RepoHandle, Session, SourceListener } from '../types/session.js';
+import { readRegistry } from './github-registry-client.js';
+import { openRepo } from './source-fetcher.js';
 
 const keyOf = (repo: string, ref: string): string => `${repo}@${ref}`;
 
 // Work shared by every plugin in one run - registry, clone, Claude marketplace
 // registration - each done once per repo@ref. Promises are cached rather than
 // results so concurrent callers share one request.
-export function createSession({ deps = {} }: { deps?: Deps } = {}): Session {
-  const catalogs = new Map<string, Promise<Catalog | null>>();
+export function createSession({
+  deps = {},
+  notify,
+}: { deps?: Deps; notify?: SourceListener } = {}): Session {
+  const catalogs = new Map<string, Promise<RegistryRead>>();
   const repos = new Map<string, Promise<RepoHandle>>();
   const marketplaces: Session['marketplaces'] = new Map();
   const disposers: (() => void)[] = [];
@@ -24,30 +27,30 @@ export function createSession({ deps = {} }: { deps?: Deps } = {}): Session {
       const key = keyOf(repo, ref);
       let pending = catalogs.get(key);
       if (!pending) {
-        pending = loadCatalog({ repo, ref, deps });
+        pending = readRegistry({ repo, ref, deps });
         catalogs.set(key, pending);
       }
       return pending;
     },
 
-    async source({ repo, ref, sourcePath }) {
-      // An injected fetch is the test seam and stays per-plugin.
+    async source({ repo, ref, sourcePath }): Promise<Result<string | null, Failure>> {
+      // An injected fetch is the test seam and stays per-plugin. It is the one
+      // path that can still throw: a fake that blows up is a test asserting a
+      // bug, not a failure this program knows how to describe.
       if (deps.materialize) {
         const result = await deps.materialize({ repo, ref, sourcePath, deps });
         if (result && typeof result.cleanup === 'function') disposers.push(result.cleanup);
-        return result ? result.dir : null;
+        return ok(result ? result.dir : null);
       }
 
       const key = keyOf(repo, ref);
       let opening = repos.get(key);
       if (!opening) {
-        opening = openRepo({ repo, ref, deps, notify: announceSource });
+        opening = openRepo({ repo, ref, deps, notify });
         repos.set(key, opening);
       }
       const handle = await opening;
-      // The fetcher answers with a Result now; every caller of a session still
-      // expects a throw, so the bridge sits here until Phase 5 moves it up.
-      return orThrow(await handle.checkout(sourcePath));
+      return handle.checkout(sourcePath);
     },
 
     async cleanup() {
