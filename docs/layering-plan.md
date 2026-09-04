@@ -638,7 +638,11 @@ back into a `UserError`. That helper is the bridge; Phase 5 removes its last cal
 - **2a · state and process**: `file-system.ts`, `process-runner.ts`, `environment.ts`,
   `rc-file.ts`, `manifest-store.ts`, `vscode-settings.ts`, `telemetry-state.ts`,
   `mixpanel-client.ts`, `telemetry-service.ts`. The telemetry notice and the `log`-mode
-  lines are returned from `flush()`, printed by the caller.
+  lines are returned from `flush()`, printed by the caller. This is also where the string
+  arm of `DirArg` and `FileArg` goes: the file-system service takes path objects only, so
+  a caller can no longer hand it a bare string and lose the path's own rules. Take the
+  chance to memoise the per-blob `mkdirSync` in the API download, which runs once per file
+  rather than once per directory.
 - **2b · network**: `github-registry-client.ts`, `source-fetcher.ts`, `session.ts`. The 15
   thrown errors in `fetch.ts` and `catalog.ts` become `err(new Failure(...))` with the same
   text and hint. The "git not found" warning and the "downloaded N files" line become facts
@@ -675,6 +679,12 @@ against a temp directory or a fake runner, none against the developer's home. Sh
   from an older caller, guards against a malformed Brand that only a cast could build.
   And `BIN` moves from `brand.ts` to `types/brand.ts`, which removes the import edge
   Phase 0 had to add from `telemetry.ts` to `brand.ts`.
+- Settle one more thing when the manifest row becomes typed: a repo is compared
+  case-insensitively by `RepoSlug.matches`, because that is how GitHub treats it, but
+  case-sensitively with `===` by the manifest key, the marketplace conflict check and the
+  `list` scope. The two halves of one run therefore disagree about whether two spellings
+  name the same repository. It predates the refactor; typing the row is what makes it
+  fixable in one place.
 
 **Exit:** `grep -rn 'node:' src/application` is empty. `install.ts` no longer touches
 `manifest.upsert` directly. No new shim.
@@ -787,6 +797,13 @@ scaffold a command from the skill without reading this document.
   structurally, because every path comes from an injected `Paths` built over a sandbox.
 - **Infrastructure never prints, prompts never decide.** The lint rule says it from Phase
   7; reviewers say it from Phase 0.
+- **A behaviour bug found while moving code is its own commit.** Two came out of Phase 1's
+  review: the home-prefix collapse in path display, fixed as a `fix:` because it changed
+  what the CLI prints, and an invalid `--marketplace` reaching `claude` argv through the
+  uninstall short-circuit, still open. Neither belongs inside a move.
+- **Nothing enforces import order.** Six of the imports Phase 1 added landed out of
+  position and were caught by review rather than by lint. Worth an `import/order` rule
+  before the phases that move imports by the dozen.
 
 ## Risks and how each is held
 
