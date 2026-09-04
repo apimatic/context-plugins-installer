@@ -4,7 +4,9 @@ import { Failure } from '../types/failure.js';
 import type { FilePath } from '../types/file/paths.js';
 import { err, ok, type Result } from '../types/result.js';
 import { errorCode, errorMessage, isPlainObject, nonEmptyString, stripBom } from '../util.js';
-import { ensureDir } from './file-system.js';
+import { writeFileAtomic } from './file-system.js';
+
+const NEWLINE = String.fromCharCode(10);
 
 export interface TelemetryState {
   id: string | null;
@@ -44,24 +46,11 @@ export function readState(file: FilePath): StateRead {
  * rather than a log line: whether anyone hears about it is the caller's call.
  */
 export function writeState(file: FilePath, state: TelemetryState): Result<void, Failure> {
-  const tmp = file.withSuffix(`.${process.pid}.tmp`);
   try {
-    ensureDir(file.parent());
-    fs.writeFileSync(tmp.toString(), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    fs.renameSync(tmp.toString(), file.toString());
+    writeFileAtomic(file, JSON.stringify(state, null, 2) + NEWLINE);
     return ok(undefined);
   } catch (e) {
-    const failure = new Failure(`telemetry: could not write ${file}: ${errorMessage(e)}`);
-    // `force: true` only swallows ENOENT. A directory at the temp path, or a
-    // scanner holding it open after a failed rename, still throws - and that
-    // throw must not escape in place of the reason we are here, which is the
-    // one thing the caller can act on.
-    try {
-      fs.rmSync(tmp.toString(), { force: true });
-    } catch {
-      /* a temp file outliving the failure is the lesser problem */
-    }
-    return err(failure);
+    return err(new Failure(`telemetry: could not write ${file}: ${errorMessage(e)}`));
   }
 }
 

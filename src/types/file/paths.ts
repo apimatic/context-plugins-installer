@@ -52,10 +52,6 @@ export type PathArg = DirArg | FileArg;
 export const pathString = (value: PathArg): string =>
   typeof value === 'string' ? value : value.toString();
 
-/** The directory holding `value`, by its own rules when it has any. */
-export const parentOf = (value: PathArg): DirArg =>
-  typeof value === 'string' ? nodePath.dirname(value) : value.parent();
-
 export class DirectoryPath {
   constructor(
     private readonly dir: string,

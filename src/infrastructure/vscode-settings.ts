@@ -2,7 +2,6 @@ import * as fs from 'node:fs';
 
 import {
   asFilePath,
-  parentOf,
   pathString,
   type DirArg,
   type FileArg,
@@ -10,7 +9,7 @@ import {
 } from '../types/file/paths.js';
 import type { AddLocationResult, RemoveLocationResult } from '../types/vscode-settings.js';
 import { timestamp, stripBom } from '../util.js';
-import { ensureDir } from './file-system.js';
+import { ensureDirFor } from './file-system.js';
 
 // settings.json is JSONC and users care about its formatting, so every edit is
 // a targeted string splice - parsing and re-serializing would destroy both.
@@ -100,7 +99,7 @@ export function addPluginLocation(settings: FileArg, dir: DirArg): AddLocationRe
   const settingsFile = asFilePath(settings);
   const settingsPath = pathString(settings);
   const key = toKey(dir);
-  ensureDir(parentOf(settingsFile));
+  ensureDirFor(settingsFile);
 
   if (!fs.existsSync(settingsPath)) {
     fs.writeFileSync(settingsPath, freshDocument(key), 'utf8');

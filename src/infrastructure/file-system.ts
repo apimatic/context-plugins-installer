@@ -13,6 +13,42 @@ export function ensureDir(dir: PathArg): string {
   return target;
 }
 
+/**
+ * Creates the directory that will hold `file`, by the *host's* rules. A path's
+ * own rules say where it points; the bytes land on this machine either way, so
+ * the host's are the ones that matter at an fs boundary. Deriving the parent
+ * from a path's own rules made a foreign-platform path resolve to `.`, which
+ * created nothing and left the write to fail naming the file, not the folder.
+ */
+export function ensureDirFor(file: PathArg): string {
+  return ensureDir(path.dirname(pathString(file)));
+}
+
+/**
+ * Written whole through a rename, so a crash, a full disk or a kill mid-write
+ * leaves the previous file rather than a truncated one. Both state files this
+ * program keeps are read back with a catch that treats a parse failure as
+ * empty, which is exactly how a half-written file loses every row it held.
+ */
+export function writeFileAtomic(file: PathArg, contents: string): void {
+  const target = pathString(file);
+  const tmp = `${target}.${process.pid}.tmp`;
+  ensureDirFor(target);
+  try {
+    fs.writeFileSync(tmp, contents, 'utf8');
+    fs.renameSync(tmp, target);
+  } catch (e) {
+    // `force: true` only swallows ENOENT, so this can throw in its own right -
+    // and must not replace the reason we are here.
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      /* a temp file outliving the failure is the lesser problem */
+    }
+    throw e;
+  }
+}
+
 export function rmrf(target: PathArg): void {
   fs.rmSync(pathString(target), { recursive: true, force: true });
 }

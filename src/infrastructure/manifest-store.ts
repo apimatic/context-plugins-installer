@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 
-import { parentOf, pathString, type FileArg } from '../types/file/paths.js';
+import { pathString, type FileArg } from '../types/file/paths.js';
 import { isPlainObject, stripBom } from '../util.js';
-import { ensureDir } from './file-system.js';
+import { writeFileAtomic } from './file-system.js';
 
 // `~/.context-plugins/installed.json` as bytes: read whole, written whole, with
 // no opinion about what a row means. The file is shared with hand edits and with
@@ -11,6 +11,8 @@ import { ensureDir } from './file-system.js';
 // sanitized view lives a layer up.
 
 export const MANIFEST_VERSION = 1;
+
+const NEWLINE = String.fromCharCode(10);
 
 /** Entries are keyed by repo + plugin: the same id can exist in two marketplaces. */
 export interface EntryKey {
@@ -45,11 +47,18 @@ export function readRaw(file: FileArg): RawManifest {
   }
 }
 
-export function write(file: FileArg, data: { plugins?: unknown[] }): RawManifest {
-  const target = pathString(file);
-  ensureDir(parentOf(file));
-  const payload = { version: MANIFEST_VERSION, plugins: data.plugins || [] };
-  fs.writeFileSync(target, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+export function write(file: FileArg, data: { version?: number; plugins?: unknown[] }): RawManifest {
+  const payload = {
+    // A version this build does not know belongs to a newer CLI. `readRaw`
+    // preserves it deliberately, and stamping our own here would erase the only
+    // migration signal the format has - on an install that touched one row.
+    version:
+      typeof data.version === 'number' && Number.isInteger(data.version)
+        ? data.version
+        : MANIFEST_VERSION,
+    plugins: data.plugins || [],
+  };
+  writeFileAtomic(file, JSON.stringify(payload, null, 2) + NEWLINE);
   return payload;
 }
 

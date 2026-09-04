@@ -180,3 +180,30 @@ test('"telemetry": false in the rc file opts out; anything but a boolean is an e
     (err) => err instanceof UserError && /'telemetry' must be true or false/.test(err.message),
   );
 });
+
+/**
+ * The two rc files merge field by field. Taking the first found whole meant a
+ * project rc that set only `telemetry` discarded the home rc's marketplace, so
+ * opting out of telemetry in one repository silently moved every install in it
+ * to the built-in marketplace.
+ */
+test('a project rc that sets only telemetry keeps the home marketplace', () => {
+  const cwd = tmpDir('cp-cwd-');
+  const home = tmpDir('cp-home-');
+  writeRc(home, { repo: 'acme/private-marketplace', displayName: 'Acme' });
+  writeRc(cwd, { telemetry: false });
+  const brand = resolveBrand(clean({ cwd, home }));
+  assert.equal(brand.repo, 'acme/private-marketplace', 'the home rc still names the marketplace');
+  assert.equal(brand.displayName, 'Acme');
+  assert.equal(brand.telemetry.rcOptOut, true, 'and the project opt-out is honoured');
+});
+
+test('a field set in both files is the project rc to decide', () => {
+  const cwd = tmpDir('cp-cwd-');
+  const home = tmpDir('cp-home-');
+  writeRc(home, { repo: 'home/marketplace', ref: 'stable' });
+  writeRc(cwd, { repo: 'cwd/marketplace' });
+  const brand = resolveBrand(clean({ cwd, home }));
+  assert.equal(brand.repo, 'cwd/marketplace', 'the nearer file wins the field it sets');
+  assert.equal(brand.ref, 'stable', 'and leaves the ones it does not');
+});

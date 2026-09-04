@@ -49,12 +49,13 @@ export function resolveBrand({
   cwd = process.cwd(),
   home = os.homedir(),
 }: ResolveBrandOptions = {}): Brand {
-  // Both files are read: the first found sets the defaults, but an opt-out in
-  // either is honoured, or a project rc that only names a repo would silence the
-  // one in the home directory.
+  // Both files are read, and merged field by field rather than one winning
+  // whole. Taking the first found meant a project rc that set only `telemetry`
+  // discarded the home rc's marketplace and installed from the built-in one
+  // without saying so. An opt-out in either file is still honoured on its own.
   const cwdRc = orThrow(readRc(cwd));
   const homeRc = orThrow(readRc(home));
-  const rc = cwdRc || homeRc || {};
+  const rc = { ...homeRc, ...cwdRc };
 
   const displayName = pick(env.CP_DISPLAY_NAME, rc.displayName) ?? DEFAULTS.displayName;
 
