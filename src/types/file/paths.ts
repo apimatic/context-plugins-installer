@@ -78,20 +78,46 @@ export class DirectoryPath {
     return this.dir === other.dir;
   }
 
+  /** Normalized and stripped of any trailing separator, so the two are comparable. */
+  private settled(value: string): string {
+    const normalized = this.rules.normalize(value);
+    let end = normalized.length;
+    while (end > 0 && normalized[end - 1] === this.rules.sep) end -= 1;
+    return normalized.slice(0, end);
+  }
+
   /**
-   * Whether `target` is this directory or sits inside it. Both sides are
-   * normalized first, so this holds on its own rather than relying on whoever
-   * built the target to have collapsed a `..` already - it is the guard on a
-   * write named by a remote tree entry. The separator matters too: without it
+   * Whether `target` is this directory or sits inside it - the guard on a write
+   * named by a remote tree entry, so it errs towards refusing.
+   *
+   * Both sides are normalized, so a `..` is collapsed here rather than trusted
+   * to have been collapsed by whoever built the target. Both are also stripped
+   * of a trailing separator: `normalize` keeps one on a UNC root and on any
+   * directory the user wrote with one, and `outer + sep` then matched nothing at
+   * all. The separator still matters in the comparison itself - without it
    * `/tmp/files` would look like it contained `/tmp/files-elsewhere`.
+   *
+   * Both paths must be of the same kind. Comparing a relative path with an
+   * absolute one answers false, because nothing here knows what the relative
+   * one is relative to.
    */
   contains(target: PathArg): boolean {
-    const inner = this.rules.normalize(pathString(target));
-    const outer = this.rules.normalize(this.dir);
+    const inner = this.settled(pathString(target));
+    const outer = this.settled(this.dir);
     return inner === outer || inner.startsWith(outer + this.rules.sep);
   }
 
   toString(): string {
+    return this.dir;
+  }
+
+  /**
+   * A path is worth exactly its string on the wire. Without this, the rules
+   * object rides along and a payload gets `{"dir":...}` where it wanted a path -
+   * silently, since making the rules serializable also removed the crash that
+   * used to catch it.
+   */
+  toJSON(): string {
     return this.dir;
   }
 }
@@ -121,6 +147,11 @@ export class FilePath {
   }
 
   toString(): string {
+    return this.file;
+  }
+
+  /** As with a directory: a file path is worth its string, and nothing else. */
+  toJSON(): string {
     return this.file;
   }
 }

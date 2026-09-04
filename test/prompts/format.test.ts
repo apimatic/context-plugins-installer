@@ -59,3 +59,30 @@ test('an empty path, or no home to compare against, is left alone', () => {
   assert.equal(f.path('', HOME), '');
   assert.equal(f.path('/home/dev/x', ''), '/home/dev/x');
 });
+
+/**
+ * The trim that stops a trailing separator moving the boundary can reduce the
+ * home to nothing, and every string starts with nothing - so every absolute
+ * path was rewritten as though it sat inside the home. Reachable with HOME=/.
+ */
+test('a home of just the root leaves paths alone', () => {
+  assert.equal(f.path('/etc/passwd', '/'), '/etc/passwd');
+  assert.equal(f.path('/etc/passwd', '//'), '/etc/passwd');
+  assert.equal(f.path('/etc/passwd', path.sep), '/etc/passwd');
+});
+
+/**
+ * A boundary is the host's separator, or a forward slash which is legal on
+ * Windows too - not a bare backslash everywhere. On POSIX a backslash is an
+ * ordinary character in a filename, and treating it as a boundary printed a
+ * path that does not resolve.
+ */
+test('the boundary separator belongs to the host, not any backslash', () => {
+  const backslash = String.fromCharCode(92);
+  const target = '/home/dev' + backslash + 'backup';
+  if (process.platform === 'win32') {
+    assert.equal(f.path(target, HOME), '~' + backslash + 'backup');
+  } else {
+    assert.equal(f.path(target, HOME), target, 'a backslash is part of the name here');
+  }
+});

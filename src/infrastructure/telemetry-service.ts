@@ -178,9 +178,13 @@ export function createTelemetry({
         `${brand.displayName} collects anonymous usage data: ${COLLECTED}. Nothing else: no file ` +
         `paths, usernames, messages or secrets. Opt out with '${BIN} telemetry disable' or ` +
         `DO_NOT_TRACK=1; CP_TELEMETRY=log shows each event instead of sending it.`,
+      // Remembered only once it has been shown. Writing the flag here rather
+      // than in `onShown` left a window - the awaited POST below sits inside it
+      // - where an interrupt banked the flag against a notice nobody saw, and
+      // `disclose` returns early ever after. A write that fails is the safe
+      // direction: the notice simply appears again next run.
+      onShown: () => void writeState(file, { ...state, noticeShown: true }),
     });
-    const written = writeState(file, { ...state, noticeShown: true });
-    if (!written.ok) lines.push({ kind: 'debug', text: written.error.message });
   }
 
   async function send(events: TelemetryEvent[], lines: TelemetryLine[]): Promise<void> {

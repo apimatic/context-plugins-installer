@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
 import * as paths from '../src/paths.js';
-import { log } from '../src/prompts/terminal.js';
+import { printTelemetryLines } from '../src/prompts/telemetry.js';
 import {
   COLLECTED,
   EVENTS,
@@ -100,17 +100,13 @@ function telemetryFor(m: Machine, fetchImpl: FetchLike, over: Partial<TelemetryO
 }
 
 /**
- * Flushes, then replays the lines exactly as cli.ts does. The sender no longer
- * prints - it hands back what it would have said - so this keeps the assertions
- * below describing what a user actually sees, and exercises the replay too.
+ * Flushes, then renders through the same function cli.ts uses - not a copy of
+ * it, so a change to how a line is printed cannot pass here and fail there.
  */
 async function flushQuietly(t: Telemetry) {
   const con = silenceConsole();
   try {
-    for (const line of await t.flush()) {
-      if (line.kind === 'debug') log.debug(line.text);
-      else log.notice(line.text, { verbatim: line.verbatim });
-    }
+    printTelemetryLines(await t.flush());
   } finally {
     con.restore();
   }

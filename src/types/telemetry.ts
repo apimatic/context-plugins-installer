@@ -38,4 +38,11 @@ export interface TelemetryLine {
   text: string;
   /** notice only: print as written, without the usual wrapping. */
   verbatim?: boolean;
+  /**
+   * Called once the line has actually reached the terminal. This is how the
+   * one-time disclosure is remembered only after it was shown: persisting that
+   * first left a window - an awaited network POST sat in it - where an
+   * interrupt suppressed the notice permanently.
+   */
+  onShown?: () => void;
 }

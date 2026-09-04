@@ -51,8 +51,17 @@ export function writeState(file: FilePath, state: TelemetryState): Result<void, 
     fs.renameSync(tmp.toString(), file.toString());
     return ok(undefined);
   } catch (e) {
-    fs.rmSync(tmp.toString(), { force: true });
-    return err(new Failure(`telemetry: could not write ${file}: ${errorMessage(e)}`));
+    const failure = new Failure(`telemetry: could not write ${file}: ${errorMessage(e)}`);
+    // `force: true` only swallows ENOENT. A directory at the temp path, or a
+    // scanner holding it open after a failed rename, still throws - and that
+    // throw must not escape in place of the reason we are here, which is the
+    // one thing the caller can act on.
+    try {
+      fs.rmSync(tmp.toString(), { force: true });
+    } catch {
+      /* a temp file outliving the failure is the lesser problem */
+    }
+    return err(failure);
   }
 }
 

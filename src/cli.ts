@@ -7,6 +7,7 @@ import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import { format as f } from './prompts/format.js';
+import { printTelemetryLines } from './prompts/telemetry.js';
 import {
   COLLECTED,
   createTelemetry,
@@ -442,10 +443,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
     return 1;
   } finally {
     // The sender never prints. It hands back what it would have said, in order,
-    // and this is where any of it reaches a terminal.
-    for (const line of await telemetry.flush()) {
-      if (line.kind === 'debug') log.debug(line.text);
-      else log.notice(line.text, { verbatim: line.verbatim });
-    }
+    // and one renderer puts it on the terminal.
+    printTelemetryLines(await telemetry.flush());
   }
 }

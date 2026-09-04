@@ -96,3 +96,30 @@ test('containment follows the target platform separator', () => {
   assert.equal(dest.contains(new FilePath('C:\\work\\files\\a.md', WIN)), true);
   assert.equal(dest.contains(new FilePath('C:\\work\\files-elsewhere\\a.md', WIN)), false);
 });
+
+/**
+ * `normalize` keeps a trailing separator on a UNC root and on any directory the
+ * user wrote with one, and `outer + sep` then matched nothing at all - so the
+ * guard refused every legitimate write under such a directory.
+ */
+test('a trailing separator on the directory does not make it contain nothing', () => {
+  assert.equal(new DirectoryPath('/tmp/files/', POSIX).contains('/tmp/files/a.md'), true);
+  assert.equal(new DirectoryPath('/tmp/files//', POSIX).contains('/tmp/files/a.md'), true);
+  const unc = SEP + SEP + 'server' + SEP + 'share';
+  assert.equal(new DirectoryPath(unc, WIN).contains(unc + SEP + 'f.txt'), true);
+  // and the refusals it exists for still hold
+  assert.equal(new DirectoryPath('/tmp/files/', POSIX).contains('/tmp/files-elsewhere/x'), false);
+  assert.equal(new DirectoryPath('/tmp/files/', POSIX).contains('/tmp/files/../../etc/pw'), false);
+});
+
+/**
+ * Holding node's path namespace made `JSON.stringify` of a path throw, which at
+ * least failed loudly. Making the rules serializable removed that crash, so
+ * without a toJSON a payload would quietly get an object where it wanted a path.
+ */
+test('a path serializes to its string, not to its innards', () => {
+  assert.equal(JSON.stringify(new DirectoryPath('/a/b', POSIX)), '"/a/b"');
+  assert.equal(JSON.stringify(new FilePath('/a/b.json', POSIX)), '"/a/b.json"');
+  assert.equal(JSON.stringify({ dir: new DirectoryPath('/a/b', POSIX) }), '{"dir":"/a/b"}');
+  assert.deepEqual(JSON.parse(JSON.stringify([new DirectoryPath('/a', POSIX)])), ['/a']);
+});
