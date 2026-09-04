@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/apimatic/context-plugins-installer/compare/v0.7.0...v0.8.0) (2026-09-04)
+
+
+### Features
+
+* **telemetry:** let Mixpanel add an approximate location to each event ([#11](https://github.com/apimatic/context-plugins-installer/issues/11)) ([a351689](https://github.com/apimatic/context-plugins-installer/commit/a351689c8463aecdfc96bf8d1df756121882e464))
+
 # [0.7.0](https://github.com/apimatic/context-plugins-installer/compare/v0.6.0...v0.7.0) (2026-09-03)
 
 
