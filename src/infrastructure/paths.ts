@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 
-import type { PathOpts } from './types/env.js';
-import { DirectoryPath, FilePath, rulesFor, type PathRules } from './types/file/paths.js';
+import type { PathOpts } from '../types/env.js';
+import { DirectoryPath, FilePath, rulesFor, type PathRules } from '../types/file/paths.js';
 
 // Every path carries the rules of the *target* platform, not the host, so the
 // cross-platform table is exactly assertable from any host.

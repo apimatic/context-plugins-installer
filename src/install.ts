@@ -10,7 +10,7 @@ import {
 } from './harness/index.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
-import * as paths from './paths.js';
+import * as paths from './infrastructure/paths.js';
 import { createPrompter } from './prompt.js';
 import { isInteractive } from './infrastructure/environment.js';
 import { createSession } from './session.js';

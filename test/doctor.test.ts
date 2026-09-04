@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { resolveBrand } from '../src/brand.js';
 import { rawUrl } from '../src/catalog.js';
 import { diagnose } from '../src/doctor.js';
-import * as paths from '../src/paths.js';
+import * as paths from '../src/infrastructure/paths.js';
 import type { DoctorCheck, DoctorReport } from '../src/types/doctor.js';
 import type { Env } from '../src/types/env.js';
 import type { Deps } from '../src/types/ports.js';

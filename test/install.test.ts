@@ -13,7 +13,7 @@ import {
   chooseHarnesses,
 } from '../src/install.js';
 import * as manifest from '../src/manifest.js';
-import * as paths from '../src/paths.js';
+import * as paths from '../src/infrastructure/paths.js';
 import type { Brand } from '../src/types/brand.js';
 import type { HarnessName } from '../src/types/harness.js';
 import type { Deps } from '../src/types/ports.js';

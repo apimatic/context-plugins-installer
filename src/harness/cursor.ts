@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 
 import { log } from '../log.js';
-import * as paths from '../paths.js';
+import * as paths from '../infrastructure/paths.js';
 import { format as f } from '../prompts/format.js';
 import type { DirectoryPath } from '../types/file/paths.js';
 import type {

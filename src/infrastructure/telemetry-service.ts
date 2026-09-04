@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { BIN } from '../brand.js';
-import * as paths from '../paths.js';
+import * as paths from './paths.js';
 import type { Brand } from '../types/brand.js';
 import type { Env, PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';

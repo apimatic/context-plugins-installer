@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
-import * as paths from '../src/paths.js';
+import * as paths from '../src/infrastructure/paths.js';
 import { printTelemetryLines } from '../src/prompts/telemetry.js';
 import {
   COLLECTED,

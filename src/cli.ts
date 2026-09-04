@@ -5,7 +5,7 @@ import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
-import * as paths from './paths.js';
+import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
 import { printTelemetryLines } from './prompts/telemetry.js';
 import {
