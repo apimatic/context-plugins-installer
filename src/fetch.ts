@@ -9,18 +9,9 @@ import { GitRef } from './types/ids/git-ref.js';
 import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps, FetchLike, MaterializedSource, RunResult } from './types/ports.js';
 import type { RepoHandle } from './types/session.js';
-import {
-  UserError,
-  ensureDir,
-  rmrf,
-  isDirNonEmpty,
-  which,
-  run,
-  pool,
-  countFiles,
-  isPlainObject,
-  errorMessage,
-} from './util.js';
+import { UserError, pool, isPlainObject, errorMessage } from './util.js';
+import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './infrastructure/file-system.js';
+import { run, which } from './infrastructure/process-runner.js';
 
 export const DOWNLOAD_CONCURRENCY = 8;
 

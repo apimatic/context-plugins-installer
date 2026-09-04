@@ -1,8 +1,6 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
 import { BIN, resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
+import { packageVersion } from './infrastructure/environment.js';
 import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
@@ -21,15 +19,7 @@ import type { Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
 import type { Manifest } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
-import { UserError, isPlainObject, errorMessage } from './util.js';
-
-// package.json is one directory up from both src/ (tests) and lib/ (published).
-function packageVersion(): string {
-  const parsed: unknown = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
-  );
-  return isPlainObject(parsed) && typeof parsed.version === 'string' ? parsed.version : 'unknown';
-}
+import { UserError, errorMessage } from './util.js';
 
 const VALUE_FLAGS = ['repo', 'ref', 'marketplace', 'targets'] as const;
 const BOOL_FLAGS = ['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version'] as const;

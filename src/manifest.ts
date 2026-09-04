@@ -8,7 +8,8 @@ import type {
   Manifest,
   ManifestEntry,
 } from './types/installed-record.js';
-import { ensureDir, stripBom, isPlainObject, nonEmptyString } from './util.js';
+import { stripBom, isPlainObject, nonEmptyString } from './util.js';
+import { ensureDir } from './infrastructure/file-system.js';
 
 export const MANIFEST_VERSION = 1;
 

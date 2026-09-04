@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { BIN } from './brand.js';
 import { log } from './log.js';
 import * as paths from './paths.js';
-import { isCi, isInteractive } from './prompt.js';
+import { isCi, isInteractive } from './infrastructure/environment.js';
 import type { Brand } from './types/brand.js';
 import type { Env, PathOpts } from './types/env.js';
 import type { FilePath } from './types/file/paths.js';
@@ -18,7 +18,6 @@ import type {
 } from './types/telemetry.js';
 import {
   ENV_OFF,
-  ensureDir,
   envFlag,
   errorCode,
   errorMessage,
@@ -26,6 +25,7 @@ import {
   nonEmptyString,
   stripBom,
 } from './util.js';
+import { ensureDir } from './infrastructure/file-system.js';
 
 // Title case with a product prefix, the convention of the Mixpanel project
 // these land in.

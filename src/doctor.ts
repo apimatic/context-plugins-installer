@@ -12,7 +12,9 @@ import type { DoctorCheck, DoctorReport } from './types/doctor.js';
 import type { PathOpts } from './types/env.js';
 import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Deps, FetchLike } from './types/ports.js';
-import { UserError, which, run, ensureDir, rmrf, isPlainObject, errorMessage } from './util.js';
+import { UserError, isPlainObject, errorMessage } from './util.js';
+import { ensureDir, rmrf } from './infrastructure/file-system.js';
+import { run, which } from './infrastructure/process-runner.js';
 
 export const MIN_NODE = 18;
 

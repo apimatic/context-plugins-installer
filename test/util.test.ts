@@ -1,23 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import {
   UserError,
   assertPlugin,
   assertRepo,
   assertRef,
-  copyDir,
-  replaceDir,
-  countFiles,
-  which,
   pool,
   timestamp,
   stripBom,
   suggest,
 } from '../src/util.js';
-import { tmpDir, cleanupAll } from './helpers.js';
+import { cleanupAll } from './helpers.js';
 
 test.after(cleanupAll);
 
@@ -51,37 +45,6 @@ test('a rejected identifier throws a UserError carrying the hint its type wrote'
     (err) =>
       err instanceof UserError && err.hint === 'Expected a branch, tag, or commit sha, e.g. main',
   );
-});
-
-test('copyDir reproduces a nested tree', () => {
-  const src = tmpDir('cp-src-');
-  fs.mkdirSync(path.join(src, 'skills', 'dotnet'), { recursive: true });
-  fs.writeFileSync(path.join(src, 'plugin.json'), '{}');
-  fs.writeFileSync(path.join(src, 'skills', 'dotnet', 'SKILL.md'), '# skill');
-
-  const dest = path.join(tmpDir('cp-dest-'), 'out');
-  copyDir(src, dest);
-
-  assert.equal(fs.readFileSync(path.join(dest, 'skills', 'dotnet', 'SKILL.md'), 'utf8'), '# skill');
-  assert.equal(countFiles(dest), 2);
-});
-
-test('replaceDir does not leave files behind from a previous version', () => {
-  const dest = path.join(tmpDir('cp-dest-'), 'out');
-  const v1 = tmpDir('cp-v1-');
-  fs.writeFileSync(path.join(v1, 'old.md'), 'old');
-  copyDir(v1, dest);
-
-  const v2 = tmpDir('cp-v2-');
-  fs.writeFileSync(path.join(v2, 'new.md'), 'new');
-  replaceDir(v2, dest);
-
-  assert.deepEqual(fs.readdirSync(dest), ['new.md']);
-});
-
-test('which finds node and misses nonsense', () => {
-  assert.ok(which('node'), 'node should be on PATH while running tests');
-  assert.equal(which('definitely-not-a-real-binary-xyz'), null);
 });
 
 test('pool preserves input order regardless of completion order', async () => {

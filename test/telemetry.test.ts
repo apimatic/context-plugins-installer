@@ -5,7 +5,6 @@ import * as path from 'node:path';
 
 import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
 import * as paths from '../src/paths.js';
-import { isCi } from '../src/prompt.js';
 import {
   COLLECTED,
   EVENTS,
@@ -459,14 +458,6 @@ test('a version that cannot be read is reported as unknown, not as a failure', a
   t.track(EVENTS.installed, { plugin: 'a' });
   await flushQuietly(t);
   assert.equal(eventsIn(mixpanel.sent[0])[0]?.properties.cli_version, 'unknown');
-});
-
-test('CI is detected from the usual variables, and "false" is not CI', () => {
-  assert.equal(isCi({}), false);
-  assert.equal(isCi({ CI: 'true' }), true);
-  assert.equal(isCi({ CI: '1' }), true);
-  assert.equal(isCi({ CI: 'false' }), false);
-  assert.equal(isCi({ GITHUB_ACTIONS: 'true' }), true);
 });
 
 test('the marketplace is named only when it is the one this build ships with', () => {

@@ -10,7 +10,7 @@ import type {
   HarnessOpts,
   UninstallOutcome,
 } from '../types/harness.js';
-import { replaceDir, rmrf, exists } from '../util.js';
+import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 
 export const name: HarnessName = 'cursor';
 export const title = 'Cursor';

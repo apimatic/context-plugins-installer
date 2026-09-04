@@ -9,7 +9,7 @@ import type {
   HarnessOpts,
   UninstallOutcome,
 } from '../types/harness.js';
-import { replaceDir, rmrf, exists } from '../util.js';
+import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 
 // VS Code loads a plugin from any folder listed in chat.pluginLocations, so the
 // copy lives under this tool's state dir rather than in VS Code's storage.

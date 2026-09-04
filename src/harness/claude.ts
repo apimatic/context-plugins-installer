@@ -9,7 +9,8 @@ import type {
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { RunCommand, RunResult } from '../types/ports.js';
 import type { Session } from '../types/session.js';
-import { which, run, UserError, stripBom, isPlainObject, nonEmptyString } from '../util.js';
+import { UserError, stripBom, isPlainObject, nonEmptyString } from '../util.js';
+import { run, which } from '../infrastructure/process-runner.js';
 
 export const name: HarnessName = 'claude';
 export const title = 'Claude Code';

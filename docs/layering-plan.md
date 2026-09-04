@@ -635,7 +635,14 @@ Every service returns `Result` and never prints. The old orchestration in `insta
 keeps working through one temporary helper, `orThrow(result)`, which converts a `Failure`
 back into a `UserError`. That helper is the bridge; Phase 5 removes its last caller.
 
-- **2a · state and process**: `file-system.ts`, `process-runner.ts`, `environment.ts`,
+- **2a · state and process**, in slices, because it is the largest: `file-system.ts`,
+  `process-runner.ts`, `environment.ts` first, then the state files, then telemetry.
+  One correction to the file map while doing it: `unicodeSupported` and `colorEnabled`
+  cannot live in `environment.ts`, because `prompts/terminal.ts` reads them to build its
+  glyphs and the boundary lint refuses a prompts module reaching into infrastructure.
+  They stay in `prompts/terminal.ts` until Phase 6, where the router reads the
+  environment and configures the terminal - which is what the target already implies.
+  Original list: `file-system.ts`, `process-runner.ts`, `environment.ts`,
   `rc-file.ts`, `manifest-store.ts`, `vscode-settings.ts`, `telemetry-state.ts`,
   `mixpanel-client.ts`, `telemetry-service.ts`. The telemetry notice and the `log`-mode
   lines are returned from `flush()`, printed by the caller. This is also where the string

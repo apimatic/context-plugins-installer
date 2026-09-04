@@ -11,7 +11,8 @@ import {
 import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
-import { isInteractive, createPrompter } from './prompt.js';
+import { createPrompter } from './prompt.js';
+import { isInteractive } from './infrastructure/environment.js';
 import { createSession } from './session.js';
 import { EVENTS, marketplaceLabel } from './telemetry.js';
 import type { Brand } from './types/brand.js';
