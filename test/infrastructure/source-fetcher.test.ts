@@ -12,6 +12,7 @@ import {
   type GitTree,
 } from '../../src/infrastructure/source-fetcher.js';
 import type { Env } from '../../src/types/env.js';
+import type { FetchResponseLike } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
 import { tmpDir, cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
 
@@ -250,6 +251,67 @@ test('a failed download is a failure, not a throw, and takes the workspace with 
   });
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.error.message, /Download failed \(500\)/);
+});
+
+/**
+ * `materialize` owns a temp workspace until it hands `cleanup` to the caller, so
+ * anything that leaves without handing it over has to remove it. A Failure is
+ * not the only such exit: a body that dies mid-read throws, and the old code's
+ * try/catch was the only thing deleting the directory in that case.
+ *
+ * The temp root is redirected so the check is exact rather than a count of
+ * whatever else the machine has in /tmp.
+ */
+test('a fetch that throws leaves no temp workspace behind', async () => {
+  const root = tmpDir('cp-tmproot-');
+  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
+  process.env.TMPDIR = root;
+  process.env.TEMP = root;
+  process.env.TMP = root;
+
+  const blob = 'plugins/alpha/plugin.json';
+  const fetchImpl = async (url: string): Promise<FetchResponseLike> => {
+    const body = JSON.stringify({ tree: [{ type: 'blob', path: blob }] });
+    if (url === TREE_URL) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => body,
+        json: async () => JSON.parse(body) as unknown,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({}),
+      arrayBuffer: async () => {
+        throw new Error('connection reset while reading the body');
+      },
+    };
+  };
+
+  try {
+    await assert.rejects(
+      materialize({
+        repo: REPO,
+        ref: 'main',
+        sourcePath: 'plugins/alpha',
+        deps: { fetchImpl, env: NO_GIT },
+      }),
+      /connection reset/,
+    );
+    assert.deepEqual(
+      fs.readdirSync(root).filter((n) => n.startsWith('context-plugins-')),
+      [],
+      'the workspace outlived the failure',
+    );
+  } finally {
+    process.env.TMPDIR = saved.TMPDIR;
+    process.env.TEMP = saved.TEMP;
+    process.env.TMP = saved.TMP;
+  }
 });
 
 test('pool preserves input order regardless of completion order', async () => {

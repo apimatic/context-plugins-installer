@@ -70,18 +70,26 @@ export async function materialize({
 }: SourceRequest): Promise<Result<MaterializedSource, Failure>> {
   const { work, cleanup } = tempWorkspace();
 
-  const git = which('git', deps.env || process.env);
-  // The API route is what happens when git is absent, and saying so before the
-  // work starts is the point of the line.
-  if (!git) notify({ kind: 'no-git' });
-  const dir = git
-    ? await viaGit({ git, repo, ref, sourcePath, work, notify })
-    : await viaApi({ repo, ref, sourcePath, work, deps, notify });
-  if (!dir.ok) {
+  // A Failure is not the only way out: a spawn that never starts, a full disk, a
+  // response body that dies mid-read all throw, and the workspace has to go
+  // either way. Only the success arm hands `cleanup` to the caller.
+  try {
+    const git = which('git', deps.env || process.env);
+    // The API route is what happens when git is absent, and saying so before the
+    // work starts is the point of the line.
+    if (!git) notify({ kind: 'no-git' });
+    const dir = git
+      ? await viaGit({ git, repo, ref, sourcePath, work, notify })
+      : await viaApi({ repo, ref, sourcePath, work, deps, notify });
+    if (!dir.ok) {
+      cleanup();
+      return err(dir.error);
+    }
+    return ok({ dir: dir.value, cleanup, via: git ? 'git' : 'api' });
+  } catch (e) {
     cleanup();
-    return err(dir.error);
+    throw e;
   }
-  return ok({ dir: dir.value, cleanup, via: git ? 'git' : 'api' });
 }
 
 interface CloneRequest {
