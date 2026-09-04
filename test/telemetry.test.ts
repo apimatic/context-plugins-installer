@@ -22,7 +22,7 @@ import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 test.after(cleanupAll);
 
 const REPO = 'context-plugins/plugin-marketplace';
-const TRACK_URL = 'https://api.mixpanel.com/track?ip=0&verbose=1';
+const TRACK_URL = 'https://api.mixpanel.com/track?ip=1&verbose=1';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const brand = (over: ResolveBrandOptions = {}): Brand =>
@@ -116,7 +116,11 @@ test('one flush is one request carrying the token, the anonymous id, and the run
 
   assert.equal(mixpanel.sent.length, 1, 'both events travel in one batch');
   const [req] = mixpanel.sent;
-  assert.equal(req?.url, TRACK_URL, 'ip=0 keeps geolocation off, verbose=1 makes errors readable');
+  assert.equal(
+    req?.url,
+    TRACK_URL,
+    'ip=1 lets Mixpanel geolocate the request, verbose=1 makes errors readable',
+  );
   assert.equal(req?.init?.method, 'POST');
   assert.equal(req?.init?.headers?.['Content-Type'], 'application/json');
   assert.ok(req?.init?.signal instanceof AbortSignal, 'the request is bounded');

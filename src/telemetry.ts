@@ -47,7 +47,8 @@ export const FLUSH_TIMEOUT_MS = 1500;
 export const COLLECTED =
   'the plugin id, the editor it went into, the marketplace when it is the built-in one, ' +
   'the command, OS, CPU architecture, Node and CLI version, whether the run was interactive ' +
-  'or in CI, how long it took, and a random id for this machine';
+  'or in CI, how long it took, a random id for this machine, and an approximate location ' +
+  '(city, region, country) that Mixpanel derives from the request address and then discards';
 
 interface TelemetryState {
   id: string | null;
@@ -283,7 +284,9 @@ export function createTelemetry({
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     timer.unref();
     try {
-      const res = await fetchImpl(`${brand.telemetry.host}/track?ip=0&verbose=1`, {
+      // ip=1: Mixpanel derives city, region and country from the request address at
+      // ingestion and discards the address. verbose=1 makes a rejection readable.
+      const res = await fetchImpl(`${brand.telemetry.host}/track?ip=1&verbose=1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/plain' },
         body: JSON.stringify(body),
