@@ -53,25 +53,6 @@ export const errorMessage = (err: unknown): string =>
 export const errorCode = (err: unknown): unknown =>
   err instanceof Error && 'code' in err ? err.code : undefined;
 
-/** Bounded-concurrency map, in input order. */
-export async function pool<T, R>(
-  items: readonly T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
-    for (;;) {
-      const index = cursor++;
-      if (index >= items.length) return;
-      results[index] = await worker(items[index] as T, index);
-    }
-  });
-  await Promise.all(runners);
-  return results;
-}
-
 /** yyyyMMdd-HHmmss */
 export function timestamp(date: Date = new Date()): string {
   const p = (n: number, w = 2) => String(n).padStart(w, '0');

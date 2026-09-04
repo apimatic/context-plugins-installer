@@ -6,7 +6,6 @@ import {
   assertPlugin,
   assertRepo,
   assertRef,
-  pool,
   timestamp,
   stripBom,
   suggest,
@@ -45,15 +44,6 @@ test('a rejected identifier throws a UserError carrying the hint its type wrote'
     (err) =>
       err instanceof UserError && err.hint === 'Expected a branch, tag, or commit sha, e.g. main',
   );
-});
-
-test('pool preserves input order regardless of completion order', async () => {
-  const items = [30, 5, 20, 1, 10];
-  const results = await pool(items, 2, async (ms) => {
-    await new Promise((r) => setTimeout(r, ms));
-    return ms;
-  });
-  assert.deepEqual(results, items);
 });
 
 test('timestamp matches the PowerShell backup suffix format', () => {

@@ -663,8 +663,15 @@ back into a `UserError`. That helper is the bridge; Phase 5 removes its last cal
   is the other such import, and Phase 3 moves it into `types/brand.ts`; once both are
   gone the rule can name the root modules and mean it. The 15
   thrown errors in `fetch.ts` and `catalog.ts` become `err(new Failure(...))` with the same
-  text and hint. The "git not found" warning and the "downloaded N files" line become facts
-  on the result.
+  text and hint. Correction while doing it: the fetcher's six log lines cannot become facts
+  on the result. "git not found - falling back to the GitHub API" is only useful _before_
+  the slow fallback it explains, and "Fetching marketplace via git ..." before the clone it
+  announces; reporting either from the returned value moves it after the work, which is a
+  user-visible change in a phase that promises none. They are a `SourceEvent` emitted the
+  moment they happen, rendered by `prompts/source.ts` - the shape Phase 4 gives every
+  harness, arriving one phase early. The registry client's one line is different and does
+  ride on the result, because it describes a file already skipped; it is carried on the
+  failure arm too, so a later failure cannot swallow it.
 - **2c · Claude CLI**: `claude-cli.ts` with `listMarketplaces`, `listPlugins`
   (whole-or-null), `marketplaceAdd`, `marketplaceUpdate`, `pluginInstall`,
   `pluginUninstall`. `harness/claude.ts` calls it instead of `exec` directly; its policy is

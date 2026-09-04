@@ -1,8 +1,10 @@
 import { loadCatalog } from './catalog.js';
-import { openRepo } from './fetch.js';
+import { openRepo } from './infrastructure/source-fetcher.js';
+import { announceSource } from './prompts/source.js';
 import type { Catalog } from './types/catalog.js';
 import type { Deps } from './types/ports.js';
 import type { RepoHandle, Session } from './types/session.js';
+import { orThrow } from './util.js';
 
 const keyOf = (repo: string, ref: string): string => `${repo}@${ref}`;
 
@@ -39,11 +41,13 @@ export function createSession({ deps = {} }: { deps?: Deps } = {}): Session {
       const key = keyOf(repo, ref);
       let opening = repos.get(key);
       if (!opening) {
-        opening = openRepo({ repo, ref, deps });
+        opening = openRepo({ repo, ref, deps, notify: announceSource });
         repos.set(key, opening);
       }
       const handle = await opening;
-      return handle.checkout(sourcePath);
+      // The fetcher answers with a Result now; every caller of a session still
+      // expects a throw, so the bridge sits here until Phase 5 moves it up.
+      return orThrow(await handle.checkout(sourcePath));
     },
 
     async cleanup() {

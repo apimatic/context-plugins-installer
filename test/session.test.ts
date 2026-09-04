@@ -1,13 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import { openRepo, materialize } from '../src/fetch.js';
 import * as claude from '../src/harness/claude.js';
 import { createSession } from '../src/session.js';
-import type { Env } from '../src/types/env.js';
 import type { RunCommand, RunResult } from '../src/types/ports.js';
 import { cleanupAll, stubFetch, silenceConsole } from './helpers.js';
 
@@ -21,68 +17,6 @@ async function quietly<T>(fn: () => Promise<T>): Promise<T> {
     con.restore();
   }
 }
-
-// An empty PATH means `which('git')` finds nothing, which is the only way to
-// exercise the GitHub API path on a machine that has git installed.
-const NO_GIT: Env = { PATH: '', PATHEXT: '' };
-
-test('one repo handle fetches the API tree once and serves every plugin from it', async () => {
-  const repo = 'acme/plugin-marketplace';
-  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
-  const raw = (p: string) => `https://raw.githubusercontent.com/${repo}/main/${p}`;
-  const fetchImpl = stubFetch({
-    [treeUrl]: {
-      body: {
-        tree: [
-          { type: 'blob', path: 'plugins/alpha/plugin.json' },
-          { type: 'blob', path: 'plugins/beta/plugin.json' },
-        ],
-      },
-    },
-    [raw('plugins/alpha/plugin.json')]: { body: { name: 'alpha' } },
-    [raw('plugins/beta/plugin.json')]: { body: { name: 'beta' } },
-  });
-
-  const handle = await quietly(() =>
-    openRepo({ repo, ref: 'main', deps: { fetchImpl, env: NO_GIT } }),
-  );
-  try {
-    const alpha = await quietly(() => handle.checkout('plugins/alpha'));
-    const beta = await quietly(() => handle.checkout('plugins/beta'));
-
-    assert.ok(fs.existsSync(path.join(alpha, 'plugin.json')), 'alpha was written');
-    assert.ok(fs.existsSync(path.join(beta, 'plugin.json')), 'beta was written');
-    assert.notEqual(alpha, beta, 'each plugin gets its own directory');
-
-    const trees = fetchImpl.calls.filter((u) => u === treeUrl).length;
-    assert.equal(trees, 1, `expected the tree to be fetched once, got ${trees}`);
-  } finally {
-    handle.cleanup();
-  }
-});
-
-test('checking the same plugin out twice does not download it again', async () => {
-  const repo = 'acme/plugin-marketplace';
-  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
-  const blob = 'plugins/alpha/plugin.json';
-  const rawBlob = `https://raw.githubusercontent.com/${repo}/main/${blob}`;
-  const fetchImpl = stubFetch({
-    [treeUrl]: { body: { tree: [{ type: 'blob', path: blob }] } },
-    [rawBlob]: { body: { name: 'alpha' } },
-  });
-
-  const handle = await quietly(() =>
-    openRepo({ repo, ref: 'main', deps: { fetchImpl, env: NO_GIT } }),
-  );
-  try {
-    const first = await quietly(() => handle.checkout('plugins/alpha'));
-    const second = await quietly(() => handle.checkout('plugins/alpha'));
-    assert.equal(first, second);
-    assert.equal(fetchImpl.calls.filter((u) => u === rawBlob).length, 1);
-  } finally {
-    handle.cleanup();
-  }
-});
 
 test('a session reads a marketplace registry once however many plugins ask for it', async () => {
   const repo = 'acme/plugin-marketplace';
@@ -178,29 +112,4 @@ test('without a session the marketplace is registered per call, as before', asyn
   });
 
   assert.equal(calls.filter((c) => c === `plugin marketplace add ${repo}`).length, 2);
-});
-
-test('materialize honours an injected env when probing for git', async () => {
-  const repo = 'acme/plugin-marketplace';
-  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
-  const blob = 'plugins/alpha/plugin.json';
-  const fetchImpl = stubFetch({
-    [treeUrl]: { body: { tree: [{ type: 'blob', path: blob }] } },
-    [`https://raw.githubusercontent.com/${repo}/main/${blob}`]: { body: { name: 'alpha' } },
-  });
-
-  const result = await quietly(() =>
-    materialize({
-      repo,
-      ref: 'main',
-      sourcePath: 'plugins/alpha',
-      deps: { fetchImpl, env: NO_GIT },
-    }),
-  );
-  try {
-    assert.equal(result.via, 'api', 'an empty PATH must force the API route');
-    assert.ok(fs.existsSync(path.join(result.dir, 'plugin.json')));
-  } finally {
-    result.cleanup();
-  }
 });
