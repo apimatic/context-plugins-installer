@@ -652,8 +652,18 @@ back into a `UserError`. That helper is the bridge; Phase 5 removes its last cal
   `rc-file.ts`, `manifest-store.ts`, `vscode-settings.ts`, `telemetry-state.ts`,
   `mixpanel-client.ts`, `telemetry-service.ts`. The telemetry notice and the `log`-mode
   lines are returned from `flush()`, printed by the caller. This is also where the string
-  arm of `DirArg` and `FileArg` goes: the file-system service takes path objects only, so
-  a caller can no longer hand it a bare string and lose the path's own rules. Take the
+  arm of `DirArg` and `FileArg` was to go, so that a caller could no longer hand the
+  file-system service a bare string and lose the path's own rules. **Moved to Phase 4**,
+  and the reason is worth keeping: narrowing the two aliases and compiling produces 120
+  errors, 106 of them in tests, and almost every production one is inside an fs module
+  passing a host string to itself - `ensureDirFor` handing `path.dirname` to `ensureDir`,
+  `copyDir` and `countFiles` recursing, the fetcher's temp workspace. Those strings are
+  correct: an fs boundary is exactly where a path becomes a string. The leak that is
+  worth closing is a different one - the source directory leaves the fetcher as a string
+  and travels through the session and `HarnessContext` into the harnesses, which is why
+  `cursor.ts` still calls `path.join(srcDir, ...)`. Type that as a `DirectoryPath` when
+  Phase 4 rebuilds `HarnessContext` and the `deps.materialize` seam, and the arm can go
+  with it. Take the
   chance to memoise the per-blob `mkdirSync` in the API download, which runs once per file
   rather than once per directory.
 - **2b · network**: `github-registry-client.ts`, `source-fetcher.ts`, `session.ts`.
