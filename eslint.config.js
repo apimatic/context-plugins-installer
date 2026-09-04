@@ -23,24 +23,53 @@ const LAYER = {
 const LOG_SHIM = '**/log.js';
 const TERMINAL = [LOG_SHIM, '**/prompts/terminal.js'];
 
-// node:path and node:url are pure and stay allowed; these are not.
+// Everything a pure layer must not reach, in both spellings: `require('fs')` and
+// `require('node:fs')` are the same module, so a list naming one and not the
+// other is a hole. `node:crypto` is here for nondeterminism rather than I/O - a
+// decision that mints a UUID is not a decision that can be tested twice.
+//
+// A denylist, reluctantly. An allowlist would be the better shape, since a
+// builtin Node adds later would then be barred by default, but this rule's
+// `group` globs support neither negation nor a "bare specifier" pattern that
+// leaves relative imports alone: `'*/*'` matches `'./failure.js'` too. Measured,
+// not assumed. So when Node grows a way to touch the world, add it here.
 const NODE_IO = [
   'fs',
   'node:fs',
+  'fs/promises',
   'node:fs/promises',
   'os',
   'node:os',
   'child_process',
   'node:child_process',
+  'crypto',
+  'node:crypto',
   'http',
   'node:http',
   'https',
   'node:https',
+  'http2',
+  'node:http2',
   'net',
   'node:net',
+  'tls',
+  'node:tls',
+  'dns',
+  'node:dns',
+  'dgram',
+  'node:dgram',
+  'cluster',
+  'node:cluster',
+  'worker_threads',
+  'node:worker_threads',
+  'zlib',
+  'node:zlib',
   'readline',
   'node:readline',
+  'readline/promises',
   'node:readline/promises',
+  'process',
+  'node:process',
 ];
 
 /** One directory's import boundary. `noIo` also bars the node builtins above. */
@@ -105,7 +134,7 @@ module.exports = [
     'types',
     [
       {
-        group: Object.values(LAYER),
+        group: [...Object.values(LAYER), LOG_SHIM],
         message: 'src/types is the bottom of the stack: it may import types/ and nothing else.',
       },
     ],
@@ -121,6 +150,7 @@ module.exports = [
           LAYER.harnesses,
           LAYER.infrastructure,
           LAYER.prompts,
+          LOG_SHIM,
         ],
         message: 'src/application is pure - data in, data out. It may import types/ only.',
       },

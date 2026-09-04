@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { BIN, DEFAULTS, resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
-import { UserError } from '../src/util.js';
+import { UserError, isPlainObject } from '../src/util.js';
 import { tmpDir, cleanupAll } from './helpers.js';
 
 test.after(cleanupAll);
@@ -34,8 +34,12 @@ test('BIN is the command name package.json actually installs', () => {
   const pkg: unknown = JSON.parse(
     fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
   );
-  const bin = (pkg as { bin: Record<string, string> }).bin;
-  assert.deepEqual(Object.keys(bin), [BIN]);
+  // Validated rather than cast: a missing `bin` should fail this assertion, not
+  // throw a TypeError from inside Object.keys.
+  if (!isPlainObject(pkg) || !isPlainObject(pkg.bin)) {
+    assert.fail('package.json must declare a bin object');
+  }
+  assert.deepEqual(Object.keys(pkg.bin), [BIN]);
 });
 
 test('the default marketplace name is not hardcoded', () => {

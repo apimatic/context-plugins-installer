@@ -666,6 +666,15 @@ against a temp directory or a fake runner, none against the developer's home. Sh
   `foreignTargets`, the rebuild rule. `types/manifest-context.ts`: `read()`, `find()`,
   `findRaw()`, `conflictFor()`, `recordInstall()`, `applyUninstall(decision)`, over the
   `ManifestStore` port.
+- Settle three things Phase 0 left behind when it removed brand profiles, all of them
+  defences for a caller that no longer exists. `BrandTelemetry.token` is now never null
+  in a real run, so the `no-token` opt-out and its `not configured` line in `doctor` are
+  reachable from tests alone: either narrow the field to `string` and delete the branch,
+  or keep both and say in the type why. The optional chaining in
+  `brand.telemetry?.token` and in `marketplaceLabel`, with the test named for a Brand
+  from an older caller, guards against a malformed Brand that only a cast could build.
+  And `BIN` moves from `brand.ts` to `types/brand.ts`, which removes the import edge
+  Phase 0 had to add from `telemetry.ts` to `brand.ts`.
 
 **Exit:** `grep -rn 'node:' src/application` is empty. `install.ts` no longer touches
 `manifest.upsert` directly. No new shim.

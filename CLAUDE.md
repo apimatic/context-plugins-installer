@@ -35,12 +35,15 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
 - **Never `shell: true`.** Spawning goes through `util.run()`, which routes Windows
   `.cmd` shims through cmd.exe with explicit quoting (Node refuses to spawn `.cmd`
   directly since the CVE-2024-27980 hardening).
-- **All terminal output goes through `src/log.ts`** — no `console.log` elsewhere.
+- **All terminal output goes through `src/prompts/terminal.ts`** — no `console.log` elsewhere.
   Glyphs are built from char codes with ASCII fallbacks for legacy Windows consoles;
   keep the source itself ASCII, escaping any character that must not be normalised
   (`\u00a0` in `toAscii` — the port lost that one to an editor once already).
   `debug` and `warnStderr` write to stderr so `--json` output stays parseable; anything
-  a `--json` path emits alongside the payload has to use them.
+  a `--json` path emits alongside the payload has to use them. It is the one file the
+  `no-console` rule exempts. `src/log.ts` is a re-export shim for the modules still at
+  `src/*.ts`: never add output to it, and never import it from a layer directory, which
+  eslint refuses.
 - **Validate at the edges, never cast.** Anything crossing a JSON boundary (manifest,
   registry, rc file, `claude` CLI output, GitHub API responses) or entering argv/URLs
   (plugin, repo, ref) is validated where it enters, with `isPlainObject` /
