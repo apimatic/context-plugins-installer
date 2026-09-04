@@ -2,15 +2,15 @@ import * as path from 'node:path';
 
 import { log } from '../log.js';
 import * as paths from '../paths.js';
-import type { DirectoryPath } from '../types/file/paths.js';
 import { format as f } from '../prompts/format.js';
+import type { DirectoryPath } from '../types/file/paths.js';
 import type {
   HarnessContext,
   HarnessName,
   HarnessOpts,
   UninstallOutcome,
 } from '../types/harness.js';
-import { ensureDir, replaceDir, rmrf, exists } from '../util.js';
+import { replaceDir, rmrf, exists } from '../util.js';
 
 export const name: HarnessName = 'cursor';
 export const title = 'Cursor';
@@ -39,7 +39,6 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   }
 
   const dest = destFor(plugin, opts);
-  ensureDir(dest.parent());
   replaceDir(srcDir, dest);
 
   log.ok(`Installed -> ${f.path(dest, opts?.home)}`);

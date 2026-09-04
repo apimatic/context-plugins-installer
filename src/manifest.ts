@@ -1,8 +1,7 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import { NAMES } from './harness/index.js';
-import { pathString, type PathArg } from './types/file/paths.js';
+import { parentOf, pathString, type FileArg } from './types/file/paths.js';
 import type {
   ElidedTargets,
   IgnoredManifestEntry,
@@ -34,7 +33,7 @@ const str = (v: unknown): string | undefined => (nonEmptyString(v) ? v : undefin
 // The write path works on this raw view: the file is shared with hand edits
 // and other versions of this tool, so a row this build cannot read is not its
 // to delete.
-function readRaw(file: PathArg): RawManifest {
+function readRaw(file: FileArg): RawManifest {
   try {
     const data: unknown = JSON.parse(stripBom(fs.readFileSync(pathString(file), 'utf8')));
     const doc = isPlainObject(data) ? data : {};
@@ -95,7 +94,7 @@ function describeIgnored(raw: unknown): IgnoredManifestEntry {
 // A row can be lossy without being dropped: one known target and one this build
 // does not know reads as a shorter targets list than the file holds. That gap is
 // reported too, so the display layer never quietly narrows a row.
-export function read(file: PathArg): Manifest {
+export function read(file: FileArg): Manifest {
   const data = readRaw(file);
   const plugins: ManifestEntry[] = [];
   const ignored: IgnoredManifestEntry[] = [];
@@ -113,9 +112,9 @@ export function read(file: PathArg): Manifest {
   return { version: data.version, plugins, ignored, elided };
 }
 
-export function write(file: PathArg, data: { plugins?: unknown[] }): RawManifest {
+export function write(file: FileArg, data: { plugins?: unknown[] }): RawManifest {
   const target = pathString(file);
-  ensureDir(path.dirname(target));
+  ensureDir(parentOf(file));
   const payload = { version: MANIFEST_VERSION, plugins: data.plugins || [] };
   fs.writeFileSync(target, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
   return payload;
@@ -124,7 +123,7 @@ export function write(file: PathArg, data: { plugins?: unknown[] }): RawManifest
 const sortKey = (p: unknown): string => (isPlainObject(p) ? `${p.repo}/${p.plugin}` : '');
 
 /** Takes the raw record type: uninstall writes back rows it read raw, foreign targets and all. */
-export function upsert(file: PathArg, entry: Record<string, unknown>): RawManifest {
+export function upsert(file: FileArg, entry: Record<string, unknown>): RawManifest {
   const data = readRaw(file);
   data.plugins = data.plugins.filter((p) => !matches(p, entry));
   data.plugins.push(entry);
@@ -132,7 +131,7 @@ export function upsert(file: PathArg, entry: Record<string, unknown>): RawManife
   return write(file, data);
 }
 
-export function remove(file: PathArg, { plugin, repo }: EntryKey): number {
+export function remove(file: FileArg, { plugin, repo }: EntryKey): number {
   const data = readRaw(file);
   const before = data.plugins.length;
   data.plugins = data.plugins.filter((p) => !matches(p, { plugin, repo }));
@@ -140,12 +139,12 @@ export function remove(file: PathArg, { plugin, repo }: EntryKey): number {
   return before - data.plugins.length;
 }
 
-export const find = (file: PathArg, { plugin, repo }: EntryKey): ManifestEntry | null =>
+export const find = (file: FileArg, { plugin, repo }: EntryKey): ManifestEntry | null =>
   read(file).plugins.find((p) => (repo ? sameEntry(p, { plugin, repo }) : p.plugin === plugin)) ||
   null;
 
 /** The raw row, shape unchecked, for entries the sanitized view hides. */
-export const findRaw = (file: PathArg, key: EntryKey): Record<string, unknown> | null =>
+export const findRaw = (file: FileArg, key: EntryKey): Record<string, unknown> | null =>
   readRaw(file).plugins.find((p): p is Record<string, unknown> => matches(p, key)) || null;
 
 // Target names this build does not know belong to whichever tool wrote them, so
@@ -155,4 +154,4 @@ export function foreignTargets(raw: Record<string, unknown> | null): unknown[] {
   return Array.isArray(targets) ? targets.filter((t) => !NAMES.includes(t)) : [];
 }
 
-export const list = (file: PathArg): ManifestEntry[] => read(file).plugins;
+export const list = (file: FileArg): ManifestEntry[] => read(file).plugins;

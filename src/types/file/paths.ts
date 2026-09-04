@@ -9,25 +9,57 @@ import * as nodePath from 'node:path';
  * platform we are running on. `paths.ts` picks these from the requested target,
  * and that is what lets the suite assert a Windows path from a Linux runner.
  */
-export type PathRules = Pick<typeof nodePath, 'join' | 'dirname' | 'basename' | 'sep'>;
-
-export const rulesFor = (platform: string): PathRules =>
-  platform === 'win32' ? nodePath.win32 : nodePath.posix;
+export interface PathRules {
+  join(...parts: string[]): string;
+  dirname(p: string): string;
+  basename(p: string): string;
+  normalize(p: string): string;
+  readonly sep: string;
+}
 
 /**
- * Either kind of path, or a plain string still on its way to being one. The
- * string arm is transitional: it lets a helper take a path from a caller that
- * has not been converted yet, and Phase 2's file-system service drops it.
+ * A plain object rather than `nodePath.win32` itself. Node's path namespaces
+ * carry `.win32` and `.posix` back-references, so holding one would make every
+ * path value circular and `JSON.stringify` of any of them throw. The methods are
+ * bound so detaching them from the namespace stays safe.
  */
-export type PathArg = DirectoryPath | FilePath | string;
+const extract = (rules: typeof nodePath): PathRules => ({
+  join: rules.join.bind(rules),
+  dirname: rules.dirname.bind(rules),
+  basename: rules.basename.bind(rules),
+  normalize: rules.normalize.bind(rules),
+  sep: rules.sep,
+});
+
+const WIN32 = extract(nodePath.win32);
+const POSIX = extract(nodePath.posix);
+
+/** This machine's rules, for a path that is a real path on this machine. */
+export const HOST: PathRules = extract(nodePath);
+
+export const rulesFor = (platform: string): PathRules => (platform === 'win32' ? WIN32 : POSIX);
+
+/**
+ * A path, or a plain string still on its way to being one. The string arm is
+ * transitional: it lets a boundary take a path from a caller that has not been
+ * converted yet, and Phase 2's file-system service drops it. The two aliases are
+ * separate so a helper that needs a directory cannot silently be handed a file.
+ */
+export type DirArg = DirectoryPath | string;
+export type FileArg = FilePath | string;
+export type PathArg = DirArg | FileArg;
 
 export const pathString = (value: PathArg): string =>
   typeof value === 'string' ? value : value.toString();
 
+/** The directory holding `value`, by its own rules when it has any. */
+export const parentOf = (value: PathArg): DirArg =>
+  typeof value === 'string' ? nodePath.dirname(value) : value.parent();
+
 export class DirectoryPath {
   constructor(
     private readonly dir: string,
-    private readonly rules: PathRules = nodePath,
+    private readonly rules: PathRules = HOST,
   ) {}
 
   join(...parts: string[]): DirectoryPath {
@@ -42,21 +74,21 @@ export class DirectoryPath {
     return new DirectoryPath(this.rules.dirname(this.dir), this.rules);
   }
 
-  leafName(): string {
-    return this.rules.basename(this.dir);
-  }
-
   isEqual(other: DirectoryPath): boolean {
     return this.dir === other.dir;
   }
 
   /**
-   * Whether `target` is this directory or sits inside it. The separator matters:
-   * without it `/tmp/files` would look like it contained `/tmp/files-elsewhere`.
+   * Whether `target` is this directory or sits inside it. Both sides are
+   * normalized first, so this holds on its own rather than relying on whoever
+   * built the target to have collapsed a `..` already - it is the guard on a
+   * write named by a remote tree entry. The separator matters too: without it
+   * `/tmp/files` would look like it contained `/tmp/files-elsewhere`.
    */
   contains(target: PathArg): boolean {
-    const inner = pathString(target);
-    return inner === this.dir || inner.startsWith(this.dir + this.rules.sep);
+    const inner = this.rules.normalize(pathString(target));
+    const outer = this.rules.normalize(this.dir);
+    return inner === outer || inner.startsWith(outer + this.rules.sep);
   }
 
   toString(): string {
@@ -67,13 +99,14 @@ export class DirectoryPath {
 export class FilePath {
   constructor(
     private readonly file: string,
-    private readonly rules: PathRules = nodePath,
+    private readonly rules: PathRules = HOST,
   ) {}
 
   parent(): DirectoryPath {
     return new DirectoryPath(this.rules.dirname(this.file), this.rules);
   }
 
+  /** The file's own name, by its own rules: a host `basename` would not do. */
   name(): string {
     return this.rules.basename(this.file);
   }
@@ -91,3 +124,7 @@ export class FilePath {
     return this.file;
   }
 }
+
+/** A FilePath from either form; a plain string is taken as a path on this machine. */
+export const asFilePath = (value: FileArg): FilePath =>
+  typeof value === 'string' ? new FilePath(value) : value;

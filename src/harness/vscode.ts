@@ -1,10 +1,8 @@
-import * as path from 'node:path';
-
 import { log } from '../log.js';
 import * as paths from '../paths.js';
-import type { DirectoryPath } from '../types/file/paths.js';
 import { format as f } from '../prompts/format.js';
 import { addPluginLocation, removePluginLocation, KEY, toKey } from '../settings-merge.js';
+import type { DirectoryPath } from '../types/file/paths.js';
 import type {
   HarnessContext,
   HarnessName,
@@ -60,7 +58,7 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   } else {
     log.info(`Registered in chat.pluginLocations (${f.path(settings, opts?.home)})`);
   }
-  if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
+  if (result.backup) log.debug(`Backed up settings.json -> ${result.backup.name()}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return true;
 }
@@ -98,7 +96,7 @@ export async function uninstall(
   else log.ok(`Nothing was at ${f.path(dest, opts?.home)} - unregistered it`);
   if (result.action === 'removed')
     log.info(`Unregistered from chat.pluginLocations (${f.path(settings, opts?.home)})`);
-  if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
+  if (result.backup) log.debug(`Backed up settings.json -> ${result.backup.name()}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return 'removed';
 }

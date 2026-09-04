@@ -84,7 +84,7 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
 ## Architecture
 
 Every command flows `bin/cli.js` → `src/cli.ts` (arg parsing and rendering only) →
-`src/install.ts` (orchestration) → the harness that owns each editor. `src/types.ts`
+`src/install.ts` (orchestration) → the harness that owns each editor. `src/types/`
 is the type model for the whole surface; keep it in sync when behavior changes.
 
 - **Harnesses** (`src/harness/`): one module per editor implementing the `Harness`

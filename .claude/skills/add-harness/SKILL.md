@@ -7,7 +7,7 @@ description: Add support for a new editor or AI coding assistant ("harness") to 
 
 A harness is one editor's install strategy: how to tell it is on this machine, where its
 plugins go, how to put one there and take it away. The registry is `src/harness/index.ts`;
-`Harness` in `src/types.ts` is the contract. Everything else in the program - prompts,
+`Harness` in `src/types/harness.ts` is the contract. Everything else in the program - prompts,
 `doctor`, `list`, `update`, the manifest - already iterates the registry, so most of the
 work is the module itself plus the places that spell out editor names by hand.
 
@@ -29,7 +29,7 @@ not ask for them.
 
 Work in this order: the type goes first so the compiler enumerates the rest.
 
-1. **Add the name to `HarnessName` in `src/types.ts`.** Kebab-case, short, the thing a
+1. **Add the name to `HarnessName` in `src/types/harness.ts`.** Kebab-case, short, the thing a
    user would type after `--targets`. Then run `npm run typecheck`: `BY_NAME` in
    `src/harness/index.ts` is a `Record<HarnessName, Harness>`, so it now fails to compile
    until the harness exists and is registered. That error list is the checklist for the
@@ -38,8 +38,9 @@ Work in this order: the type goes first so the compiler enumerates the rest.
 2. **Add the editor's directories to `src/paths.ts`.** One function for the directory
    that proves the editor is installed (what `detect` checks) and one for where plugins
    go, if they differ. Two rules, both already visible in the file:
-   - Every function takes `PathOpts` and joins with `c.p` (the _target_ platform's
-     joiner), with a `win32` / `darwin` / other branch where the editor's location
+   - Every function takes `PathOpts` and returns a `DirectoryPath` or `FilePath` built
+     from `ctx(o).rules` and `join` / `file` - the _target_ platform's rules, not the
+     host's - with a `win32` / `darwin` / other branch where the editor's location
      differs by OS. This is what lets `test/paths.test.ts` assert the Windows path from a
      Linux runner.
    - Honour a `CP_<EDITOR>_DIR` env override before the default, like `CP_CURSOR_DIR`
@@ -53,7 +54,8 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      `needsSource`.
    - `detect(opts)` is cheap and side-effect free; `location(opts)` returns where it
      looked, because that string is printed as "not installed (looked in ...)" and shown
-     by `doctor`. Run both through `shortPath` so the user's home reads as `~`.
+     by `doctor`. Run both through `f.path` from `prompts/format.ts` so the user's
+     home reads as `~`.
    - `install` returns `false` to mean "skipped, and said why" - not installed, nothing to
      do. A failure the user can fix is a thrown `UserError` with a `hint`. Never throw a
      bare `Error` for a predictable condition.
@@ -70,7 +72,8 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      escape for a target stuck on `skipped` or `failed`.
    - Copy files with `replaceDir` (wholesale replace), so a plugin that shrank between
      versions leaves no orphan files behind.
-   - All output goes through `log`; end `install` and `uninstall` with the line that
+   - All output goes through `log` (which re-exports `prompts/terminal.ts`); end
+     `install` and `uninstall` with the line that
      tells the user how to make the editor pick the change up (reload window, restart).
    - Treat anything read from the editor (a config file, a CLI's JSON output) as a JSON
      boundary: `isPlainObject` / `nonEmptyString` checks, never an `as` cast. If it edits

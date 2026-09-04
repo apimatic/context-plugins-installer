@@ -4,9 +4,9 @@ import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from '
 
 import type { Env } from './types/env.js';
 import type { Failure } from './types/failure.js';
+import { pathString, type PathArg } from './types/file/paths.js';
 import { GitRef } from './types/ids/git-ref.js';
 import { PluginId } from './types/ids/plugin-id.js';
-import { pathString, type PathArg } from './types/file/paths.js';
 import { RepoSlug } from './types/ids/repo-slug.js';
 import type { RunResult } from './types/ports.js';
 import type { Result } from './types/result.js';
@@ -83,7 +83,9 @@ export function isDirNonEmpty(dir: PathArg): boolean {
   }
 }
 
-// Hand-written so it never emits fs.cp's experimental warning.
+// These four walk the filesystem of the machine they run on, so they join with
+// the host's rules: a path's own rules describe where it points, not where the
+// bytes are. Hand-written so it never emits fs.cp's experimental warning.
 export function copyDir(src: PathArg, dest: PathArg): void {
   const target = ensureDir(dest);
   const source = pathString(src);

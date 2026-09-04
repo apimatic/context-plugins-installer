@@ -6,9 +6,9 @@ import { diagnose } from './doctor.js';
 import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
-import { format as f } from './prompts/format.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
+import { format as f } from './prompts/format.js';
 import {
   COLLECTED,
   createTelemetry,

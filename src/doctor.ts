@@ -175,9 +175,11 @@ function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[
     const probe = dir.file(`.write-probe-${process.pid}`);
     fs.writeFileSync(probe.toString(), 'ok');
     rmrf(probe);
-    checks.push(ok('State directory', `${f.path(dir)} (writable)`));
+    checks.push(ok('State directory', `${f.path(dir, pathOpts?.home)} (writable)`));
   } catch (err) {
-    checks.push(fail('State directory', `${f.path(dir)} is not writable`, errorMessage(err)));
+    checks.push(
+      fail('State directory', `${f.path(dir, pathOpts?.home)} is not writable`, errorMessage(err)),
+    );
   }
 
   try {

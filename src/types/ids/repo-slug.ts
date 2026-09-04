@@ -35,7 +35,9 @@ export class RepoSlug {
   static fromText(text: unknown): RepoSlug | undefined {
     if (!text) return undefined;
     const hit = String(text).trim().match(IN_TEXT);
-    return hit?.[1] ? new RepoSlug(hit[1]) : undefined;
+    // Through `create`, so the class has one definition of validity and the
+    // path that reads untrusted text is the one that uses it.
+    return hit?.[1] ? RepoSlug.create(hit[1]) : undefined;
   }
 
   cloneUrl(): string {

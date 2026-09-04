@@ -2,12 +2,12 @@ import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { BIN } from './brand.js';
-import type { FilePath } from './types/file/paths.js';
 import { log } from './log.js';
 import * as paths from './paths.js';
 import { isCi, isInteractive } from './prompt.js';
 import type { Brand } from './types/brand.js';
 import type { Env, PathOpts } from './types/env.js';
+import type { FilePath } from './types/file/paths.js';
 import type { Deps, FetchLike } from './types/ports.js';
 import type {
   TelemetryEvent,

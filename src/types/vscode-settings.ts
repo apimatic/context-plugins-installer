@@ -1,3 +1,5 @@
+import type { FilePath } from './file/paths.js';
+
 // The outcome of splicing a plugin folder into VS Code's settings.json. The file
 // is JSONC the user also edits by hand, so an edit is a targeted string splice
 // and these say exactly which one happened.
@@ -24,10 +26,10 @@ export type RemoveLocationAction = 'missing' | 'absent' | 'unremovable' | 'remov
 
 export interface AddLocationResult {
   action: AddLocationAction;
-  backup: string | null;
+  backup: FilePath | null;
 }
 
 export interface RemoveLocationResult {
   action: RemoveLocationAction;
-  backup: string | null;
+  backup: FilePath | null;
 }

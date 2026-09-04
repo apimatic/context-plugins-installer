@@ -15,13 +15,13 @@ import { isInteractive, createPrompter } from './prompt.js';
 import { createSession } from './session.js';
 import { EVENTS, marketplaceLabel } from './telemetry.js';
 import type { Brand } from './types/brand.js';
+import type { FileArg } from './types/file/paths.js';
 import type {
   HarnessContext,
   HarnessName,
   HarnessOpts,
   UninstallOutcome,
 } from './types/harness.js';
-import type { PathArg } from './types/file/paths.js';
 import { PluginId } from './types/ids/plugin-id.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
@@ -285,7 +285,7 @@ export async function chooseHarnesses(
 // Cursor and VS Code both keep plugins in a flat <plugin>/ directory, so the
 // same id from a second marketplace would silently overwrite the first.
 function assertNoMarketplaceConflict(
-  manifestFile: PathArg,
+  manifestFile: FileArg,
   { plugin, repo }: { plugin: string; repo: string },
   force: boolean,
 ): void {

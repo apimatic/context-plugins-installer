@@ -110,8 +110,8 @@ test('an edit backs up the original first', () => {
   const file = settingsWith('{\n  "editor.tabSize": 2\n}\n');
   const result = addPluginLocation(file, PLUGIN_DIR);
   assert.ok(result.backup, 'backup path returned');
-  assert.match(path.basename(result.backup), /^settings\.json\.bak-\d{8}-\d{6}$/);
-  assert.equal(fs.readFileSync(result.backup, 'utf8'), '{\n  "editor.tabSize": 2\n}\n');
+  assert.match(result.backup.name(), /^settings\.json\.bak-\d{8}-\d{6}$/);
+  assert.equal(fs.readFileSync(result.backup.toString(), 'utf8'), '{\n  "editor.tabSize": 2\n}\n');
 });
 
 test('a UTF-8 BOM is preserved', () => {

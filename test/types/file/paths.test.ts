@@ -3,6 +3,7 @@ import assert from 'node:assert';
 
 import { DirectoryPath, FilePath, rulesFor } from '../../../src/types/file/paths.js';
 
+const SEP = String.fromCharCode(92);
 const WIN = rulesFor('win32');
 const POSIX = rulesFor('linux');
 
@@ -39,10 +40,29 @@ test('a file names the directory holding it', () => {
   assert.equal(new FilePath('C:\\state\\installed.json', WIN).parent().toString(), 'C:\\state');
 });
 
-test('the leaf and file names come from the same rules', () => {
-  assert.equal(new DirectoryPath('/a/b/my-sdk', POSIX).leafName(), 'my-sdk');
-  assert.equal(new DirectoryPath('C:\\a\\b\\my-sdk', WIN).leafName(), 'my-sdk');
-  assert.equal(new FilePath('C:\\a\\settings.json', WIN).name(), 'settings.json');
+// The VS Code harness prints this on its backup line, and a host `basename` of
+// a win32 path returns the whole path, so the name has to come from the path's
+// own rules rather than the machine's.
+test('a file names itself by its own rules, not the host machine', () => {
+  assert.equal(new FilePath('C:' + SEP + 'a' + SEP + 'settings.json', WIN).name(), 'settings.json');
+  assert.equal(new FilePath('/a/b/settings.json', POSIX).name(), 'settings.json');
+});
+
+// A path used to hold node's path namespace itself, which carries `.win32` and
+// `.posix` back-references, so stringifying any path threw. Nothing serializes
+// one today; the next payload that does must not be where this is found.
+test('a path can be serialized, so nothing is broken by carrying one', () => {
+  assert.doesNotThrow(() => JSON.stringify(new DirectoryPath('/a/b', POSIX)));
+  assert.doesNotThrow(() => JSON.stringify({ dir: new DirectoryPath('/a/b', POSIX) }));
+  assert.doesNotThrow(() => JSON.stringify(new FilePath('/a/b.json', WIN)));
+});
+
+// The guard on a write named by a remote tree entry. It holds on its own now,
+// rather than relying on whoever built the target to have collapsed the `..`.
+test('containment collapses a traversal instead of trusting the caller', () => {
+  const dest = new DirectoryPath('/tmp/work/files', POSIX);
+  assert.equal(dest.contains('/tmp/work/files/../../etc/passwd'), false);
+  assert.equal(dest.contains('/tmp/work/files/./skills/SKILL.md'), true);
 });
 
 test('a suffixed sibling keeps the directory and the rules', () => {

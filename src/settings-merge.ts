@@ -1,7 +1,13 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
-import { pathString, type PathArg } from './types/file/paths.js';
+import {
+  asFilePath,
+  parentOf,
+  pathString,
+  type DirArg,
+  type FileArg,
+  type FilePath,
+} from './types/file/paths.js';
 import type { AddLocationResult, RemoveLocationResult } from './types/vscode-settings.js';
 import { ensureDir, timestamp, stripBom } from './util.js';
 
@@ -10,7 +16,7 @@ import { ensureDir, timestamp, stripBom } from './util.js';
 export const KEY = 'chat.pluginLocations';
 const BOM = String.fromCharCode(0xfeff);
 
-export const toKey = (dir: PathArg): string => pathString(dir).replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
+export const toKey = (dir: DirArg): string => pathString(dir).replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // As a key: a bare quoted match also hits the path used as another setting's value.
@@ -26,9 +32,9 @@ export function freshDocument(key: string, eol = '\n'): string {
   return [`{`, `    "${KEY}": {`, `        "${key}": true`, `    }`, `}`, ``].join(eol);
 }
 
-function backup(file: string): string {
-  const target = `${file}.bak-${timestamp()}`;
-  fs.copyFileSync(file, target);
+function backup(file: FilePath): FilePath {
+  const target = file.withSuffix(`.bak-${timestamp()}`);
+  fs.copyFileSync(file.toString(), target.toString());
   return target;
 }
 
@@ -89,10 +95,11 @@ function maskComments(text: string): string {
   return out.join('');
 }
 
-export function addPluginLocation(settings: PathArg, dir: PathArg): AddLocationResult {
+export function addPluginLocation(settings: FileArg, dir: DirArg): AddLocationResult {
+  const settingsFile = asFilePath(settings);
   const settingsPath = pathString(settings);
   const key = toKey(dir);
-  ensureDir(path.dirname(settingsPath));
+  ensureDir(parentOf(settingsFile));
 
   if (!fs.existsSync(settingsPath)) {
     fs.writeFileSync(settingsPath, freshDocument(key), 'utf8');
@@ -139,12 +146,13 @@ export function addPluginLocation(settings: PathArg, dir: PathArg): AddLocationR
     insert = `${eol}    "${KEY}": { ${entry} },`;
   }
 
-  const saved = backup(settingsPath);
+  const saved = backup(settingsFile);
   writeKeepingBom(settingsPath, raw.slice(0, at) + insert + raw.slice(at), hadBom);
   return { action, backup: saved };
 }
 
-export function removePluginLocation(settings: PathArg, dir: PathArg): RemoveLocationResult {
+export function removePluginLocation(settings: FileArg, dir: DirArg): RemoveLocationResult {
+  const settingsFile = asFilePath(settings);
   const settingsPath = pathString(settings);
   if (!fs.existsSync(settingsPath)) return { action: 'missing', backup: null };
 
@@ -167,7 +175,7 @@ export function removePluginLocation(settings: PathArg, dir: PathArg): RemoveLoc
   // Named, but not as an entry this tool wrote - which is not absence.
   if (!hit) return { action: 'unremovable', backup: null };
 
-  const saved = backup(settingsPath);
+  const saved = backup(settingsFile);
   const out = raw.slice(0, hit.index) + raw.slice(hit.index + hit[0].length);
   writeKeepingBom(settingsPath, out, hadBom);
   return { action: 'removed', backup: saved };
