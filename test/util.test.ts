@@ -15,7 +15,6 @@ import {
   pool,
   timestamp,
   stripBom,
-  shortPath,
   suggest,
 } from '../src/util.js';
 import { tmpDir, cleanupAll } from './helpers.js';
@@ -96,13 +95,6 @@ test('pool preserves input order regardless of completion order', async () => {
 
 test('timestamp matches the PowerShell backup suffix format', () => {
   assert.equal(timestamp(new Date(2026, 6, 27, 9, 5, 3)), '20260727-090503');
-});
-
-test('shortPath collapses the home directory to ~', () => {
-  const home = process.platform === 'win32' ? 'C:\\Users\\dev' : '/home/dev';
-  const inside = path.join(home, '.cursor', 'plugins');
-  assert.equal(shortPath(inside, home), `~${path.sep}.cursor${path.sep}plugins`);
-  assert.equal(shortPath(path.join('/elsewhere', 'x'), home), path.join('/elsewhere', 'x'));
 });
 
 test('suggest finds a near miss even when a shared suffix inflates the distance', () => {

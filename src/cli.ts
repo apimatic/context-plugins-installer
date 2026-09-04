@@ -6,6 +6,7 @@ import { diagnose } from './doctor.js';
 import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
+import { format as f } from './prompts/format.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import {
@@ -20,7 +21,7 @@ import type { Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
 import type { Manifest } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
-import { UserError, isPlainObject, errorMessage, shortPath } from './util.js';
+import { UserError, isPlainObject, errorMessage } from './util.js';
 
 // package.json is one directory up from both src/ (tests) and lib/ (published).
 function packageVersion(): string {
@@ -206,7 +207,7 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
   if (verb !== 'status') {
     const enabled = verb === 'enable';
     if (!setTelemetryEnabled(enabled)) {
-      throw new UserError(`Could not write ${shortPath(paths.telemetryPath())}.`, {
+      throw new UserError(`Could not write ${f.path(paths.telemetryPath())}.`, {
         hint: enabled
           ? 'Check the permissions on the state directory, or point CP_STATE_DIR somewhere writable.'
           : 'CP_TELEMETRY=off in the environment needs no file.',
@@ -223,7 +224,7 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
     // The choice is saved, but a broader switch still decides what happens.
     log.info(`Right now it is ${effective}; that setting takes precedence.`);
   }
-  if (status.id) log.info(`Anonymous machine id: ${status.id} (${shortPath(status.file)})`);
+  if (status.id) log.info(`Anonymous machine id: ${status.id} (${f.path(status.file)})`);
   log.info(`Collected: ${COLLECTED}.`);
   log.info(
     `Change it with '${bin} telemetry enable|disable', CP_TELEMETRY=off, or DO_NOT_TRACK=1.`,

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import { ghHeaders } from './catalog.js';
 import { log } from './log.js';
+import { DirectoryPath } from './types/file/paths.js';
 import { GitRef } from './types/ids/git-ref.js';
 import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps, FetchLike, MaterializedSource, RunResult } from './types/ports.js';
@@ -227,7 +228,7 @@ export async function downloadPath({
   const fetchImpl: FetchLike = deps.fetchImpl || fetch;
   const env = deps.env || process.env;
   // Mirrors the repository layout so two plugins never share a destination.
-  const dest = ensureDir(path.join(work, 'files', ...sourcePath.split('/')));
+  const dest = new DirectoryPath(ensureDir(path.join(work, 'files', ...sourcePath.split('/'))));
 
   const prefix = `${sourcePath}/`;
   const blobs = tree.tree.filter((n) => n.type === 'blob' && n.path.startsWith(prefix));
@@ -238,20 +239,20 @@ export async function downloadPath({
   const slug = new RepoSlug(repo);
   await pool(blobs, DOWNLOAD_CONCURRENCY, async (blob) => {
     const rel = blob.path.slice(prefix.length);
-    const target = path.join(dest, ...rel.split('/'));
+    const target = dest.file(...rel.split('/'));
     // A tree entry is remote input, so it does not get to name where we write.
-    if (target !== dest && !target.startsWith(dest + path.sep)) {
+    if (!dest.contains(target)) {
       throw new UserError(`Refusing to write outside the checkout: ${blob.path}`);
     }
-    ensureDir(path.dirname(target));
+    ensureDir(target.parent());
     const raw = slug.rawUrl(ref, blob.path);
     const res = await fetchImpl(raw, { headers: ghHeaders(env) });
     if (!res.ok) throw new UserError(`Download failed (${res.status}): ${blob.path}`);
-    fs.writeFileSync(target, Buffer.from(await res.arrayBuffer()));
+    fs.writeFileSync(target.toString(), Buffer.from(await res.arrayBuffer()));
   });
 
   log.info(`Downloaded ${blobs.length} files via the GitHub API.`);
-  return dest;
+  return dest.toString();
 }
 
 export async function viaApi({

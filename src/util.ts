@@ -1,5 +1,4 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from 'node:child_process';
 
@@ -7,6 +6,7 @@ import type { Env } from './types/env.js';
 import type { Failure } from './types/failure.js';
 import { GitRef } from './types/ids/git-ref.js';
 import { PluginId } from './types/ids/plugin-id.js';
+import { pathString, type PathArg } from './types/file/paths.js';
 import { RepoSlug } from './types/ids/repo-slug.js';
 import type { RunResult } from './types/ports.js';
 import type { Result } from './types/result.js';
@@ -55,38 +55,41 @@ export const errorMessage = (err: unknown): string =>
 export const errorCode = (err: unknown): unknown =>
   err instanceof Error && 'code' in err ? err.code : undefined;
 
-export function ensureDir(dir: string): string {
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+export function ensureDir(dir: PathArg): string {
+  const target = pathString(dir);
+  fs.mkdirSync(target, { recursive: true });
+  return target;
 }
 
-export function rmrf(target: string): void {
-  fs.rmSync(target, { recursive: true, force: true });
+export function rmrf(target: PathArg): void {
+  fs.rmSync(pathString(target), { recursive: true, force: true });
 }
 
-export function exists(target: string): boolean {
+export function exists(target: PathArg): boolean {
   try {
-    fs.statSync(target);
+    fs.statSync(pathString(target));
     return true;
   } catch {
     return false;
   }
 }
 
-export function isDirNonEmpty(dir: string): boolean {
+export function isDirNonEmpty(dir: PathArg): boolean {
+  const target = pathString(dir);
   try {
-    return fs.statSync(dir).isDirectory() && fs.readdirSync(dir).length > 0;
+    return fs.statSync(target).isDirectory() && fs.readdirSync(target).length > 0;
   } catch {
     return false;
   }
 }
 
 // Hand-written so it never emits fs.cp's experimental warning.
-export function copyDir(src: string, dest: string): void {
-  ensureDir(dest);
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const from = path.join(src, entry.name);
-    const to = path.join(dest, entry.name);
+export function copyDir(src: PathArg, dest: PathArg): void {
+  const target = ensureDir(dest);
+  const source = pathString(src);
+  for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(target, entry.name);
     if (entry.isDirectory()) {
       copyDir(from, to);
     } else if (entry.isSymbolicLink()) {
@@ -107,16 +110,17 @@ export function copyDir(src: string, dest: string): void {
 }
 
 /** Wholesale replace, so a shrinking plugin leaves no orphan files behind. */
-export function replaceDir(src: string, dest: string): string {
+export function replaceDir(src: PathArg, dest: PathArg): string {
   rmrf(dest);
   copyDir(src, dest);
-  return dest;
+  return pathString(dest);
 }
 
-export function countFiles(dir: string): number {
+export function countFiles(dir: PathArg): number {
+  const target = pathString(dir);
   let n = 0;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    n += entry.isDirectory() ? countFiles(path.join(dir, entry.name)) : 1;
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    n += entry.isDirectory() ? countFiles(path.join(target, entry.name)) : 1;
   }
   return n;
 }
@@ -207,16 +211,6 @@ export function timestamp(date: Date = new Date()): string {
 }
 
 export const stripBom = (s: string): string => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
-
-export function shortPath(target: string, home: string = os.homedir()): string {
-  if (!target || !home) return target;
-  const normalized = String(target);
-  if (normalized.toLowerCase().startsWith(home.toLowerCase())) {
-    const rest = normalized.slice(home.length);
-    return `~${rest.startsWith(path.sep) || rest.startsWith('/') ? '' : path.sep}${rest}`;
-  }
-  return normalized;
-}
 
 export function editDistance(a: string, b: string): number {
   const rows = a.length + 1;

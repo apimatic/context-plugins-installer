@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { pathString, type PathArg } from './types/file/paths.js';
 import type { AddLocationResult, RemoveLocationResult } from './types/vscode-settings.js';
 import { ensureDir, timestamp, stripBom } from './util.js';
 
@@ -9,7 +10,7 @@ import { ensureDir, timestamp, stripBom } from './util.js';
 export const KEY = 'chat.pluginLocations';
 const BOM = String.fromCharCode(0xfeff);
 
-export const toKey = (dir: string): string => dir.replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
+export const toKey = (dir: PathArg): string => pathString(dir).replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // As a key: a bare quoted match also hits the path used as another setting's value.
@@ -88,7 +89,8 @@ function maskComments(text: string): string {
   return out.join('');
 }
 
-export function addPluginLocation(settingsPath: string, dir: string): AddLocationResult {
+export function addPluginLocation(settings: PathArg, dir: PathArg): AddLocationResult {
+  const settingsPath = pathString(settings);
   const key = toKey(dir);
   ensureDir(path.dirname(settingsPath));
 
@@ -142,7 +144,8 @@ export function addPluginLocation(settingsPath: string, dir: string): AddLocatio
   return { action, backup: saved };
 }
 
-export function removePluginLocation(settingsPath: string, dir: string): RemoveLocationResult {
+export function removePluginLocation(settings: PathArg, dir: PathArg): RemoveLocationResult {
+  const settingsPath = pathString(settings);
   if (!fs.existsSync(settingsPath)) return { action: 'missing', backup: null };
 
   const key = toKey(dir);

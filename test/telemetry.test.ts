@@ -48,7 +48,7 @@ interface Machine {
 function machine(): Machine {
   const root = tmpDir('cp-telemetry-');
   const pathOpts = { env: { CP_STATE_DIR: path.join(root, 'state') }, home: root };
-  return { root, pathOpts, file: paths.telemetryPath(pathOpts) };
+  return { root, pathOpts, file: paths.telemetryPath(pathOpts).toString() };
 }
 
 interface Sent {

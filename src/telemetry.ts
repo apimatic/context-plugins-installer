@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { BIN } from './brand.js';
+import type { FilePath } from './types/file/paths.js';
 import { log } from './log.js';
 import * as paths from './paths.js';
 import { isCi, isInteractive } from './prompt.js';
@@ -60,10 +60,10 @@ type StateRead = TelemetryState | null | 'unreadable';
 
 // A missing file is the fresh-machine case. Anything else that cannot be read is
 // not "absent": treating it so would drop a saved opt-out, so it fails closed.
-function readState(file: string): StateRead {
+function readState(file: FilePath): StateRead {
   let text: string;
   try {
-    text = fs.readFileSync(file, 'utf8');
+    text = fs.readFileSync(file.toString(), 'utf8');
   } catch (err) {
     const code = errorCode(err);
     return code === 'ENOENT' || code === 'ENOTDIR' ? null : 'unreadable';
@@ -83,16 +83,16 @@ function readState(file: string): StateRead {
 
 // Written whole through a rename, so a crash mid-write cannot leave the half
 // file that would read as unreadable above.
-function writeState(file: string, state: TelemetryState): boolean {
-  const tmp = `${file}.${process.pid}.tmp`;
+function writeState(file: FilePath, state: TelemetryState): boolean {
+  const tmp = file.withSuffix(`.${process.pid}.tmp`);
   try {
-    ensureDir(path.dirname(file));
-    fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    fs.renameSync(tmp, file);
+    ensureDir(file.parent());
+    fs.writeFileSync(tmp.toString(), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+    fs.renameSync(tmp.toString(), file.toString());
     return true;
   } catch (err) {
     log.debug(`telemetry: could not write ${file}: ${errorMessage(err)}`);
-    fs.rmSync(tmp, { force: true });
+    fs.rmSync(tmp.toString(), { force: true });
     return false;
   }
 }
@@ -115,13 +115,14 @@ function resolve(
   brand: Brand,
   env: Env,
   pathOpts?: PathOpts,
-): { status: TelemetryStatus; read: StateRead } {
-  const file = paths.telemetryPath(pathOpts);
-  const read = readState(file);
+): { status: TelemetryStatus; read: StateRead; stateFile: FilePath } {
+  const stateFile = paths.telemetryPath(pathOpts);
+  const read = readState(stateFile);
   const id = read && read !== 'unreadable' ? read.id : null;
   const status = (mode: TelemetryStatus['mode'], optOut: TelemetryOptOut | null) => ({
-    status: { mode, optOut, id, file },
+    status: { mode, optOut, id, file: stateFile.toString() },
     read,
+    stateFile,
   });
   if (!brand.telemetry?.token) return status('off', 'no-token');
   if ((env.CP_TELEMETRY || '').toLowerCase() === 'log') return status('log', null);
@@ -215,7 +216,7 @@ export function createTelemetry({
     }
   };
 
-  function disclose(file: string, state: TelemetryState): void {
+  function disclose(file: FilePath, state: TelemetryState): void {
     if (state.noticeShown) return;
     log.notice(
       `${brand.displayName} collects anonymous usage data: ${COLLECTED}. Nothing else: no file ` +
@@ -227,7 +228,7 @@ export function createTelemetry({
 
   async function send(events: TelemetryEvent[]): Promise<void> {
     const env = deps.env || process.env;
-    const { status, read } = resolve(brand, env, pathOpts);
+    const { status, read, stateFile } = resolve(brand, env, pathOpts);
     const token = brand.telemetry?.token;
     if (status.mode === 'off' || !token) return;
 
@@ -235,7 +236,7 @@ export function createTelemetry({
     // is no per-machine count, and without the file the notice would repeat.
     const base = read === 'unreadable' ? null : read;
     const state = withId(base, newId);
-    if (state !== base && !writeState(status.file, state)) {
+    if (state !== base && !writeState(stateFile, state)) {
       log.debug('telemetry: no writable state directory; nothing sent');
       return;
     }
@@ -278,7 +279,7 @@ export function createTelemetry({
       return;
     }
 
-    disclose(status.file, state);
+    disclose(stateFile, state);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     timer.unref();

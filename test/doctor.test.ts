@@ -135,7 +135,7 @@ test('an unreachable marketplace fails without throwing', async () => {
 
 test('doctor reports rows installed.json holds that this build cannot read', async () => {
   const m = machine();
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -154,7 +154,7 @@ test('doctor reports rows installed.json holds that this build cannot read', asy
 
 test('doctor reports a row it can only read in part, rather than calling it healthy', async () => {
   const m = machine();
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,

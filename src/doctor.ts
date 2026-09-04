@@ -1,27 +1,18 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import { BIN } from './brand.js';
 import { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } from './catalog.js';
 import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
+import { format as f } from './prompts/format.js';
 import { describeTelemetry, telemetryStatus } from './telemetry.js';
-import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Brand } from './types/brand.js';
 import type { DoctorCheck, DoctorReport } from './types/doctor.js';
 import type { PathOpts } from './types/env.js';
+import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Deps, FetchLike } from './types/ports.js';
-import {
-  UserError,
-  which,
-  run,
-  shortPath,
-  ensureDir,
-  rmrf,
-  isPlainObject,
-  errorMessage,
-} from './util.js';
+import { UserError, which, run, ensureDir, rmrf, isPlainObject, errorMessage } from './util.js';
 
 export const MIN_NODE = 18;
 
@@ -55,7 +46,7 @@ async function checkEnvironment(deps: Deps): Promise<DoctorCheck[]> {
 
   const git = whichImpl('git', env);
   if (git) {
-    let detail = shortPath(git);
+    let detail = f.path(git);
     try {
       const res = await runImpl(git, ['--version']);
       if (res.code === 0 && res.stdout.trim()) detail = res.stdout.trim();
@@ -181,12 +172,12 @@ function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[
   const checks: DoctorCheck[] = [];
   try {
     ensureDir(dir);
-    const probe = path.join(dir, `.write-probe-${process.pid}`);
-    fs.writeFileSync(probe, 'ok');
+    const probe = dir.file(`.write-probe-${process.pid}`);
+    fs.writeFileSync(probe.toString(), 'ok');
     rmrf(probe);
-    checks.push(ok('State directory', `${shortPath(dir)} (writable)`));
+    checks.push(ok('State directory', `${f.path(dir)} (writable)`));
   } catch (err) {
-    checks.push(fail('State directory', `${shortPath(dir)} is not writable`, errorMessage(err)));
+    checks.push(fail('State directory', `${f.path(dir)} is not writable`, errorMessage(err)));
   }
 
   try {

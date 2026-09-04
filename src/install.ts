@@ -21,6 +21,7 @@ import type {
   HarnessOpts,
   UninstallOutcome,
 } from './types/harness.js';
+import type { PathArg } from './types/file/paths.js';
 import { PluginId } from './types/ids/plugin-id.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
@@ -284,7 +285,7 @@ export async function chooseHarnesses(
 // Cursor and VS Code both keep plugins in a flat <plugin>/ directory, so the
 // same id from a second marketplace would silently overwrite the first.
 function assertNoMarketplaceConflict(
-  manifestFile: string,
+  manifestFile: PathArg,
   { plugin, repo }: { plugin: string; repo: string },
   force: boolean,
 ): void {

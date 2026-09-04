@@ -1,60 +1,66 @@
 import * as os from 'node:os';
-import * as path from 'node:path';
 
 import type { PathOpts } from './types/env.js';
+import { DirectoryPath, FilePath, rulesFor, type PathRules } from './types/file/paths.js';
 
-// The joiner follows the *target* platform, not the host, so the cross-platform
-// table is exactly assertable from any host.
+// Every path carries the rules of the *target* platform, not the host, so the
+// cross-platform table is exactly assertable from any host.
 function ctx(overrides: PathOpts = {}) {
   const platform = overrides.platform || process.platform;
+  const rules = rulesFor(platform);
   return {
     platform,
     env: overrides.env || process.env,
-    home: overrides.home || os.homedir(),
-    p: platform === 'win32' ? path.win32 : path.posix,
+    home: new DirectoryPath(overrides.home || os.homedir(), rules),
+    rules,
   };
 }
 
-export function stateDir(o?: PathOpts): string {
+/** An override is taken as the user wrote it; an empty one is no override. */
+const given = (value: string | undefined, rules: PathRules): DirectoryPath | undefined =>
+  value ? new DirectoryPath(value, rules) : undefined;
+
+export function stateDir(o?: PathOpts): DirectoryPath {
   const c = ctx(o);
-  return c.env.CP_STATE_DIR || c.p.join(c.home, '.context-plugins');
+  return given(c.env.CP_STATE_DIR, c.rules) ?? c.home.join('.context-plugins');
 }
 
-export function manifestPath(o?: PathOpts): string {
-  return ctx(o).p.join(stateDir(o), 'installed.json');
+export function manifestPath(o?: PathOpts): FilePath {
+  return stateDir(o).file('installed.json');
 }
 
-export function telemetryPath(o?: PathOpts): string {
-  return ctx(o).p.join(stateDir(o), 'telemetry.json');
+export function telemetryPath(o?: PathOpts): FilePath {
+  return stateDir(o).file('telemetry.json');
 }
 
-export function vscodeStoreDir(o?: PathOpts): string {
-  return ctx(o).p.join(stateDir(o), 'vscode');
+export function vscodeStoreDir(o?: PathOpts): DirectoryPath {
+  return stateDir(o).join('vscode');
 }
 
-export function cursorRoot(o?: PathOpts): string {
+export function cursorRoot(o?: PathOpts): DirectoryPath {
   const c = ctx(o);
-  return c.env.CP_CURSOR_DIR || c.p.join(c.home, '.cursor');
+  return given(c.env.CP_CURSOR_DIR, c.rules) ?? c.home.join('.cursor');
 }
 
-export function cursorLocalDir(o?: PathOpts): string {
-  return ctx(o).p.join(cursorRoot(o), 'plugins', 'local');
+export function cursorLocalDir(o?: PathOpts): DirectoryPath {
+  return cursorRoot(o).join('plugins', 'local');
 }
 
-export function vscodeUserDir(o?: PathOpts): string {
+export function vscodeUserDir(o?: PathOpts): DirectoryPath {
   const c = ctx(o);
-  if (c.env.CP_VSCODE_USER_DIR) return c.env.CP_VSCODE_USER_DIR;
+  const override = given(c.env.CP_VSCODE_USER_DIR, c.rules);
+  if (override) return override;
   if (c.platform === 'win32') {
-    const appData = c.env.APPDATA || c.p.join(c.home, 'AppData', 'Roaming');
-    return c.p.join(appData, 'Code', 'User');
+    const appData = given(c.env.APPDATA, c.rules) ?? c.home.join('AppData', 'Roaming');
+    return appData.join('Code', 'User');
   }
   if (c.platform === 'darwin') {
-    return c.p.join(c.home, 'Library', 'Application Support', 'Code', 'User');
+    return c.home.join('Library', 'Application Support', 'Code', 'User');
   }
-  const xdg = c.env.XDG_CONFIG_HOME || c.p.join(c.home, '.config');
-  return c.p.join(xdg, 'Code', 'User');
+  const xdg = given(c.env.XDG_CONFIG_HOME, c.rules) ?? c.home.join('.config');
+  return xdg.join('Code', 'User');
 }
 
-export function vscodeSettingsPath(o?: PathOpts): string {
-  return ctx(o).p.join(vscodeUserDir(o), 'settings.json');
+export function vscodeSettingsPath(o?: PathOpts): FilePath {
+  return vscodeUserDir(o).file('settings.json');
 }

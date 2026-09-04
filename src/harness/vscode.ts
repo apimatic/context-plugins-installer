@@ -2,6 +2,8 @@ import * as path from 'node:path';
 
 import { log } from '../log.js';
 import * as paths from '../paths.js';
+import type { DirectoryPath } from '../types/file/paths.js';
+import { format as f } from '../prompts/format.js';
 import { addPluginLocation, removePluginLocation, KEY, toKey } from '../settings-merge.js';
 import type {
   HarnessContext,
@@ -9,7 +11,7 @@ import type {
   HarnessOpts,
   UninstallOutcome,
 } from '../types/harness.js';
-import { replaceDir, rmrf, exists, shortPath } from '../util.js';
+import { replaceDir, rmrf, exists } from '../util.js';
 
 // VS Code loads a plugin from any folder listed in chat.pluginLocations, so the
 // copy lives under this tool's state dir rather than in VS Code's storage.
@@ -19,13 +21,13 @@ export const needsSource = true;
 
 export const detect = (opts?: HarnessOpts): boolean => exists(paths.vscodeUserDir(opts));
 
-export const destFor = (plugin: string, opts?: HarnessOpts): string =>
-  path.join(paths.vscodeStoreDir(opts), plugin);
+export const destFor = (plugin: string, opts?: HarnessOpts): DirectoryPath =>
+  paths.vscodeStoreDir(opts).join(plugin);
 
 export async function install({ plugin, srcDir }: HarnessContext, opts?: HarnessOpts) {
   if (!detect(opts)) {
     log.warn(
-      `${shortPath(paths.vscodeUserDir(opts), opts?.home)} not found - VS Code not installed, skipping.`,
+      `${f.path(paths.vscodeUserDir(opts), opts?.home)} not found - VS Code not installed, skipping.`,
     );
     return false;
   }
@@ -40,23 +42,23 @@ export async function install({ plugin, srcDir }: HarnessContext, opts?: Harness
   const settings = paths.vscodeSettingsPath(opts);
   const result = addPluginLocation(settings, dest);
 
-  log.ok(`Installed -> ${shortPath(dest, opts?.home)}`);
+  log.ok(`Installed -> ${f.path(dest, opts?.home)}`);
   // The files are in place either way, so this stays a success with a caveat -
   // reporting a skip would leave the copy on disk with nothing recorded to remove it.
   if (result.action === 'failed') {
-    log.warn(`Could not edit ${shortPath(settings, opts?.home)} - add this entry yourself:`);
+    log.warn(`Could not edit ${f.path(settings, opts?.home)} - add this entry yourself:`);
     log.info(`"${KEY}": { "${toKey(dest)}": true }`);
   } else if (result.action === 'conflict') {
     // "Already registered" here would be a green install of a plugin that never
     // loads, and a second entry would leave a duplicate key.
     log.warn(
-      `${shortPath(settings, opts?.home)} already names this path, but not as an entry that loads it.`,
+      `${f.path(settings, opts?.home)} already names this path, but not as an entry that loads it.`,
     );
     log.info(`Make it read "${toKey(dest)}": true`);
   } else if (result.action === 'already') {
-    log.info(`Already registered in ${shortPath(settings, opts?.home)}`);
+    log.info(`Already registered in ${f.path(settings, opts?.home)}`);
   } else {
-    log.info(`Registered in chat.pluginLocations (${shortPath(settings, opts?.home)})`);
+    log.info(`Registered in chat.pluginLocations (${f.path(settings, opts?.home)})`);
   }
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
@@ -77,7 +79,7 @@ export async function uninstall(
   // reports "Already registered" for an entry that never loads the plugin.
   if (result.action === 'unremovable') {
     log.warn(
-      `${shortPath(settings, opts?.home)} names ${shortPath(dest, opts?.home)} in a form this tool did not write.`,
+      `${f.path(settings, opts?.home)} names ${f.path(dest, opts?.home)} in a form this tool did not write.`,
     );
     log.info('Remove that entry by hand - nothing here can take it out safely.');
   }
@@ -88,18 +90,18 @@ export async function uninstall(
   // load, whatever the settings say. No detect() gate, unlike Cursor - the copy
   // is in this tool's own state dir, readable either way.
   if (!had && result.action !== 'removed') {
-    log.info(`Nothing to remove at ${shortPath(dest, opts?.home)}`);
+    log.info(`Nothing to remove at ${f.path(dest, opts?.home)}`);
     return 'absent';
   }
   // Only claim the directory when there was one.
-  if (had) log.ok(`Removed -> ${shortPath(dest, opts?.home)}`);
-  else log.ok(`Nothing was at ${shortPath(dest, opts?.home)} - unregistered it`);
+  if (had) log.ok(`Removed -> ${f.path(dest, opts?.home)}`);
+  else log.ok(`Nothing was at ${f.path(dest, opts?.home)} - unregistered it`);
   if (result.action === 'removed')
-    log.info(`Unregistered from chat.pluginLocations (${shortPath(settings, opts?.home)})`);
+    log.info(`Unregistered from chat.pluginLocations (${f.path(settings, opts?.home)})`);
   if (result.backup) log.debug(`Backed up settings.json -> ${path.basename(result.backup)}`);
   log.info('Please reload VS Code: Ctrl+Shift+P (Cmd+Shift+P) -> Developer: Reload Window');
   return 'removed';
 }
 
 export const location = (opts?: HarnessOpts): string =>
-  shortPath(paths.vscodeUserDir(opts), opts?.home);
+  f.path(paths.vscodeUserDir(opts), opts?.home);
