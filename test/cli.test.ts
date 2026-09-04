@@ -448,7 +448,7 @@ test('a failed install still leaves one event, with the command and no message, 
     });
     assert.equal(code, 1);
     assert.equal(requests.length, 1, 'one request for the run');
-    assert.equal(requests[0]?.url, 'https://api.mixpanel.com/track?ip=0&verbose=1');
+    assert.equal(requests[0]?.url, 'https://api.mixpanel.com/track?ip=1&verbose=1');
     const events: { event: string; properties: Record<string, unknown> }[] = JSON.parse(
       requests[0]?.body ?? '[]',
     );

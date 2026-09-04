@@ -56,9 +56,11 @@ that.
   sonarjs is pinned to v1.
 - **Telemetry is anonymous, flat, and optional.** Events leave only through
   `src/telemetry.ts`, in one POST to Mixpanel's `/track` at the end of `cli.run`
-  (`ip=0`, so no geolocation), bounded by a timeout and never allowed to fail or hold
-  a run. The project token in `brand.ts` is a public routing key, not a secret; the
-  project is US-resident, so the host stays `api.mixpanel.com`. Properties are
+  (`ip=1`: Mixpanel adds city, region and country from the request address at ingestion
+  and discards the address; the CLI never sends location itself), bounded by a timeout
+  and never allowed to fail or hold a run. The project token in `brand.ts` is a public
+  routing key, not a secret; the project is US-resident, so the host stays
+  `api.mixpanel.com`. Properties are
   primitives only, and `COLLECTED` in `telemetry.ts` is the one prose inventory the
   notice and `telemetry status` print; keep it, `common`, and install.ts's per-event
   properties (`plugin` once validated, `harness`, `marketplace` as the built-in repo or

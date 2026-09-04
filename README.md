@@ -133,11 +133,13 @@ carries:
   `--targets`, how long the install took, and whether the run was interactive or in CI
 - OS, CPU architecture, Node major version, and CLI version
 - a random id for this machine, kept in `~/.context-plugins/telemetry.json`
+- an approximate location (city, region, and country) that Mixpanel derives from the address the
+  request came from; the address itself is discarded at ingestion and never stored
 
 Each request also carries the Mixpanel project token, a public routing key that says which
-project the events belong to. It never includes file paths, usernames, hostnames, IP-derived
-location, error messages, environment variables, or anything from the plugin itself. A notice is
-printed on stderr the first time anything is sent.
+project the events belong to. It never includes file paths, usernames, hostnames, IP addresses,
+error messages, environment variables, or anything from the plugin itself. A notice is printed on
+stderr the first time anything is sent.
 
 Turn it off in any of these ways; the first that applies wins:
 
