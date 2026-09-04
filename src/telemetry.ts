@@ -284,8 +284,6 @@ export function createTelemetry({
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     timer.unref();
     try {
-      // ip=1: Mixpanel derives city, region and country from the request address at
-      // ingestion and discards the address. verbose=1 makes a rejection readable.
       const res = await fetchImpl(`${brand.telemetry.host}/track?ip=1&verbose=1`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/plain' },
