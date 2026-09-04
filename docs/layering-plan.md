@@ -1,8 +1,13 @@
 # context-plugins Layering Plan
 
 Moving the installer onto the command / action / prompts / infrastructure / types
-boundaries that apimatic-cli uses, in sixteen pull requests that each leave the suite
-green.
+boundaries that apimatic-cli uses, in eight phases that each leave the suite green.
+
+All eight land on one branch, `saeedjamshaid/layering-refactor`, as a single pull
+request against `main`. That is a change from what this document first said: the
+phases were planned as sixteen stacked pull requests, and stacking them through
+squash merges cost more than reviewing them in order does. The phase is still the
+unit of review, and each is a run of self-contained commits.
 
 | Date       | Base             | Source      | Tests               | Reference          |
 | ---------- | ---------------- | ----------- | ------------------- | ------------------ |
@@ -592,8 +597,9 @@ subdirectories are found on Node 18, where `--test` cannot glob.
 
 ## Phases
 
-Eight phases, sixteen pull requests, every one a `refactor:` so nothing releases until a
-real change lands. Each phase names the shim it introduces to keep the old code running and
+Eight phases, every commit a `refactor:` so nothing releases until a real change lands.
+The PR count on each heading below is a size estimate now, not a branch count: every
+phase lands on the one branch. Each phase names the shim it introduces to keep the old code running and
 the phase that deletes it; a shim that outlives its phase is a review finding.
 
 ### Phase 0 · Kernel, guardrails, removals (1 PR, small)
@@ -788,7 +794,7 @@ migrated. `src/cli.ts` is gone.
 **Exit:** `npm run lint` fails on any import that crosses a boundary. A new contributor can
 scaffold a command from the skill without reading this document.
 
-## Rules that hold for every PR
+## Rules that hold for every phase
 
 - **No user-visible string changes.** Every message moves verbatim into a prompts class. A
   string change is its own `fix:` or `feat:` commit, never part of a move, so a reviewer
