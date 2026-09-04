@@ -27,3 +27,15 @@ export interface TelemetryStatus {
   id: string | null;
   file: string;
 }
+
+/**
+ * Something telemetry produced while flushing, for its caller to print. The
+ * sender never prints: it is infrastructure, and whether anyone hears a
+ * diagnostic depends on --verbose, which is not its business to know.
+ */
+export interface TelemetryLine {
+  kind: 'notice' | 'debug';
+  text: string;
+  /** notice only: print as written, without the usual wrapping. */
+  verbatim?: boolean;
+}

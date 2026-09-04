@@ -14,7 +14,7 @@ import * as paths from './paths.js';
 import { createPrompter } from './prompt.js';
 import { isInteractive } from './infrastructure/environment.js';
 import { createSession } from './session.js';
-import { EVENTS, marketplaceLabel } from './telemetry.js';
+import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
 import type { Brand } from './types/brand.js';
 import type { FileArg } from './types/file/paths.js';
 import type {

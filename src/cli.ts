@@ -13,7 +13,7 @@ import {
   describeTelemetry,
   setTelemetryEnabled,
   telemetryStatus,
-} from './telemetry.js';
+} from './infrastructure/telemetry-service.js';
 import type { Flags, ParsedArgs } from './types/args.js';
 import type { Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
@@ -196,7 +196,10 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
   }
   if (verb !== 'status') {
     const enabled = verb === 'enable';
-    if (!setTelemetryEnabled(enabled)) {
+    const written = setTelemetryEnabled(enabled);
+    if (!written.ok) {
+      // The service names the file and the reason; this says what to do about it.
+      log.debug(written.error.message);
       throw new UserError(`Could not write ${f.path(paths.telemetryPath())}.`, {
         hint: enabled
           ? 'Check the permissions on the state directory, or point CP_STATE_DIR somewhere writable.'
@@ -438,6 +441,11 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
     report(err);
     return 1;
   } finally {
-    await telemetry.flush();
+    // The sender never prints. It hands back what it would have said, in order,
+    // and this is where any of it reaches a terminal.
+    for (const line of await telemetry.flush()) {
+      if (line.kind === 'debug') log.debug(line.text);
+      else log.notice(line.text, { verbatim: line.verbatim });
+    }
   }
 }

@@ -6,7 +6,7 @@ import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './paths.js';
 import { format as f } from './prompts/format.js';
-import { describeTelemetry, telemetryStatus } from './telemetry.js';
+import { describeTelemetry, telemetryStatus } from './infrastructure/telemetry-service.js';
 import type { Brand } from './types/brand.js';
 import type { DoctorCheck, DoctorReport } from './types/doctor.js';
 import type { PathOpts } from './types/env.js';

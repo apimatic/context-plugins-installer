@@ -1,31 +1,31 @@
-import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-import { BIN } from './brand.js';
-import { log } from './log.js';
-import * as paths from './paths.js';
-import { isCi, isInteractive } from './infrastructure/environment.js';
-import type { Brand } from './types/brand.js';
-import type { Env, PathOpts } from './types/env.js';
-import type { FilePath } from './types/file/paths.js';
-import type { Deps, FetchLike } from './types/ports.js';
+import { BIN } from '../brand.js';
+import * as paths from '../paths.js';
+import type { Brand } from '../types/brand.js';
+import type { Env, PathOpts } from '../types/env.js';
+import { Failure } from '../types/failure.js';
+import type { FilePath } from '../types/file/paths.js';
+import type { Deps, FetchLike } from '../types/ports.js';
+import type { Result } from '../types/result.js';
 import type {
   TelemetryEvent,
+  TelemetryLine,
   TelemetryOptOut,
   TelemetryStatus,
   TelemetryValue,
   TrackFn,
-} from './types/telemetry.js';
+} from '../types/telemetry.js';
+import { ENV_OFF, envFlag, errorMessage } from '../util.js';
+import { isCi, isInteractive } from './environment.js';
+import { track as postToMixpanel } from './mixpanel-client.js';
 import {
-  ENV_OFF,
-  envFlag,
-  errorCode,
-  errorMessage,
-  isPlainObject,
-  nonEmptyString,
-  stripBom,
-} from './util.js';
-import { ensureDir } from './infrastructure/file-system.js';
+  readState,
+  withId,
+  writeState,
+  type StateRead,
+  type TelemetryState,
+} from './telemetry-state.js';
 
 // Title case with a product prefix, the convention of the Mixpanel project
 // these land in.
@@ -49,57 +49,6 @@ export const COLLECTED =
   'or in CI, how long it took, a random id for this machine, and an approximate location ' +
   '(city, region, country) that Mixpanel derives from the request address and then discards';
 
-interface TelemetryState {
-  id: string | null;
-  enabled?: boolean;
-  noticeShown?: boolean;
-}
-
-/** `null` is a missing file; `unreadable` is a file that exists but cannot be trusted. */
-type StateRead = TelemetryState | null | 'unreadable';
-
-// A missing file is the fresh-machine case. Anything else that cannot be read is
-// not "absent": treating it so would drop a saved opt-out, so it fails closed.
-function readState(file: FilePath): StateRead {
-  let text: string;
-  try {
-    text = fs.readFileSync(file.toString(), 'utf8');
-  } catch (err) {
-    const code = errorCode(err);
-    return code === 'ENOENT' || code === 'ENOTDIR' ? null : 'unreadable';
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripBom(text));
-  } catch {
-    return 'unreadable';
-  }
-  if (!isPlainObject(parsed)) return 'unreadable';
-  const state: TelemetryState = { id: nonEmptyString(parsed.id) ? parsed.id : null };
-  if (typeof parsed.enabled === 'boolean') state.enabled = parsed.enabled;
-  if (typeof parsed.noticeShown === 'boolean') state.noticeShown = parsed.noticeShown;
-  return state;
-}
-
-// Written whole through a rename, so a crash mid-write cannot leave the half
-// file that would read as unreadable above.
-function writeState(file: FilePath, state: TelemetryState): boolean {
-  const tmp = file.withSuffix(`.${process.pid}.tmp`);
-  try {
-    ensureDir(file.parent());
-    fs.writeFileSync(tmp.toString(), `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-    fs.renameSync(tmp.toString(), file.toString());
-    return true;
-  } catch (err) {
-    log.debug(`telemetry: could not write ${file}: ${errorMessage(err)}`);
-    fs.rmSync(tmp.toString(), { force: true });
-    return false;
-  }
-}
-
-const withId = (state: TelemetryState | null, newId: () => string): TelemetryState =>
-  state?.id ? state : { ...state, id: newId() };
-
 function optOutOf(brand: Brand, env: Env, read: StateRead): TelemetryOptOut | null {
   if (envFlag(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK';
   if (ENV_OFF.has((env.CP_TELEMETRY || '').toLowerCase())) return 'CP_TELEMETRY';
@@ -119,6 +68,7 @@ function resolve(
   const stateFile = paths.telemetryPath(pathOpts);
   const read = readState(stateFile);
   const id = read && read !== 'unreadable' ? read.id : null;
+  // `status.file` is a reported string; `stateFile` is the path the writes use.
   const status = (mode: TelemetryStatus['mode'], optOut: TelemetryOptOut | null) => ({
     status: { mode, optOut, id, file: stateFile.toString() },
     read,
@@ -160,8 +110,8 @@ export function describeTelemetry(status: TelemetryStatus, bin: string): string 
   }
 }
 
-/** `telemetry enable|disable`; false when the state file could not be written. */
-export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): boolean {
+/** `telemetry enable|disable`; the Failure names the file that could not be written. */
+export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Result<void, Failure> {
   const file = paths.telemetryPath(pathOpts);
   const read = readState(file);
   // An explicit choice may replace a file that could not be read; nothing else does.
@@ -188,8 +138,12 @@ export interface TelemetryOptions {
 
 export interface Telemetry {
   track: TrackFn;
-  /** Sends everything tracked so far in one request; never throws, never outlives the timeout. */
-  flush(): Promise<void>;
+  /**
+   * Sends everything tracked so far in one request; never throws, never
+   * outlives the timeout. Returns the lines it would have printed, in the order
+   * it produced them, for the caller to put on the terminal.
+   */
+  flush(): Promise<TelemetryLine[]>;
 }
 
 // Construction does no I/O. The mode, the state file, the version and the fetch
@@ -216,17 +170,20 @@ export function createTelemetry({
     }
   };
 
-  function disclose(file: FilePath, state: TelemetryState): void {
+  function disclose(file: FilePath, state: TelemetryState, lines: TelemetryLine[]): void {
     if (state.noticeShown) return;
-    log.notice(
-      `${brand.displayName} collects anonymous usage data: ${COLLECTED}. Nothing else: no file ` +
+    lines.push({
+      kind: 'notice',
+      text:
+        `${brand.displayName} collects anonymous usage data: ${COLLECTED}. Nothing else: no file ` +
         `paths, usernames, messages or secrets. Opt out with '${BIN} telemetry disable' or ` +
         `DO_NOT_TRACK=1; CP_TELEMETRY=log shows each event instead of sending it.`,
-    );
-    writeState(file, { ...state, noticeShown: true });
+    });
+    const written = writeState(file, { ...state, noticeShown: true });
+    if (!written.ok) lines.push({ kind: 'debug', text: written.error.message });
   }
 
-  async function send(events: TelemetryEvent[]): Promise<void> {
+  async function send(events: TelemetryEvent[], lines: TelemetryLine[]): Promise<void> {
     const env = deps.env || process.env;
     const { status, read, stateFile } = resolve(brand, env, pathOpts);
     const token = brand.telemetry?.token;
@@ -236,9 +193,13 @@ export function createTelemetry({
     // is no per-machine count, and without the file the notice would repeat.
     const base = read === 'unreadable' ? null : read;
     const state = withId(base, newId);
-    if (state !== base && !writeState(stateFile, state)) {
-      log.debug('telemetry: no writable state directory; nothing sent');
-      return;
+    if (state !== base) {
+      const written = writeState(stateFile, state);
+      if (!written.ok) {
+        lines.push({ kind: 'debug', text: written.error.message });
+        lines.push({ kind: 'debug', text: 'telemetry: no writable state directory; nothing sent' });
+        return;
+      }
     }
 
     const common: Record<string, TelemetryValue> = {
@@ -268,32 +229,32 @@ export function createTelemetry({
     if (status.mode === 'log') {
       // One line per event, unwrapped, so the payload can be read or piped as JSON.
       for (const e of body) {
-        log.notice(`telemetry (not sent): ${JSON.stringify(e)}`, { verbatim: true });
+        lines.push({
+          kind: 'notice',
+          text: `telemetry (not sent): ${JSON.stringify(e)}`,
+          verbatim: true,
+        });
       }
       return;
     }
 
     const fetchImpl: FetchLike | undefined = deps.fetchImpl ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
-      log.debug('telemetry: no fetch implementation; nothing sent');
+      lines.push({ kind: 'debug', text: 'telemetry: no fetch implementation; nothing sent' });
       return;
     }
 
-    disclose(stateFile, state);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    timer.unref();
-    try {
-      const res = await fetchImpl(`${brand.telemetry.host}/track?ip=1&verbose=1`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'text/plain' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      log.debug(`telemetry: ${res.status} ${(await res.text()).trim()}`);
-    } finally {
-      clearTimeout(timer);
-    }
+    disclose(stateFile, state, lines);
+    const sent = await postToMixpanel({
+      host: brand.telemetry.host,
+      body,
+      fetchImpl,
+      timeoutMs,
+    });
+    lines.push({
+      kind: 'debug',
+      text: sent.ok ? `telemetry: ${sent.value}` : `telemetry: ${sent.error.message}`,
+    });
   }
 
   return {
@@ -301,13 +262,15 @@ export function createTelemetry({
       queue.push({ name, properties });
     },
     async flush() {
+      const lines: TelemetryLine[] = [];
       const events = queue.splice(0);
-      if (!events.length) return;
+      if (!events.length) return lines;
       try {
-        await send(events);
-      } catch (err) {
-        log.debug(`telemetry: ${errorMessage(err)}`);
+        await send(events, lines);
+      } catch (e) {
+        lines.push({ kind: 'debug', text: `telemetry: ${errorMessage(e)}` });
       }
+      return lines;
     },
   };
 }

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
 import * as paths from '../src/paths.js';
+import { log } from '../src/prompts/terminal.js';
 import {
   COLLECTED,
   EVENTS,
@@ -13,8 +14,9 @@ import {
   marketplaceLabel,
   setTelemetryEnabled,
   telemetryStatus,
+  type Telemetry,
   type TelemetryOptions,
-} from '../src/telemetry.js';
+} from '../src/infrastructure/telemetry-service.js';
 import type { Brand } from '../src/types/brand.js';
 import type { Env, PathOpts } from '../src/types/env.js';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
@@ -97,10 +99,18 @@ function telemetryFor(m: Machine, fetchImpl: FetchLike, over: Partial<TelemetryO
   });
 }
 
-async function flushQuietly(t: { flush(): Promise<void> }) {
+/**
+ * Flushes, then replays the lines exactly as cli.ts does. The sender no longer
+ * prints - it hands back what it would have said - so this keeps the assertions
+ * below describing what a user actually sees, and exercises the replay too.
+ */
+async function flushQuietly(t: Telemetry) {
   const con = silenceConsole();
   try {
-    await t.flush();
+    for (const line of await t.flush()) {
+      if (line.kind === 'debug') log.debug(line.text);
+      else log.notice(line.text, { verbatim: line.verbatim });
+    }
   } finally {
     con.restore();
   }
@@ -268,7 +278,7 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
     },
     {
       label: 'telemetry disable',
-      before: (m) => assert.equal(setTelemetryEnabled(false, m.pathOpts), true),
+      before: (m) => assert.equal(setTelemetryEnabled(false, m.pathOpts).ok, true),
       optOut: 'user',
       described: 'disabled (context-plugins telemetry disable)',
     },
@@ -331,10 +341,10 @@ test('a "no" value on DO_NOT_TRACK or CP_TELEMETRY leaves telemetry on', () => {
 
 test('telemetry enable undoes telemetry disable and keeps the id', () => {
   const m = machine();
-  assert.equal(setTelemetryEnabled(false, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(false, m.pathOpts).ok, true);
   const id = readState(m.file).id;
   assert.match(String(id), UUID);
-  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(true, m.pathOpts).ok, true);
   const status = statusOf(m);
   assert.equal(status.mode, 'on');
   assert.equal(status.id, id);
@@ -344,12 +354,12 @@ test('an explicit enable/disable may replace an unreadable file; a hand-written 
   const m = machine();
   fs.mkdirSync(path.dirname(m.file), { recursive: true });
   fs.writeFileSync(m.file, '{ not json');
-  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(true, m.pathOpts).ok, true);
   assert.match(String(readState(m.file).id), UUID);
   assert.equal(statusOf(m).mode, 'on');
 
   fs.writeFileSync(m.file, JSON.stringify({ enabled: false }));
-  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(true, m.pathOpts).ok, true);
   const state = readState(m.file);
   assert.match(String(state.id), UUID);
   assert.equal(state.enabled, true);
@@ -465,4 +475,35 @@ test('the marketplace is named only when it is the one this build ships with', (
   assert.equal(marketplaceLabel(brand({ env: { CP_REPO: 'acme/plugin-marketplace' } })), 'custom');
   const legacy = { ...brand(), telemetry: undefined } as unknown as Brand;
   assert.equal(marketplaceLabel(legacy), 'custom', 'a Brand from an older caller does not throw');
+});
+
+/**
+ * The rule this phase exists to establish, as a test: the sender is
+ * infrastructure, so it writes nothing to the terminal and hands its caller
+ * what it would have said. `flushQuietly` above replays those lines, which is
+ * why every other assertion in this file still reads as console output.
+ */
+test('flush writes nothing itself and hands back the lines in order', async () => {
+  const m = machine();
+  const t = telemetryFor(m, sink());
+  t.track(EVENTS.installed, { plugin: 'my-sdk' });
+
+  const con = silenceConsole();
+  let lines;
+  try {
+    lines = await t.flush();
+  } finally {
+    con.restore();
+  }
+
+  assert.deepEqual(con.lines, [], 'the sender put nothing on the terminal');
+  const kinds = lines.map((l) => l.kind);
+  assert.ok(kinds.includes('notice'), `expected the one-time notice: ${JSON.stringify(lines)}`);
+  assert.ok(kinds.includes('debug'), `expected the response as a debug line: ${kinds.join(',')}`);
+  assert.equal(kinds.indexOf('notice') < kinds.lastIndexOf('debug'), true, 'notice comes first');
+});
+
+test('nothing tracked means no lines at all', async () => {
+  const m = machine();
+  assert.deepEqual(await telemetryFor(m, sink()).flush(), []);
 });
