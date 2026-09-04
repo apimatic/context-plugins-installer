@@ -1,3 +1,15 @@
+# [0.7.0](https://github.com/apimatic/context-plugins-installer/compare/v0.6.0...v0.7.0) (2026-09-03)
+
+
+### Bug Fixes
+
+* **uninstall:** clear a record no editor can confirm instead of stranding it ([#10](https://github.com/apimatic/context-plugins-installer/issues/10)) ([a9cde1c](https://github.com/apimatic/context-plugins-installer/commit/a9cde1c806b74cc0cf18e30f48ac0105014c6533))
+
+
+### Features
+
+* send anonymous install and uninstall telemetry to Mixpanel ([#9](https://github.com/apimatic/context-plugins-installer/issues/9)) ([f84e7de](https://github.com/apimatic/context-plugins-installer/commit/f84e7debc1ecc798489365a3a1ea3971597ff7be))
+
 # [0.6.0](https://github.com/apimatic/context-plugins-installer/compare/v0.5.0...v0.6.0) (2026-09-03)
 
 
