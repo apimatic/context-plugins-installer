@@ -231,3 +231,40 @@ test('findRaw returns the rows read hides', () => {
   assert.equal(manifest.find(f, key), null, 'the sanitized view hides it');
   assert.deepEqual(manifest.findRaw(f, key)?.targets, ['zed']);
 });
+
+/**
+ * A version this build does not know belongs to a newer CLI. `readRaw` keeps it
+ * on purpose, and `write` used to stamp its own over the top - erasing the only
+ * migration signal the format has, on an install that touched one row.
+ */
+test('a version written by a newer CLI survives an upsert', () => {
+  const file = path.join(tmpDir('cp-manifest-'), 'installed.json');
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ version: 2, plugins: [{ plugin: 'from-v2', targets: ['cursor'] }] }),
+  );
+
+  manifest.upsert(file, { plugin: 'new-row', repo: 'o/r', targets: ['cursor'] });
+
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { version: number; plugins: unknown[] };
+  assert.equal(raw.version, 2, 'the foreign version is preserved');
+  assert.equal(raw.plugins.length, 2, 'and the row it owned is still there');
+});
+
+test('a manifest with no version is stamped with this build', () => {
+  const file = path.join(tmpDir('cp-manifest-'), 'installed.json');
+  manifest.upsert(file, { plugin: 'a', repo: 'o/r', targets: ['cursor'] });
+  assert.equal((JSON.parse(fs.readFileSync(file, 'utf8')) as { version: number }).version, 1);
+});
+
+// Written through a rename, so a crash mid-write leaves the previous file
+// rather than a truncated one that reads back as empty and loses every row.
+test('writing leaves no temporary file behind', () => {
+  const dir = tmpDir('cp-manifest-');
+  const file = path.join(dir, 'installed.json');
+  manifest.upsert(file, { plugin: 'a', repo: 'o/r', targets: ['cursor'] });
+  assert.deepEqual(
+    fs.readdirSync(dir).filter((f) => f.includes('.tmp')),
+    [],
+  );
+});

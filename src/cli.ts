@@ -1,30 +1,26 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
-import { resolveBrand } from './brand.js';
+import { BIN, resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
+import { packageVersion } from './infrastructure/environment.js';
 import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
-import * as paths from './paths.js';
+import * as paths from './infrastructure/paths.js';
+import { format as f } from './prompts/format.js';
+import { printTelemetryLines } from './prompts/telemetry.js';
 import {
   COLLECTED,
   createTelemetry,
   describeTelemetry,
   setTelemetryEnabled,
   telemetryStatus,
-} from './telemetry.js';
-import type { Brand, Deps, DoctorStatus, Flags, Manifest, ParsedArgs, Profile } from './types.js';
-import { UserError, isPlainObject, errorMessage, shortPath } from './util.js';
-
-// package.json is one directory up from both src/ (tests) and lib/ (published).
-function packageVersion(): string {
-  const parsed: unknown = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
-  );
-  return isPlainObject(parsed) && typeof parsed.version === 'string' ? parsed.version : 'unknown';
-}
+} from './infrastructure/telemetry-service.js';
+import type { Flags, ParsedArgs } from './types/args.js';
+import type { Brand } from './types/brand.js';
+import type { DoctorStatus } from './types/doctor.js';
+import type { Manifest } from './types/installed-record.js';
+import type { Deps } from './types/ports.js';
+import { UserError, errorMessage } from './util.js';
 
 const VALUE_FLAGS = ['repo', 'ref', 'marketplace', 'targets'] as const;
 const BOOL_FLAGS = ['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version'] as const;
@@ -201,8 +197,11 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
   }
   if (verb !== 'status') {
     const enabled = verb === 'enable';
-    if (!setTelemetryEnabled(enabled)) {
-      throw new UserError(`Could not write ${shortPath(paths.telemetryPath())}.`, {
+    const written = setTelemetryEnabled(enabled);
+    if (!written.ok) {
+      // The service names the file and the reason; this says what to do about it.
+      log.debug(written.error.message);
+      throw new UserError(`Could not write ${f.path(paths.telemetryPath())}.`, {
         hint: enabled
           ? 'Check the permissions on the state directory, or point CP_STATE_DIR somewhere writable.'
           : 'CP_TELEMETRY=off in the environment needs no file.',
@@ -219,7 +218,7 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
     // The choice is saved, but a broader switch still decides what happens.
     log.info(`Right now it is ${effective}; that setting takes precedence.`);
   }
-  if (status.id) log.info(`Anonymous machine id: ${status.id} (${shortPath(status.file)})`);
+  if (status.id) log.info(`Anonymous machine id: ${status.id} (${f.path(status.file)})`);
   log.info(`Collected: ${COLLECTED}.`);
   log.info(
     `Change it with '${bin} telemetry enable|disable', CP_TELEMETRY=off, or DO_NOT_TRACK=1.`,
@@ -230,10 +229,7 @@ function telemetryCommand(action: string | undefined, brand: Brand, bin: string)
 const DOCTOR_SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
 
 /** Returns the process exit code. */
-export async function run(
-  argv: readonly string[] = process.argv.slice(2),
-  profile: Profile = {},
-): Promise<number> {
+export async function run(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   let parsed: ParsedArgs;
   try {
     parsed = parseArgs(argv);
@@ -254,15 +250,14 @@ export async function run(
 
   let brand: Brand;
   try {
-    brand = resolveBrand({ flags, profile });
+    brand = resolveBrand({ flags });
   } catch (err) {
     report(err);
     return 2;
   }
 
-  const bin = profile.bin || brand.bin;
   if (flags.help || !command || command === 'help') {
-    log.plain(helpText(bin, brand));
+    log.plain(helpText(BIN, brand));
     return command || flags.help ? 0 : 2;
   }
 
@@ -290,7 +285,7 @@ export async function run(
       case 'install': {
         if (!plugin) {
           throw new UserError('No plugin specified.', {
-            hint: `Usage: ${bin} install <plugin>   (or set CP_PLUGIN)`,
+            hint: `Usage: ${BIN} install <plugin>   (or set CP_PLUGIN)`,
           });
         }
         await installPlugin({
@@ -307,7 +302,7 @@ export async function run(
       case 'uninstall':
       case 'remove': {
         if (!plugin) {
-          throw new UserError('No plugin specified.', { hint: `Usage: ${bin} uninstall <plugin>` });
+          throw new UserError('No plugin specified.', { hint: `Usage: ${BIN} uninstall <plugin>` });
         }
         await uninstallPlugin({ brand, plugin, targets, force: flags.force, deps });
         return 0;
@@ -363,8 +358,8 @@ export async function run(
           log.info(`${log.MARK} installed on this machine (${count})`);
         }
         for (const msg of gaps) log.warn(msg);
-        if (!flags.long) log.info(`Run \`${bin} list --long\` for descriptions.`);
-        log.info(`Install one with \`${bin} install <plugin>\`.`);
+        if (!flags.long) log.info(`Run \`${BIN} list --long\` for descriptions.`);
+        log.info(`Install one with \`${BIN} install <plugin>\`.`);
         return 0;
       }
       case 'doctor': {
@@ -421,7 +416,7 @@ export async function run(
         if (!entries.length) {
           warnGaps(log.warn);
           log.info(scope ? `No plugins installed${scope}.` : 'No plugins installed yet.');
-          log.info(`Browse what is available with:  ${bin} list`);
+          log.info(`Browse what is available with:  ${BIN} list`);
           return 0;
         }
         log.banner(`${log.plural(entries.length, 'plugin')} installed${scope}`);
@@ -437,16 +432,18 @@ export async function run(
         return 0;
       }
       case 'telemetry':
-        return telemetryCommand(args[0], brand, bin);
+        return telemetryCommand(args[0], brand, BIN);
       default:
         throw new UserError(`Unknown command: ${command}`, {
-          hint: `Run \`${bin} --help\` for usage.`,
+          hint: `Run \`${BIN} --help\` for usage.`,
         });
     }
   } catch (err) {
     report(err);
     return 1;
   } finally {
-    await telemetry.flush();
+    // The sender never prints. It hands back what it would have said, in order,
+    // and one renderer puts it on the terminal.
+    printTelemetryLines(await telemetry.flush());
   }
 }

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { resolveBrand } from '../src/brand.js';
-import { rawUrl } from '../src/catalog.js';
+import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import {
   installPlugin,
   uninstallPlugin,
@@ -13,8 +13,10 @@ import {
   chooseHarnesses,
 } from '../src/install.js';
 import * as manifest from '../src/manifest.js';
-import * as paths from '../src/paths.js';
-import type { Brand, Deps, HarnessName } from '../src/types.js';
+import * as paths from '../src/infrastructure/paths.js';
+import type { Brand } from '../src/types/brand.js';
+import type { HarnessName } from '../src/types/harness.js';
+import type { Deps } from '../src/types/ports.js';
 import { UserError, isPlainObject } from '../src/util.js';
 import { tmpDir, cleanupAll, stubFetch, silenceConsole, parseJsonc } from './helpers.js';
 
@@ -283,7 +285,7 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
 test('a row nothing has installed is cleared rather than left stuck', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -310,7 +312,7 @@ test('a row nothing has installed is cleared rather than left stuck', async () =
 test('a target that could not be confirmed keeps the row until --force', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const seed = () =>
     fs.writeFileSync(
@@ -354,7 +356,7 @@ test('a target that could not be confirmed keeps the row until --force', async (
 test('a partial clear says which targets it cleared, not that the row is gone', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -393,7 +395,7 @@ test('a partial clear says which targets it cleared, not that the row is gone', 
 test('--force names what it dropped without confirming', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -433,7 +435,7 @@ test('a removal does not hide a target cleared alongside it', async () => {
   const dest = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'mix-sdk');
   fs.mkdirSync(dest, { recursive: true });
   fs.writeFileSync(path.join(dest, 'plugin.json'), '{}');
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -469,7 +471,7 @@ test('an editor that is not installed leaves its target recorded', async () => {
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -503,7 +505,7 @@ test('an unrecognised settings entry is reported, not silently kept or hidden', 
   const settings = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
   const source = `{\n  "chat.pluginLocations": {\n    "${dest.replace(/\\/g, '/')}": false\n  }\n}\n`;
   fs.writeFileSync(settings, source);
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -581,7 +583,7 @@ test('a harness that throws still records what was already removed', async () =>
   fs.rmSync(settings, { force: true });
   fs.mkdirSync(settings, { recursive: true });
 
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   const con = silenceConsole();
   await assert.rejects(
     (async () => {
@@ -616,7 +618,7 @@ test('a harness that throws still records what was already removed', async () =>
 test('a row whose targets this build cannot read is left exactly as found', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // A newer CLI models targets some other way; the row is its business.
   const row = { plugin: 'future-sdk', repo, marketplace: 'apimatic', targets: { cursor: {} } };
@@ -659,7 +661,7 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
 test('a row that names no editor is dropped once every editor has answered', async () => {
   const m = withClaude(machine());
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -689,7 +691,7 @@ test('a row that names no editor is dropped once every editor has answered', asy
 test('a row naming only targets this build does not know has a way out', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const row = { plugin: 'zed-sdk', repo, marketplace: 'apimatic', targets: ['zed'] };
   fs.writeFileSync(file, JSON.stringify({ version: 1, plugins: [row] }));
@@ -735,7 +737,7 @@ test('a scoped run never drops a row that stands for every editor', async () => 
   const vscodeCopy = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'x-sdk');
   fs.mkdirSync(vscodeCopy, { recursive: true });
   fs.writeFileSync(path.join(vscodeCopy, 'plugin.json'), '{}');
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -768,7 +770,7 @@ test('a scoped run never drops a row that stands for every editor', async () => 
 test('--force still reports what it left behind', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -802,7 +804,7 @@ test('a row that names no editor survives an editor that could not answer', asyn
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // `targets: []` reads as "every harness", so it is this same shape.
   fs.writeFileSync(
@@ -879,7 +881,7 @@ test('an editor that was asked and went wrong fails the run', async () => {
 test('--force clears a record offline, with no marketplace to resolve', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // No `marketplace` and no `targets`: the shape --force exists for.
   fs.writeFileSync(file, JSON.stringify({ version: 1, plugins: [{ plugin: 'ghost-sdk', repo }] }));
@@ -1257,7 +1259,7 @@ test('update names the targets it cannot update, and leaves them recorded', asyn
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const d = deps({ repo, srcDir: pluginSource() });
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
 
   await quietly(() =>
     installPlugin({
@@ -1395,7 +1397,7 @@ test('update fails loudly on rows it cannot read instead of skipping them', asyn
       pathOpts: m.pathOpts,
     }),
   );
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   raw.plugins.push({ plugin: 'future-sdk', repo, marketplace: 'apimatic', targets: ['zed'] });
   fs.writeFileSync(file, JSON.stringify(raw));
@@ -1419,7 +1421,7 @@ test('update fails loudly on rows it cannot read instead of skipping them', asyn
 test('uninstall still works offline for rows the sanitized view hides', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -1474,7 +1476,7 @@ test('a row mixing a known target with a foreign one keeps the foreign name', as
 
   // A newer CLI adds its own harness to the row, and a field this build has
   // never heard of. Both belong to it, not to us.
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   const seeded = JSON.parse(fs.readFileSync(file, 'utf8'));
   seeded.plugins[0].targets.push('zed');
   seeded.plugins[0].pinned = true;

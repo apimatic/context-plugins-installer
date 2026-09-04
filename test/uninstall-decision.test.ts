@@ -3,7 +3,7 @@ import assert from 'node:assert';
 
 import { NAMES, byName, isHarnessName } from '../src/harness/index.js';
 import { decideUninstall, uninstallLines } from '../src/install.js';
-import type { HarnessName, UninstallOutcome } from '../src/types.js';
+import type { HarnessName, UninstallOutcome } from '../src/types/harness.js';
 
 /**
  * Four review rounds each found another combination of row shape, outcomes and

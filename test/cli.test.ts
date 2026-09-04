@@ -7,8 +7,8 @@ import { parseArgs, parseTargets, helpText, run } from '../src/cli.js';
 import { resolveTargets, NAMES } from '../src/harness/index.js';
 import { UserError } from '../src/util.js';
 import { silenceConsole, tmpDir, cleanupAll, stubFetch } from './helpers.js';
-import { rawUrl } from '../src/catalog.js';
-import type { FetchLike } from '../src/types.js';
+import { rawUrl } from '../src/infrastructure/github-registry-client.js';
+import type { FetchLike } from '../src/types/ports.js';
 
 test.after(cleanupAll);
 

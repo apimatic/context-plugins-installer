@@ -1,3 +1,4 @@
+import { BIN } from './brand.js';
 import { resolvePlugin, loadCatalog } from './catalog.js';
 import {
   byName,
@@ -9,25 +10,26 @@ import {
 } from './harness/index.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
-import * as paths from './paths.js';
-import { isInteractive, createPrompter } from './prompt.js';
-import { createSession } from './session.js';
-import { EVENTS, marketplaceLabel } from './telemetry.js';
+import * as paths from './infrastructure/paths.js';
+import { createPrompter } from './prompt.js';
+import { announceMarketplace } from './prompts/marketplace.js';
+import { isInteractive } from './infrastructure/environment.js';
+import { createSession } from './infrastructure/session.js';
+import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
+import type { Brand } from './types/brand.js';
+import type { FileArg } from './types/file/paths.js';
 import type {
-  Brand,
-  Deps,
   HarnessContext,
   HarnessName,
   HarnessOpts,
-  InstallResult,
-  ListResult,
-  Session,
-  TrackFn,
   UninstallOutcome,
-  UninstallResult,
-  UpdateResult,
-} from './types.js';
-import { assertPlugin, isPluginId, nonEmptyString, UserError, errorMessage } from './util.js';
+} from './types/harness.js';
+import { PluginId } from './types/ids/plugin-id.js';
+import type { Deps } from './types/ports.js';
+import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
+import type { Session } from './types/session.js';
+import type { TrackFn } from './types/telemetry.js';
+import { assertPlugin, nonEmptyString, orThrow, UserError, errorMessage } from './util.js';
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -233,7 +235,7 @@ function trackFailure(
   { plugin, brand, stage, err }: { plugin: string; brand: Brand; stage?: Stage; err: unknown },
 ): void {
   track(event, {
-    plugin: isPluginId(plugin) ? plugin : null,
+    plugin: PluginId.create(plugin)?.toString() ?? null,
     marketplace: marketplaceLabel(brand),
     stage: stage ?? null,
     error_kind: err instanceof UserError ? 'user' : 'unexpected',
@@ -285,7 +287,7 @@ export async function chooseHarnesses(
 // Cursor and VS Code both keep plugins in a flat <plugin>/ directory, so the
 // same id from a second marketplace would silently overwrite the first.
 function assertNoMarketplaceConflict(
-  manifestFile: string,
+  manifestFile: FileArg,
   { plugin, repo }: { plugin: string; repo: string },
   force: boolean,
 ): void {
@@ -327,7 +329,7 @@ export async function installPlugin({
   session,
 }: InstallOptions): Promise<InstallResult> {
   const ownSession = !session;
-  const run = session || createSession({ deps });
+  const run = session || createSession({ deps, notify: announceMarketplace });
   const progress = { stage: 'resolve' as Stage };
   try {
     return await runInstall({
@@ -389,7 +391,7 @@ async function runInstall({
     marketplace: brand.id,
     label: brand.label,
     deps,
-    catalog: await run.catalog({ repo: brand.repo, ref: effectiveRef }),
+    catalog: orThrow(await run.catalog({ repo: brand.repo, ref: effectiveRef })),
   });
 
   progress.stage = 'harnesses';
@@ -463,11 +465,13 @@ async function runInstall({
   if (needsSource) {
     progress.stage = 'fetch';
     log.step('[Fetch]');
-    srcDir = await run.source({
-      repo: brand.repo,
-      ref: effectiveRef,
-      sourcePath: resolved.sourcePath,
-    });
+    srcDir = orThrow(
+      await run.source({
+        repo: brand.repo,
+        ref: effectiveRef,
+        sourcePath: resolved.sourcePath,
+      }),
+    );
     log.ok('Plugin source ready');
   }
 
@@ -629,7 +633,7 @@ async function runUninstall({
   }
 
   // Nothing to say means a failure the thrown error reports; no empty framing.
-  const lines = uninstallLines(decision, { plugin, bin: brand.bin });
+  const lines = uninstallLines(decision, { plugin, bin: BIN });
   if (lines.length) {
     log.plain('');
     log.rule();
@@ -680,7 +684,7 @@ export async function updateAll({
     );
   }
 
-  const session = createSession({ deps });
+  const session = createSession({ deps, notify: announceMarketplace });
   try {
     for (const entry of entries) {
       const entryBrand: Brand = Object.freeze({

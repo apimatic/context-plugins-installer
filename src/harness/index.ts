@@ -1,4 +1,4 @@
-import type { Harness, HarnessName } from '../types.js';
+import type { Harness, HarnessName } from '../types/harness.js';
 import { UserError } from '../util.js';
 import * as claude from './claude.js';
 import * as cursor from './cursor.js';

@@ -1,25 +1,24 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
-import { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } from './catalog.js';
+import { BIN } from './brand.js';
+import { loadCatalog } from './catalog.js';
+import { ghHeaders, rawUrl } from './infrastructure/github-registry-client.js';
 import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
-import * as paths from './paths.js';
-import { describeTelemetry, telemetryStatus } from './telemetry.js';
-import type { Brand, Deps, DoctorCheck, DoctorReport, FetchLike, PathOpts } from './types.js';
-import {
-  UserError,
-  which,
-  run,
-  shortPath,
-  ensureDir,
-  rmrf,
-  isPlainObject,
-  errorMessage,
-} from './util.js';
+import * as paths from './infrastructure/paths.js';
+import { format as f } from './prompts/format.js';
+import { describeTelemetry, telemetryStatus } from './infrastructure/telemetry-service.js';
+import type { Brand } from './types/brand.js';
+import { REGISTRY_FILES } from './types/catalog.js';
+import type { DoctorCheck, DoctorReport } from './types/doctor.js';
+import type { PathOpts } from './types/env.js';
+import { MarketplaceName } from './types/ids/marketplace-name.js';
+import type { Deps, FetchLike } from './types/ports.js';
+import { UserError, isPlainObject, errorMessage } from './util.js';
+import { ensureDir, rmrf } from './infrastructure/file-system.js';
+import { run, which } from './infrastructure/process-runner.js';
 
 export const MIN_NODE = 18;
-const MARKETPLACE_RE = /^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/i;
 
 const ok = (label: string, detail: string): DoctorCheck => ({ status: 'ok', label, detail });
 const warn = (label: string, detail: string, hint?: string): DoctorCheck => ({
@@ -35,7 +34,7 @@ const fail = (label: string, detail: string, hint?: string): DoctorCheck => ({
   hint,
 });
 
-async function checkEnvironment(deps: Deps): Promise<DoctorCheck[]> {
+async function checkEnvironment(deps: Deps, pathOpts?: PathOpts): Promise<DoctorCheck[]> {
   const whichImpl = deps.which || which;
   const runImpl = deps.run || run;
   const env = deps.env || process.env;
@@ -51,7 +50,7 @@ async function checkEnvironment(deps: Deps): Promise<DoctorCheck[]> {
 
   const git = whichImpl('git', env);
   if (git) {
-    let detail = shortPath(git);
+    let detail = f.path(git, pathOpts?.home);
     try {
       const res = await runImpl(git, ['--version']);
       if (res.code === 0 && res.stdout.trim()) detail = res.stdout.trim();
@@ -132,12 +131,12 @@ async function checkMarketplace(brand: Brand, deps: Deps): Promise<DoctorCheck[]
 
   const name = catalog.marketplace;
   checks.push(
-    name && MARKETPLACE_RE.test(name)
+    name && MarketplaceName.create(name)
       ? ok('Registry', `${name}, ${catalog.plugins.length} plugins`)
       : fail(
           'Registry',
           `name ${JSON.stringify(name)} is not a valid identifier`,
-          `It must be kebab-case with no spaces. Fix 'name' in ${REGISTRY_FILES[0]}.`,
+          `It must be ${MarketplaceName.RULE}. Fix 'name' in ${REGISTRY_FILES[0]}.`,
         ),
   );
 
@@ -169,7 +168,7 @@ async function checkMarketplace(brand: Brand, deps: Deps): Promise<DoctorCheck[]
 // Every outcome is `ok`: opting out is a choice, not a problem to fix.
 function checkTelemetry(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck {
   const status = telemetryStatus({ brand, env: deps.env || process.env, pathOpts });
-  return ok('Telemetry', describeTelemetry(status, brand.bin));
+  return ok('Telemetry', describeTelemetry(status, BIN));
 }
 
 function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[] {
@@ -177,12 +176,14 @@ function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[
   const checks: DoctorCheck[] = [];
   try {
     ensureDir(dir);
-    const probe = path.join(dir, `.write-probe-${process.pid}`);
-    fs.writeFileSync(probe, 'ok');
+    const probe = dir.file(`.write-probe-${process.pid}`);
+    fs.writeFileSync(probe.toString(), 'ok');
     rmrf(probe);
-    checks.push(ok('State directory', `${shortPath(dir)} (writable)`));
+    checks.push(ok('State directory', `${f.path(dir, pathOpts?.home)} (writable)`));
   } catch (err) {
-    checks.push(fail('State directory', `${shortPath(dir)} is not writable`, errorMessage(err)));
+    checks.push(
+      fail('State directory', `${f.path(dir, pathOpts?.home)} is not writable`, errorMessage(err)),
+    );
   }
 
   try {
@@ -232,7 +233,7 @@ export async function diagnose({
   pathOpts,
 }: DiagnoseOptions): Promise<DoctorReport> {
   const groups = [
-    { title: 'Environment', checks: await checkEnvironment(deps) },
+    { title: 'Environment', checks: await checkEnvironment(deps, pathOpts) },
     { title: 'Editors', checks: checkEditors(pathOpts) },
     { title: 'Marketplace', checks: await checkMarketplace(brand, deps) },
     { title: 'Local state', checks: checkState(brand, deps, pathOpts) },

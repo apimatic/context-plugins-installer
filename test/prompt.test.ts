@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { PassThrough, Writable } from 'node:stream';
 
-import { glyphs, parseAnswer, isInteractive, createPrompter } from '../src/prompt.js';
+import { glyphs, parseAnswer, createPrompter } from '../src/prompt.js';
 
 const ESC = String.fromCharCode(27);
 const UP_AND_CLEAR = `${ESC}[1A${ESC}[2K\r`;
@@ -104,9 +104,4 @@ test('no cursor tricks when the row could have wrapped, or off a TTY', async () 
   const [, plain] = await askOnce('n', { out: piped });
   assert.ok(!plain.includes(UP_AND_CLEAR), 'nothing to redraw when there is no terminal');
   assert.match(plain, /\n.*No\n/, 'the answer still lands on its own row');
-});
-
-test('CI and CP_NO_INPUT both force non-interactive', () => {
-  assert.equal(isInteractive({ CI: '1' }), false);
-  assert.equal(isInteractive({ CP_NO_INPUT: '1' }), false);
 });

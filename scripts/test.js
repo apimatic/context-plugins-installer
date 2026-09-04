@@ -7,12 +7,22 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const dir = path.join(__dirname, '..', 'test');
-const files = fs
-  .readdirSync(dir)
-  .filter((f) => f.endsWith('.test.ts'))
-  .sort()
-  .map((f) => path.join('test', f));
+// Recursive: tests mirror the source tree, so they sit in subdirectories.
+function collect(absDir, relDir) {
+  const entries = fs
+    .readdirSync(absDir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const found = [];
+  for (const entry of entries) {
+    const abs = path.join(absDir, entry.name);
+    const rel = path.join(relDir, entry.name);
+    if (entry.isDirectory()) found.push(...collect(abs, rel));
+    else if (entry.name.endsWith('.test.ts')) found.push(rel);
+  }
+  return found;
+}
+
+const files = collect(path.join(__dirname, '..', 'test'), 'test');
 
 // A test that reaches the real CLI entry point must never send telemetry; the
 // tests that exercise telemetry pin fetch and set CP_TELEMETRY themselves.

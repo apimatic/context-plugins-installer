@@ -1,0 +1,252 @@
+import test from 'node:test';
+import assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import {
+  addPluginLocation,
+  removePluginLocation,
+  toKey,
+} from '../../src/infrastructure/vscode-settings.js';
+import { tmpDir, cleanupAll, parseJsonc } from '../helpers.js';
+
+test.after(cleanupAll);
+
+const PLUGIN_DIR = 'C:\\Users\\dev\\.context-plugins\\vscode\\my-sdk';
+const KEY = toKey(PLUGIN_DIR);
+
+function settingsWith(content: string | null): string {
+  const dir = tmpDir('cp-settings-');
+  const file = path.join(dir, 'settings.json');
+  if (content !== null) fs.writeFileSync(file, content, 'utf8');
+  return file;
+}
+
+const read = (file: string): string => fs.readFileSync(file, 'utf8');
+const backupsIn = (file: string): string[] =>
+  fs.readdirSync(path.dirname(file)).filter((f) => f.includes('.bak-'));
+
+// ---- the 8 shapes the PowerShell installer was validated against -------------
+
+test('1. missing file is created with the key', () => {
+  const file = settingsWith(null);
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'created');
+  assert.equal(parseJsonc(read(file))['chat.pluginLocations'][KEY], true);
+});
+
+test('2. empty file is replaced with a clean document', () => {
+  const file = settingsWith('   \n  ');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'reset');
+  assert.equal(parseJsonc(read(file))['chat.pluginLocations'][KEY], true);
+});
+
+test('3. "{}" is replaced rather than spliced (no stray comma)', () => {
+  const file = settingsWith('{}\n');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'reset');
+  assert.ok(!read(file).includes('{,'));
+  assert.equal(parseJsonc(read(file))['chat.pluginLocations'][KEY], true);
+});
+
+test('4. an already-registered key is a no-op with no backup', () => {
+  const file = settingsWith(`{\n  "chat.pluginLocations": { "${KEY}": true }\n}\n`);
+  const before = read(file);
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'already');
+  assert.equal(read(file), before);
+  assert.equal(backupsIn(file).length, 0);
+});
+
+test('5. empty chat.pluginLocations object gets the single entry', () => {
+  const file = settingsWith('{\n  "editor.fontSize": 13,\n  "chat.pluginLocations": {}\n}\n');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-empty');
+  const parsed = parseJsonc(read(file));
+  assert.equal(parsed['chat.pluginLocations'][KEY], true);
+  assert.equal(parsed['editor.fontSize'], 13);
+});
+
+test('6. existing entries are preserved when prepending', () => {
+  const other = 'C:/other/plugin';
+  const file = settingsWith(`{\n  "chat.pluginLocations": {\n    "${other}": true\n  }\n}\n`);
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-existing');
+  const parsed = parseJsonc(read(file));
+  assert.equal(parsed['chat.pluginLocations'][KEY], true);
+  assert.equal(parsed['chat.pluginLocations'][other], true);
+});
+
+test('7. a settings file without the key keeps its other settings', () => {
+  const file = settingsWith('{\n  "editor.tabSize": 2,\n  "files.eol": "\\n"\n}\n');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-key');
+  const parsed = parseJsonc(read(file));
+  assert.equal(parsed['chat.pluginLocations'][KEY], true);
+  assert.equal(parsed['editor.tabSize'], 2);
+  assert.equal(parsed['files.eol'], '\n');
+});
+
+test('8. JSONC comments and trailing commas survive the edit', () => {
+  const source = [
+    '{',
+    '  // editor tweaks',
+    '  "editor.tabSize": 2,',
+    '  /* block comment */',
+    '  "workbench.colorTheme": "Default Dark+",',
+    '}',
+    '',
+  ].join('\n');
+  const file = settingsWith(source);
+  addPluginLocation(file, PLUGIN_DIR);
+  const raw = read(file);
+  assert.ok(raw.includes('// editor tweaks'), 'line comment kept');
+  assert.ok(raw.includes('/* block comment */'), 'block comment kept');
+  const parsed = parseJsonc(raw);
+  assert.equal(parsed['chat.pluginLocations'][KEY], true);
+  assert.equal(parsed['workbench.colorTheme'], 'Default Dark+');
+});
+
+// ---- surrounding behaviour ---------------------------------------------------
+
+test('an edit backs up the original first', () => {
+  const file = settingsWith('{\n  "editor.tabSize": 2\n}\n');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.ok(result.backup, 'backup path returned');
+  assert.match(result.backup.name(), /^settings\.json\.bak-\d{8}-\d{6}$/);
+  assert.equal(fs.readFileSync(result.backup.toString(), 'utf8'), '{\n  "editor.tabSize": 2\n}\n');
+});
+
+test('a UTF-8 BOM is preserved', () => {
+  const bom = String.fromCharCode(0xfeff);
+  const file = settingsWith(`${bom}{\n  "editor.tabSize": 2\n}\n`);
+  addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(read(file).charCodeAt(0), 0xfeff);
+  assert.equal(parseJsonc(read(file).slice(1))['chat.pluginLocations'][KEY], true);
+});
+
+test('CRLF files stay CRLF', () => {
+  const file = settingsWith('{\r\n  "editor.tabSize": 2\r\n}\r\n');
+  addPluginLocation(file, PLUGIN_DIR);
+  const raw = read(file);
+  assert.ok(raw.includes('\r\n'));
+  assert.ok(!/[^\r]\n/.test(raw.replace(/\r\n/g, '')), 'no bare LF introduced');
+});
+
+test('backslashes in the directory become forward slashes in the key', () => {
+  assert.equal(toKey('C:\\a\\b'), 'C:/a/b');
+});
+
+// ---- removal ------------------------------------------------------------------
+
+test('remove: the only entry, leaving valid JSON', () => {
+  const file = settingsWith(`{\n  "chat.pluginLocations": {\n    "${KEY}": true\n  }\n}\n`);
+  const result = removePluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'removed');
+  const parsed = parseJsonc(read(file));
+  assert.deepEqual(parsed['chat.pluginLocations'], {});
+});
+
+test('remove: the last of several, without leaving a dangling comma', () => {
+  const other = 'C:/other/plugin';
+  const file = settingsWith(
+    `{\n  "chat.pluginLocations": {\n    "${other}": true,\n    "${KEY}": true\n  }\n}\n`,
+  );
+  removePluginLocation(file, PLUGIN_DIR);
+  const raw = read(file);
+  assert.ok(!/,\s*}/.test(raw), `dangling comma in: ${raw}`);
+  const parsed = parseJsonc(raw);
+  assert.equal(parsed['chat.pluginLocations'][other], true);
+  assert.equal(KEY in parsed['chat.pluginLocations'], false);
+});
+
+test('remove: the first of several', () => {
+  const other = 'C:/other/plugin';
+  const file = settingsWith(
+    `{\n  "chat.pluginLocations": {\n    "${KEY}": true,\n    "${other}": true\n  }\n}\n`,
+  );
+  removePluginLocation(file, PLUGIN_DIR);
+  const parsed = parseJsonc(read(file));
+  assert.equal(parsed['chat.pluginLocations'][other], true);
+  assert.equal(KEY in parsed['chat.pluginLocations'], false);
+});
+
+test('remove: absent key and missing file are both non-destructive', () => {
+  const file = settingsWith('{\n  "editor.tabSize": 2\n}\n');
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'absent');
+  assert.equal(read(file), '{\n  "editor.tabSize": 2\n}\n');
+
+  const missing = path.join(tmpDir('cp-missing-'), 'settings.json');
+  assert.equal(removePluginLocation(missing, PLUGIN_DIR).action, 'missing');
+});
+
+// ---- JSONC comments are text, not structure -----------------------------------
+
+test('a file opening with a comment is spliced, not silently left unchanged', () => {
+  const file = settingsWith('// my settings\n{\n  "editor.tabSize": 2\n}\n');
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-key');
+  const raw = read(file);
+  assert.ok(raw.startsWith('// my settings'), 'the header comment survives');
+  assert.equal(parseJsonc(raw)['chat.pluginLocations'][KEY], true);
+});
+
+test('a commented-out registration does not count as already registered', () => {
+  const file = settingsWith(
+    `{\n  // "chat.pluginLocations": { "${KEY}": true }\n  "editor.tabSize": 2\n}\n`,
+  );
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'inserted-key');
+  assert.equal(parseJsonc(read(file))['chat.pluginLocations'][KEY], true);
+});
+
+test('a document with no object to splice into fails instead of reporting success', () => {
+  const file = settingsWith('// nothing but a comment\n');
+  const before = read(file);
+  const result = addPluginLocation(file, PLUGIN_DIR);
+  assert.equal(result.action, 'failed');
+  assert.equal(result.backup, null, 'nothing was written, so nothing was backed up');
+  assert.equal(read(file), before);
+  assert.equal(backupsIn(file).length, 0);
+});
+
+// The path used as some other setting's VALUE is not a plugin entry, and telling
+// the user to hand-edit one that is not there is worse than saying nothing.
+test("remove: the path as another setting's value is absence, not an entry", () => {
+  const source = `{\n  "myTool.pluginDir": "${KEY}"\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'absent');
+  assert.equal(read(file), source);
+});
+
+// The mirror of the uninstall-side warning: reporting "already registered" for
+// an entry that does not load the plugin is a green install of a broken state.
+test('add: a key that is not the entry this tool writes is a conflict, not "already"', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    "${KEY}": false\n  }\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(addPluginLocation(file, PLUGIN_DIR).action, 'conflict');
+  assert.equal(read(file), source, 'and no duplicate key is spliced in');
+  assert.equal(backupsIn(file).length, 0);
+});
+
+// 'absent' would say the file does not name this path at all; a caller has to be
+// able to tell that apart and report the leftover entry.
+test('remove: a path named in a form this tool did not write is not absence', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    "${KEY}": false\n  }\n}\n`;
+  const file = settingsWith(source);
+
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'unremovable');
+  assert.equal(read(file), source, 'and the file is left exactly as it was');
+  assert.equal(backupsIn(file).length, 0);
+});
+
+test('remove: a commented-out entry is left where it is', () => {
+  const source = `{\n  "chat.pluginLocations": {\n    // "${KEY}": true\n  }\n}\n`;
+  const file = settingsWith(source);
+  assert.equal(removePluginLocation(file, PLUGIN_DIR).action, 'absent');
+  assert.equal(read(file), source);
+  assert.equal(backupsIn(file).length, 0);
+});

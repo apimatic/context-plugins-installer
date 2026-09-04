@@ -4,12 +4,13 @@ import type {
   HarnessName,
   HarnessOpts,
   MarketplaceListing,
-  RunCommand,
-  RunResult,
-  Session,
   UninstallOutcome,
-} from '../types.js';
-import { which, run, UserError, stripBom, isPlainObject, nonEmptyString } from '../util.js';
+} from '../types/harness.js';
+import { RepoSlug } from '../types/ids/repo-slug.js';
+import type { RunCommand, RunResult } from '../types/ports.js';
+import type { Session } from '../types/session.js';
+import { UserError, stripBom, isPlainObject, nonEmptyString } from '../util.js';
+import { run, which } from '../infrastructure/process-runner.js';
 
 export const name: HarnessName = 'claude';
 export const title = 'Claude Code';
@@ -42,11 +43,9 @@ const SCOPE = 'user';
 // never be the thing that reads as absence.
 const OTHER_SCOPES = new Set(['project', 'local']);
 
-const REPO_IN = /(?:github\.com[/:]|^)([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/i;
-
 // The listing has carried the source under different keys across CLI versions,
 // and a marketplace added from a local directory has no repo at all.
-function repoOf(entry: MarketplaceListing): string | null {
+function repoOf(entry: MarketplaceListing): RepoSlug | null {
   const source = isPlainObject(entry.source) ? entry.source : {};
   const fields: unknown[] = [
     entry.repo,
@@ -56,16 +55,16 @@ function repoOf(entry: MarketplaceListing): string | null {
     source.url,
   ];
   for (const field of fields) {
-    const hit = field ? String(field).trim().match(REPO_IN) : null;
-    if (hit?.[1]) return hit[1];
+    const slug = RepoSlug.fromText(field);
+    if (slug) return slug;
   }
   return null;
 }
 
-const isSameRepo = (entry: MarketplaceListing, repo: string): boolean => {
+const isSameRepo = (entry: MarketplaceListing, repo: RepoSlug): boolean => {
   const from = repoOf(entry);
-  if (from) return from.toLowerCase() === repo.toLowerCase();
-  return JSON.stringify(entry).toLowerCase().includes(repo.toLowerCase());
+  if (from) return from.matches(repo);
+  return JSON.stringify(entry).toLowerCase().includes(repo.toSearchKey());
 };
 
 /**
@@ -142,7 +141,7 @@ async function registeredName(
   repo: string,
 ): Promise<string | null> {
   const entries = await listMarketplaces(exec, claude);
-  const hit = entries?.find((e) => isSameRepo(e, repo));
+  const hit = entries?.find((e) => isSameRepo(e, new RepoSlug(repo)));
   return hit && nonEmptyString(hit.name) ? hit.name : null;
 }
 
@@ -176,7 +175,7 @@ async function ensureMarketplace(
   { marketplace, repo }: MarketplaceIds,
 ): Promise<Registration> {
   const entries = await listMarketplaces(exec, claude);
-  const existing = entries?.find((e) => isSameRepo(e, repo));
+  const existing = entries?.find((e) => isSameRepo(e, new RepoSlug(repo)));
 
   if (existing) {
     const known = nonEmptyString(existing.name) ? existing.name : marketplace;

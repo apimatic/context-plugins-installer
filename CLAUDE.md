@@ -20,9 +20,8 @@ only, by explicit decision — contributor and agent knowledge belongs here, not
 - `npm run syntax` — bare `node --check` of the plain-JS entry points
 
 Tests run the TypeScript in `src/` directly through tsx — there is no build in the loop, on
-purpose. `bin/cli.js` and `run.js` require the compiled `lib/`, so exercising the real
-entry point (`node bin/cli.js ...`) needs `npm run build` first; CI's smoke job does exactly
-that.
+purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry point
+(`node bin/cli.js ...`) needs `npm run build` first; CI's smoke job does exactly that.
 
 ## Hard constraints
 
@@ -33,15 +32,19 @@ that.
 - **Commit types are release decisions.** semantic-release publishes to npm from commit
   messages: `fix:` / `feat:` / `perf:` trigger a release; `refactor:` / `chore:` /
   `docs:` / `style:` do not. commitlint enforces conventional commits on every PR.
-- **Never `shell: true`.** Spawning goes through `util.run()`, which routes Windows
+- **Never `shell: true`.** Spawning goes through `run()` in
+  `src/infrastructure/process-runner.ts`, which routes Windows
   `.cmd` shims through cmd.exe with explicit quoting (Node refuses to spawn `.cmd`
   directly since the CVE-2024-27980 hardening).
-- **All terminal output goes through `src/log.ts`** — no `console.log` elsewhere.
+- **All terminal output goes through `src/prompts/terminal.ts`** — no `console.log` elsewhere.
   Glyphs are built from char codes with ASCII fallbacks for legacy Windows consoles;
   keep the source itself ASCII, escaping any character that must not be normalised
   (`\u00a0` in `toAscii` — the port lost that one to an editor once already).
   `debug` and `warnStderr` write to stderr so `--json` output stays parseable; anything
-  a `--json` path emits alongside the payload has to use them.
+  a `--json` path emits alongside the payload has to use them. It is the one file the
+  `no-console` rule exempts. `src/log.ts` is a re-export shim for the modules still at
+  `src/*.ts`: never add output to it, and never import it from a layer directory, which
+  eslint refuses.
 - **Validate at the edges, never cast.** Anything crossing a JSON boundary (manifest,
   registry, rc file, `claude` CLI output, GitHub API responses) or entering argv/URLs
   (plugin, repo, ref) is validated where it enters, with `isPlainObject` /
@@ -55,7 +58,8 @@ that.
   today). TypeScript 7 is also what breaks eslint-plugin-sonarjs v2+, which is why
   sonarjs is pinned to v1.
 - **Telemetry is anonymous, flat, and optional.** Events leave only through
-  `src/telemetry.ts`, in one POST to Mixpanel's `/track` at the end of `cli.run`
+  `src/infrastructure/telemetry-service.ts` and the `mixpanel-client.ts` it calls, in
+  one POST to Mixpanel's `/track` at the end of `cli.run`
   (`ip=1`: Mixpanel adds city, region and country from the request address at ingestion
   and discards the address; the CLI never sends location itself), bounded by a timeout
   and never allowed to fail or hold a run. The project token in `brand.ts` is a public
@@ -82,7 +86,7 @@ that.
 ## Architecture
 
 Every command flows `bin/cli.js` → `src/cli.ts` (arg parsing and rendering only) →
-`src/install.ts` (orchestration) → the harness that owns each editor. `src/types.ts`
+`src/install.ts` (orchestration) → the harness that owns each editor. `src/types/`
 is the type model for the whole surface; keep it in sync when behavior changes.
 
 - **Harnesses** (`src/harness/`): one module per editor implementing the `Harness`
@@ -102,7 +106,7 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   `--force` as the user's only escape, but only `failed` fails the run: an editor
   that was never there must not turn a clean uninstall into a non-zero exit, and
   a real error must not exit 0. `'unremovable'` from
-  `settings-merge` is the one thing that is _not_ read as failure: with no plugin
+  `infrastructure/vscode-settings.ts` is the one thing that is _not_ read as failure: with no plugin
   files there is nothing for VS Code to load whatever the settings file still
   says, so the outcome follows `had` and the leftover entry is warned about
   instead — unmentioned it survives the uninstall and the next install reports
@@ -134,11 +138,23 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   and VS Code copy files and need the fetched source. To add an editor, use the
   `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
   editor names and CI steps the compiler cannot flag.
-- **Session** (`src/session.ts`): work shared by every plugin in one run — the
+- **Session** (`src/infrastructure/session.ts`): work shared by every plugin in one run — the
   registry fetch, the repo clone, the Claude marketplace registration — each done
   once, keyed `repo@ref`. Promises are cached rather than results, so concurrent
   callers share one request and a deterministic failure is not retried. `update`
   threads one session through all plugins; a lone `install` gets a throwaway one.
+  It reads the registry through `infrastructure/github-registry-client.ts` and the
+  plugin source through `infrastructure/source-fetcher.ts`, and like everything in
+  that directory neither prints nor throws: both answer with a `Result`, and
+  everything they used to say out loud is a `MarketplaceEvent` that
+  `prompts/marketplace.ts` renders. Emitting rather than returning is what keeps
+  each line where it was: the fallback to the GitHub API and the start of a clone
+  explain a wait, so they have to arrive before it, and a registry file skipped
+  for being unreadable has to survive a later file failing. It is also what makes
+  the session's memo govern how often a line is said - the words happen inside the
+  cached promise, with the work, so three plugins from one repo produce one line
+  and not three. Reporting from the returned value instead put it at the caller
+  and said it once per plugin; that is a real regression this rule prevents.
 - **The test seam is dependency injection, everywhere.** `Deps` carries
   `fetchImpl` / `run` / `materialize` / `confirm`; `PathOpts` carries
   `platform` / `env` / `home`. The command options take `HarnessOpts`, not
@@ -148,7 +164,7 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   (`CP_STATE_DIR`, `CP_CURSOR_DIR`, `CP_VSCODE_USER_DIR`) and assert on real files.
   Never touch the developer's real home directory in tests; never add I/O that
   bypasses these seams.
-- **`src/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
+- **`src/infrastructure/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
   `path.posix` chosen by the `platform` override, not the host), so Windows paths are
   exactly assertable from Linux CI.
 - **State** is one file, `~/.context-plugins/installed.json` (`src/manifest.ts`),
@@ -212,7 +228,7 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   as a check — on stderr under `--json` so the payload stays parseable, and
   silenced by `--quiet` like any other warning. `list` scopes its warnings to the
   marketplace it is listing, which is why both gap types carry `repo`.
-- **VS Code settings** (`src/settings-merge.ts`) are JSONC. Edits are targeted string
+- **VS Code settings** (`src/infrastructure/vscode-settings.ts`) are JSONC. Edits are targeted string
   splices, never parse-and-reserialize, so user comments and formatting survive. A
   backup is taken before every mutation. Both entry points test for the path
   **as a key** (`namedAsKey`), never as a bare quoted string: the path also
@@ -224,14 +240,16 @@ marketplace` is Claude's own subcommand wording. `listJson` is the single valida
   green install of a plugin VS Code never loads, and splicing a second entry in
   would just leave a duplicate key.
 - **Configuration** resolves flag → `CP_*` env → `.contextpluginsrc` (cwd, then home)
-  → preset profile → defaults (`src/brand.ts`). `run.js` exists so another brand can
-  ship this CLI preconfigured. The Mixpanel token and host are profile fields
-  (`telemetryToken`, `telemetryHost`). Telemetry is opt-in for brands: a profile that
-  names its own `repo` gets no token unless it also sets one, because the default token
-  is this project's and must not collect on another's behalf. A profile that keeps the
-  default marketplace inherits it.
-- **Telemetry** (`src/telemetry.ts`): `createTelemetry` queues, `flush` sends once.
-  `install.ts` reports through `deps.track`, so library callers never phone home and a
+  → defaults (`src/brand.ts`). `DEFAULTS` holds the marketplace, ref, display name and
+  the Mixpanel token and host; `BIN` is the published command name, which every message
+  that suggests a command interpolates rather than spelling out. There is no brand
+  profile and no way to embed this CLI: it is a command, not a library, so the token in
+  `DEFAULTS` is always this project's.
+- **Telemetry** (`src/infrastructure/telemetry-service.ts`, over `telemetry-state.ts` for
+  the id file and `mixpanel-client.ts` for the POST): `createTelemetry` queues, `flush`
+  sends once and returns the lines it would have printed, which `prompts/telemetry.ts`
+  renders - infrastructure never writes to the terminal.
+  `install.ts` reports through the `deps.track` seam, so a
   test captures events with an array. `cli.run` owns the one instance per process and
   flushes in a `finally`, which makes a whole `update` one request. `telemetryStatus`
   and `describeTelemetry` back both `doctor` and `telemetry status`; the id file is

@@ -4,10 +4,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { resolveBrand } from '../src/brand.js';
-import { rawUrl } from '../src/catalog.js';
+import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import { diagnose } from '../src/doctor.js';
-import * as paths from '../src/paths.js';
-import type { Deps, DoctorCheck, DoctorReport, Env } from '../src/types.js';
+import * as paths from '../src/infrastructure/paths.js';
+import type { DoctorCheck, DoctorReport } from '../src/types/doctor.js';
+import type { Env } from '../src/types/env.js';
+import type { Deps } from '../src/types/ports.js';
 import { tmpDir, cleanupAll, stubFetch } from './helpers.js';
 
 test.after(cleanupAll);
@@ -133,7 +135,7 @@ test('an unreachable marketplace fails without throwing', async () => {
 
 test('doctor reports rows installed.json holds that this build cannot read', async () => {
   const m = machine();
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -152,7 +154,7 @@ test('doctor reports rows installed.json holds that this build cannot read', asy
 
 test('doctor reports a row it can only read in part, rather than calling it healthy', async () => {
   const m = machine();
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,

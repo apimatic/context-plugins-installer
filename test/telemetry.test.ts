@@ -4,8 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
-import * as paths from '../src/paths.js';
-import { isCi } from '../src/prompt.js';
+import * as paths from '../src/infrastructure/paths.js';
+import { printTelemetryLines } from '../src/prompts/telemetry.js';
 import {
   COLLECTED,
   EVENTS,
@@ -14,9 +14,12 @@ import {
   marketplaceLabel,
   setTelemetryEnabled,
   telemetryStatus,
+  type Telemetry,
   type TelemetryOptions,
-} from '../src/telemetry.js';
-import type { Brand, Env, FetchLike, FetchResponseLike, PathOpts } from '../src/types.js';
+} from '../src/infrastructure/telemetry-service.js';
+import type { Brand } from '../src/types/brand.js';
+import type { Env, PathOpts } from '../src/types/env.js';
+import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
 import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 
 test.after(cleanupAll);
@@ -28,6 +31,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const brand = (over: ResolveBrandOptions = {}): Brand =>
   resolveBrand({ env: {}, cwd: tmpDir('cp-cwd-'), home: tmpDir('cp-home-'), ...over });
 
+/**
+ * A Brand carrying no Mixpanel token. `resolveBrand` always fills one in, so
+ * only a hand-built Brand has this shape - and it is the one that must send
+ * nothing at all rather than post to a project it cannot name.
+ */
+const untokened = (b: Brand): Brand =>
+  Object.freeze({ ...b, telemetry: Object.freeze({ ...b.telemetry, token: null }) });
+
 interface Machine {
   root: string;
   pathOpts: PathOpts;
@@ -38,7 +49,7 @@ interface Machine {
 function machine(): Machine {
   const root = tmpDir('cp-telemetry-');
   const pathOpts = { env: { CP_STATE_DIR: path.join(root, 'state') }, home: root };
-  return { root, pathOpts, file: paths.telemetryPath(pathOpts) };
+  return { root, pathOpts, file: paths.telemetryPath(pathOpts).toString() };
 }
 
 interface Sent {
@@ -88,10 +99,14 @@ function telemetryFor(m: Machine, fetchImpl: FetchLike, over: Partial<TelemetryO
   });
 }
 
-async function flushQuietly(t: { flush(): Promise<void> }) {
+/**
+ * Flushes, then renders through the same function cli.ts uses - not a copy of
+ * it, so a change to how a line is printed cannot pass here and fail there.
+ */
+async function flushQuietly(t: Telemetry) {
   const con = silenceConsole();
   try {
-    await t.flush();
+    printTelemetryLines(await t.flush());
   } finally {
     con.restore();
   }
@@ -259,7 +274,7 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
     },
     {
       label: 'telemetry disable',
-      before: (m) => assert.equal(setTelemetryEnabled(false, m.pathOpts), true),
+      before: (m) => assert.equal(setTelemetryEnabled(false, m.pathOpts).ok, true),
       optOut: 'user',
       described: 'disabled (context-plugins telemetry disable)',
     },
@@ -283,7 +298,7 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
     },
     {
       label: 'no token',
-      brand: () => brand({ profile: { telemetryToken: null } }),
+      brand: () => untokened(brand()),
       optOut: 'no-token',
       described: 'not configured',
     },
@@ -322,10 +337,10 @@ test('a "no" value on DO_NOT_TRACK or CP_TELEMETRY leaves telemetry on', () => {
 
 test('telemetry enable undoes telemetry disable and keeps the id', () => {
   const m = machine();
-  assert.equal(setTelemetryEnabled(false, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(false, m.pathOpts).ok, true);
   const id = readState(m.file).id;
   assert.match(String(id), UUID);
-  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(true, m.pathOpts).ok, true);
   const status = statusOf(m);
   assert.equal(status.mode, 'on');
   assert.equal(status.id, id);
@@ -335,12 +350,12 @@ test('an explicit enable/disable may replace an unreadable file; a hand-written 
   const m = machine();
   fs.mkdirSync(path.dirname(m.file), { recursive: true });
   fs.writeFileSync(m.file, '{ not json');
-  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(true, m.pathOpts).ok, true);
   assert.match(String(readState(m.file).id), UUID);
   assert.equal(statusOf(m).mode, 'on');
 
   fs.writeFileSync(m.file, JSON.stringify({ enabled: false }));
-  assert.equal(setTelemetryEnabled(true, m.pathOpts), true);
+  assert.equal(setTelemetryEnabled(true, m.pathOpts).ok, true);
   const state = readState(m.file);
   assert.match(String(state.id), UUID);
   assert.equal(state.enabled, true);
@@ -451,19 +466,70 @@ test('a version that cannot be read is reported as unknown, not as a failure', a
   assert.equal(eventsIn(mixpanel.sent[0])[0]?.properties.cli_version, 'unknown');
 });
 
-test('CI is detected from the usual variables, and "false" is not CI', () => {
-  assert.equal(isCi({}), false);
-  assert.equal(isCi({ CI: 'true' }), true);
-  assert.equal(isCi({ CI: '1' }), true);
-  assert.equal(isCi({ CI: 'false' }), false);
-  assert.equal(isCi({ GITHUB_ACTIONS: 'true' }), true);
-});
-
 test('the marketplace is named only when it is the one this build ships with', () => {
   assert.equal(marketplaceLabel(brand()), REPO);
   assert.equal(marketplaceLabel(brand({ env: { CP_REPO: 'acme/plugin-marketplace' } })), 'custom');
-  const acme = brand({ profile: { repo: 'acme/plugin-marketplace', telemetryToken: 'abc' } });
-  assert.equal(marketplaceLabel(acme), 'acme/plugin-marketplace', "a brand's own repo is built in");
   const legacy = { ...brand(), telemetry: undefined } as unknown as Brand;
   assert.equal(marketplaceLabel(legacy), 'custom', 'a Brand from an older caller does not throw');
+});
+
+/**
+ * The rule this phase exists to establish, as a test: the sender is
+ * infrastructure, so it writes nothing to the terminal and hands its caller
+ * what it would have said. `flushQuietly` above replays those lines, which is
+ * why every other assertion in this file still reads as console output.
+ */
+test('flush writes nothing itself and hands back the lines in order', async () => {
+  const m = machine();
+  const t = telemetryFor(m, sink());
+  t.track(EVENTS.installed, { plugin: 'my-sdk' });
+
+  const con = silenceConsole();
+  let lines;
+  try {
+    lines = await t.flush();
+  } finally {
+    con.restore();
+  }
+
+  assert.deepEqual(con.lines, [], 'the sender put nothing on the terminal');
+  const kinds = lines.map((l) => l.kind);
+  assert.ok(kinds.includes('notice'), `expected the one-time notice: ${JSON.stringify(lines)}`);
+  assert.ok(kinds.includes('debug'), `expected the response as a debug line: ${kinds.join(',')}`);
+  assert.equal(kinds.indexOf('notice') < kinds.lastIndexOf('debug'), true, 'notice comes first');
+});
+
+test('nothing tracked means no lines at all', async () => {
+  const m = machine();
+  assert.deepEqual(await telemetryFor(m, sink()).flush(), []);
+});
+
+/**
+ * The one telemetry path that reports two lines, and the order matters: the
+ * writer names the file and the reason, then the sender says it gave up. Both
+ * used to be printed from inside infrastructure, one from each function, so
+ * moving them into a returned list is exactly where an order could be lost.
+ *
+ * Forced by pointing the state directory below a regular file, which is the
+ * only portable way to make a recursive mkdir fail.
+ */
+test('an unwritable state directory reports both lines, in order, and sends nothing', async () => {
+  const root = tmpDir('cp-unwritable-');
+  const blocker = path.join(root, 'blocker');
+  fs.writeFileSync(blocker, 'not a directory');
+  const pathOpts = { env: { CP_STATE_DIR: path.join(blocker, 'state') }, home: root };
+
+  const fetchImpl = sink();
+  const t = telemetryFor(machine(), fetchImpl, { pathOpts });
+  t.track(EVENTS.installed, { plugin: 'my-sdk' });
+  const lines = await t.flush();
+
+  assert.deepEqual(
+    lines.map((l) => l.kind),
+    ['debug', 'debug'],
+    `expected two debug lines: ${JSON.stringify(lines)}`,
+  );
+  assert.match(lines[0].text, /^telemetry: could not write /);
+  assert.equal(lines[1].text, 'telemetry: no writable state directory; nothing sent');
+  assert.deepEqual(fetchImpl.sent, [], 'nothing may be sent without a stable id');
 });
