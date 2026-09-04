@@ -7,10 +7,10 @@ import {
   type DirArg,
   type FileArg,
   type FilePath,
-} from './types/file/paths.js';
-import type { AddLocationResult, RemoveLocationResult } from './types/vscode-settings.js';
-import { timestamp, stripBom } from './util.js';
-import { ensureDir } from './infrastructure/file-system.js';
+} from '../types/file/paths.js';
+import type { AddLocationResult, RemoveLocationResult } from '../types/vscode-settings.js';
+import { timestamp, stripBom } from '../util.js';
+import { ensureDir } from './file-system.js';
 
 // settings.json is JSONC and users care about its formatting, so every edit is
 // a targeted string splice - parsing and re-serializing would destroy both.

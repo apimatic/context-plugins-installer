@@ -3,8 +3,12 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { addPluginLocation, removePluginLocation, toKey } from '../src/settings-merge.js';
-import { tmpDir, cleanupAll, parseJsonc } from './helpers.js';
+import {
+  addPluginLocation,
+  removePluginLocation,
+  toKey,
+} from '../../src/infrastructure/vscode-settings.js';
+import { tmpDir, cleanupAll, parseJsonc } from '../helpers.js';
 
 test.after(cleanupAll);
 

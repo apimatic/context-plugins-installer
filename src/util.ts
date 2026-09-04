@@ -31,7 +31,12 @@ export const envFlag = (value: string | undefined): boolean =>
 // interpolated into URLs and passed as argv, so they are refused where they
 // enter rather than trusted from a flag, an env var, or an rc file. Phase 2
 // reads the Result itself and takes this helper with the last of them.
-function orThrow<T>(parsed: Result<T, Failure>): T {
+/**
+ * The bridge between a Result and the throw its callers still expect. Every
+ * conversion of a module to Results leaves one of these at its caller until the
+ * caller is converted too, and then it goes.
+ */
+export function orThrow<T>(parsed: Result<T, Failure>): T {
   if (!parsed.ok) throw new UserError(parsed.error.message, { hint: parsed.error.hint });
   return parsed.value;
 }

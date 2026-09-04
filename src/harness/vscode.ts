@@ -1,7 +1,12 @@
 import { log } from '../log.js';
 import * as paths from '../paths.js';
 import { format as f } from '../prompts/format.js';
-import { addPluginLocation, removePluginLocation, KEY, toKey } from '../settings-merge.js';
+import {
+  addPluginLocation,
+  removePluginLocation,
+  KEY,
+  toKey,
+} from '../infrastructure/vscode-settings.js';
 import type { DirectoryPath } from '../types/file/paths.js';
 import type {
   HarnessContext,

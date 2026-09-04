@@ -1,11 +1,10 @@
-import * as fs from 'node:fs';
 import * as os from 'node:os';
-import * as path from 'node:path';
 
 import type { Flags } from './types/args.js';
-import type { Brand, RcFile } from './types/brand.js';
+import { readRc } from './infrastructure/rc-file.js';
+import type { Brand } from './types/brand.js';
 import type { Env } from './types/env.js';
-import { UserError, assertRepo, assertRef, stripBom, isPlainObject } from './util.js';
+import { assertRepo, assertRef, orThrow } from './util.js';
 
 /**
  * The published command name, and the one this CLI calls itself by. Every
@@ -32,63 +31,6 @@ export const DEFAULTS: Readonly<{
   telemetryHost: 'https://api.mixpanel.com',
 });
 
-export const RC_NAME = '.contextpluginsrc';
-
-type RcStringField = Exclude<keyof RcFile, 'telemetry'>;
-
-// Unknown rc keys are ignored, so a newer version's file does not break an older CLI.
-const RC_STRING_FIELDS: readonly RcStringField[] = [
-  'repo',
-  'ref',
-  'marketplace',
-  'displayName',
-  'marketplaceLabel',
-];
-
-const errorCode = (err: unknown): unknown =>
-  err instanceof Error && 'code' in err ? err.code : undefined;
-
-const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-
-export function readRc(dir: string | undefined): RcFile | null {
-  if (!dir) return null;
-  const file = path.join(dir, RC_NAME);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripBom(fs.readFileSync(file, 'utf8')));
-  } catch (err) {
-    // ENOTDIR means a component of the path is a file, so no rc file can exist
-    // there - the same proof of absence ENOENT gives. Both are "carry on".
-    if (errorCode(err) === 'ENOENT' || errorCode(err) === 'ENOTDIR') return null;
-    if (err instanceof SyntaxError) {
-      throw new UserError(`${file} is not valid JSON: ${err.message}`);
-    }
-    // A file that may well be there and cannot be read (a directory, a
-    // permission wall) must not fall back to defaults silently: that would
-    // install from the wrong marketplace.
-    throw new UserError(`Could not read ${file}: ${errorMessage(err)}`);
-  }
-  if (!isPlainObject(parsed)) {
-    throw new UserError(`${file} must be a JSON object.`);
-  }
-  const rc: RcFile = {};
-  for (const field of RC_STRING_FIELDS) {
-    const value = parsed[field];
-    // null means unset, as the resolution chain below treats it.
-    if (value != null && typeof value !== 'string') {
-      throw new UserError(`${file}: '${field}' must be a string.`);
-    }
-    if (typeof value === 'string') rc[field] = value;
-  }
-  if (parsed.telemetry != null) {
-    if (typeof parsed.telemetry !== 'boolean') {
-      throw new UserError(`${file}: 'telemetry' must be true or false.`);
-    }
-    rc.telemetry = parsed.telemetry;
-  }
-  return rc;
-}
-
 /** The first value that is set; empty strings count as unset. */
 const pick = (...values: (string | null | undefined)[]): string | undefined =>
   values.find((v): v is string => v !== undefined && v !== null && v !== '');
@@ -110,8 +52,8 @@ export function resolveBrand({
   // Both files are read: the first found sets the defaults, but an opt-out in
   // either is honoured, or a project rc that only names a repo would silence the
   // one in the home directory.
-  const cwdRc = readRc(cwd);
-  const homeRc = readRc(home);
+  const cwdRc = orThrow(readRc(cwd));
+  const homeRc = orThrow(readRc(home));
   const rc = cwdRc || homeRc || {};
 
   const displayName = pick(env.CP_DISPLAY_NAME, rc.displayName) ?? DEFAULTS.displayName;
