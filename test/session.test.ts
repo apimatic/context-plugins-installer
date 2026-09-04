@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { rawUrl } from '../src/catalog.js';
+import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import { openRepo, materialize } from '../src/fetch.js';
 import * as claude from '../src/harness/claude.js';
 import { createSession } from '../src/session.js';

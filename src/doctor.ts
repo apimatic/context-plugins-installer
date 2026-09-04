@@ -1,13 +1,15 @@
 import * as fs from 'node:fs';
 
 import { BIN } from './brand.js';
-import { loadCatalog, ghHeaders, rawUrl, REGISTRY_FILES } from './catalog.js';
+import { loadCatalog } from './catalog.js';
+import { ghHeaders, rawUrl } from './infrastructure/github-registry-client.js';
 import { HARNESSES, everyEditor } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
 import { describeTelemetry, telemetryStatus } from './infrastructure/telemetry-service.js';
 import type { Brand } from './types/brand.js';
+import { REGISTRY_FILES } from './types/catalog.js';
 import type { DoctorCheck, DoctorReport } from './types/doctor.js';
 import type { PathOpts } from './types/env.js';
 import { MarketplaceName } from './types/ids/marketplace-name.js';

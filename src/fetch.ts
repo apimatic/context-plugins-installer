@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { ghHeaders } from './catalog.js';
+import { ghHeaders } from './infrastructure/github-registry-client.js';
 import { log } from './log.js';
 import { DirectoryPath } from './types/file/paths.js';
 import { GitRef } from './types/ids/git-ref.js';

@@ -1,110 +1,30 @@
+import { readRegistry, type RegistryRequest } from './infrastructure/github-registry-client.js';
 import { log } from './log.js';
 import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from './types/catalog.js';
-import type { Env } from './types/env.js';
+import { REGISTRY_FILES } from './types/catalog.js';
 import { MarketplaceName } from './types/ids/marketplace-name.js';
-import { RepoSlug } from './types/ids/repo-slug.js';
-import type { Deps, FetchLike } from './types/ports.js';
-import {
-  UserError,
-  assertRepo,
-  assertRef,
-  stripBom,
-  suggest,
-  isPlainObject,
-  nonEmptyString,
-  errorMessage,
-} from './util.js';
+import type { Deps } from './types/ports.js';
+import { UserError, orThrow, suggest, isPlainObject, nonEmptyString } from './util.js';
 
-// Claude Code and Cursor read the same registry shape from different folders.
-export const REGISTRY_FILES = [
-  '.claude-plugin/marketplace.json',
-  '.cursor-plugin/marketplace.json',
-];
-
-export const rawUrl = (repo: string, ref: string, filePath: string): string =>
-  new RepoSlug(repo).rawUrl(ref, filePath);
-
-export function ghHeaders(env: Env = process.env): Record<string, string> {
-  const headers: Record<string, string> = {
-    'User-Agent': 'context-plugins-installer',
-    Accept: 'application/json',
-  };
-  const token = env.CP_GITHUB_TOKEN || env.GITHUB_TOKEN || env.GH_TOKEN;
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
-}
-
-// Node's fetch ignores HTTP_PROXY/HTTPS_PROXY, so behind a proxy this fails
-// where git would succeed - and the raw error is just a connect timeout.
-function networkHint(env: Env = process.env): string {
-  const proxied = env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy;
-  if (proxied) {
-    return 'A proxy is configured, but Node does not apply it to its own requests. Check your network, or see the docs for NODE_USE_ENV_PROXY.';
+/**
+ * The bridge in front of the registry client: it says the one thing the client
+ * is no longer allowed to say, then throws the way its callers still expect.
+ * Phase 5 gives this to the actions and the bridge goes.
+ *
+ * The debug lines come first deliberately. A file skipped before a later one
+ * fails was announced by the old reader as it went, so announcing it before the
+ * throw keeps `--verbose` output in the order it has always had.
+ */
+export async function loadCatalog({
+  repo,
+  ref,
+  deps = {},
+}: RegistryRequest): Promise<Catalog | null> {
+  const read = await readRegistry({ repo, ref, deps });
+  for (const file of read.skipped) {
+    log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
   }
-  return 'Check your network connection, or whether access to github.com is blocked.';
-}
-
-/** null on 404, so a missing registry is not an error. */
-export async function getJson(
-  url: string,
-  { env = process.env, fetchImpl = fetch }: Deps = {},
-): Promise<unknown> {
-  const doFetch: FetchLike = fetchImpl;
-  let res;
-  try {
-    res = await doFetch(url, { headers: ghHeaders(env), redirect: 'follow' });
-  } catch (err) {
-    throw new UserError(`Could not reach ${new URL(url).host}: ${errorMessage(err)}`, {
-      hint: networkHint(env),
-    });
-  }
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new UserError(`GET ${url} returned ${res.status} ${res.statusText || ''}`.trim(), {
-      hint:
-        res.status === 403
-          ? 'GitHub rate limit? Set GITHUB_TOKEN to raise it, or install git for the clone path.'
-          : undefined,
-    });
-  }
-  const text = await res.text();
-  try {
-    return JSON.parse(stripBom(text)) as unknown;
-  } catch (err) {
-    throw new UserError(`${url} is not valid JSON: ${errorMessage(err)}`);
-  }
-}
-
-const usableEntry = (p: unknown): p is CatalogPluginEntry =>
-  nonEmptyString(p) || (isPlainObject(p) && nonEmptyString(p.name));
-
-export function normalize(data: Record<string, unknown>, from: string): Catalog {
-  const declared: unknown[] = Array.isArray(data.plugins) ? data.plugins : [];
-  const plugins = declared.filter(usableEntry);
-  return {
-    marketplace: nonEmptyString(data.name) ? data.name : null,
-    plugins,
-    dropped: declared.length - plugins.length,
-    from,
-  };
-}
-
-export interface LoadCatalogOptions {
-  repo: string;
-  ref: string;
-  deps?: Deps;
-}
-
-/** null when the repo has no registry. */
-export async function loadCatalog({ repo, ref, deps = {} }: LoadCatalogOptions) {
-  assertRepo(repo);
-  assertRef(ref);
-  for (const file of REGISTRY_FILES) {
-    const data = await getJson(rawUrl(repo, ref, file), deps);
-    if (isPlainObject(data)) return normalize(data, file);
-    if (data !== null) log.debug(`${file} in ${repo} is not a JSON object - skipping it.`);
-  }
-  return null;
+  return orThrow(read);
 }
 
 const nameOf = (p: CatalogPluginEntry): string => (typeof p === 'string' ? p : p.name);

@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { resolveBrand } from '../src/brand.js';
-import { rawUrl } from '../src/catalog.js';
+import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import { diagnose } from '../src/doctor.js';
 import * as paths from '../src/infrastructure/paths.js';
 import type { DoctorCheck, DoctorReport } from '../src/types/doctor.js';

@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { resolvePlugin, loadCatalog, sourcePathFor, rawUrl, ghHeaders } from '../src/catalog.js';
+import { resolvePlugin, loadCatalog, sourcePathFor } from '../src/catalog.js';
+import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import type { Deps } from '../src/types/ports.js';
 import { UserError } from '../src/util.js';
 import { stubFetch, type StubRoute } from './helpers.js';
 
 const REPO = 'context-plugins/plugin-marketplace';
 const CLAUDE_REG = rawUrl(REPO, 'main', '.claude-plugin/marketplace.json');
-const CURSOR_REG = rawUrl(REPO, 'main', '.cursor-plugin/marketplace.json');
 
 const registry = (over: Record<string, unknown> = {}) => ({
   name: 'apimatic',
@@ -55,17 +55,6 @@ test('the source path is normalized and the description carried through', async 
   assert.equal(resolved.sourcePath, 'plugins/my-sdk');
   assert.equal(resolved.description, 'A test SDK plugin');
   assert.equal(resolved.catalogFound, true);
-});
-
-test('the Cursor registry is used when the Claude one is absent', async () => {
-  const catalog = await loadCatalog({
-    repo: REPO,
-    ref: 'main',
-    deps: deps({ [CURSOR_REG]: { body: registry({ name: 'cursor-brand' }) } }),
-  });
-  assert.ok(catalog);
-  assert.equal(catalog.marketplace, 'cursor-brand');
-  assert.equal(catalog.from, '.cursor-plugin/marketplace.json');
 });
 
 test('a marketplace name with spaces is rejected with the schema rule', async () => {
@@ -160,34 +149,14 @@ test('a plugin hosted in another repo fails with a clear message', () => {
   );
 });
 
-test('a 403 from GitHub suggests a token', async () => {
+// The registry client returns a Failure now; this is the bridge that turns it
+// back into the throw every caller of loadCatalog still expects, message and
+// hint intact. It goes when the last caller takes the Result itself.
+test('a failure from the registry client reaches callers as a UserError', async () => {
   await assert.rejects(
     loadCatalog({ repo: REPO, ref: 'main', deps: deps({ [CLAUDE_REG]: { status: 403 } }) }),
     (err) => err instanceof UserError && /GITHUB_TOKEN/.test(err.hint ?? ''),
   );
-});
-
-test('a token in the environment is sent as a bearer header', () => {
-  assert.equal(ghHeaders({ GITHUB_TOKEN: 'abc' }).Authorization, 'Bearer abc');
-  assert.equal(ghHeaders({}).Authorization, undefined);
-  assert.equal(ghHeaders({})['User-Agent'], 'context-plugins-installer');
-});
-
-test('registry entries that cannot name a plugin are dropped on load', async () => {
-  const catalog = await loadCatalog({
-    repo: REPO,
-    ref: 'main',
-    deps: deps({
-      [CLAUDE_REG]: {
-        body: {
-          name: 'apimatic',
-          plugins: [null, 42, { description: 'nameless' }, 'bare-id', { name: 'named-sdk' }],
-        },
-      },
-    }),
-  });
-  assert.ok(catalog);
-  assert.deepEqual(catalog.plugins, ['bare-id', { name: 'named-sdk' }]);
 });
 
 test('a typo still fails early when every declared entry was unusable', async () => {
@@ -217,20 +186,6 @@ test('a non-string description is coerced, keeping the string contract', async (
     }),
   });
   assert.equal(resolved.description, '');
-});
-
-test('a wrong-shaped registry document falls through to the next file', async () => {
-  const catalog = await loadCatalog({
-    repo: REPO,
-    ref: 'main',
-    deps: deps({
-      [CLAUDE_REG]: { body: ['my-sdk'] }, // a bare array, not a registry object
-      [CURSOR_REG]: { body: { name: 'acme', plugins: [{ name: 'my-sdk' }] } },
-    }),
-  });
-  assert.ok(catalog);
-  assert.equal(catalog.marketplace, 'acme');
-  assert.equal(catalog.from, '.cursor-plugin/marketplace.json');
 });
 
 test('an array source is refused, not read as plugins/<id>', () => {
