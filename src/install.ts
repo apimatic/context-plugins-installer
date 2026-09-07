@@ -22,6 +22,7 @@ import {
   type UninstallOutcome,
 } from './types/harness.js';
 import { PluginId } from './types/ids/plugin-id.js';
+import { rowShape, type RowShape } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
@@ -29,26 +30,6 @@ import type { TrackFn } from './types/telemetry.js';
 import { assertPlugin, nonEmptyString, orThrow, UserError, errorMessage } from './util.js';
 
 const nowIso = (): string => new Date().toISOString();
-
-/**
- * What a manifest row says this build should act on. `list` is a usable list of
- * target names; `unusable` is a row with nothing to act on per target (no
- * `targets`, or an empty one, which `read()` drops from its view anyway);
- * `foreign` is a target list this build cannot read - a shape it cannot parse,
- * or an array naming only names it does not know - which is never rebuilt and
- * never dropped without `--force`.
- */
-type RowShape = 'none' | 'list' | 'unusable' | 'foreign';
-
-function rowShape(recorded: Record<string, unknown> | null | undefined): RowShape {
-  if (!recorded) return 'none';
-  const { targets } = recorded;
-  if (!Array.isArray(targets)) return targets == null ? 'unusable' : 'foreign';
-  if (!targets.length) return 'unusable';
-  // Only unknown names is as unreadable as a shape that will not parse, and a
-  // normal uninstall produces it: `['cursor','zed']` becomes `['zed']`.
-  return targets.some(isHarnessName) ? 'list' : 'foreign';
-}
 
 /** Everything the record and the summary are derived from. */
 export interface UninstallFacts {
