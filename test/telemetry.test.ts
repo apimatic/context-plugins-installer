@@ -458,6 +458,17 @@ test('the marketplace is named only when it is the one this build ships with', (
 });
 
 /**
+ * A differently cased spelling of the built-in repo is the built-in repo, so it
+ * counts - and it is reported by the constant, not by what the user typed:
+ * `--repo` is user input, and this file never sends user input.
+ */
+test('the built-in marketplace counts however the user spelled it', () => {
+  const cased = brand({ env: { CP_REPO: REPO.toUpperCase() } });
+  assert.equal(cased.repo, REPO.toUpperCase(), 'the brand keeps the spelling');
+  assert.equal(marketplaceLabel(cased), REPO, 'and the event carries the built-in one');
+});
+
+/**
  * The rule this phase exists to establish, as a test: the sender is
  * infrastructure, so it writes nothing to the terminal and hands its caller
  * what it would have said. `flushQuietly` above replays those lines, which is

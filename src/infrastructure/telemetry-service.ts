@@ -4,6 +4,7 @@ import * as paths from './paths.js';
 import { BIN, type Brand } from '../types/brand.js';
 import type { Env, PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';
+import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { FilePath } from '../types/file/paths.js';
 import type { Deps, FetchLike } from '../types/ports.js';
 import type { Result } from '../types/result.js';
@@ -115,9 +116,14 @@ export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Resu
   return writeState(file, { ...withId(base, randomUUID), enabled });
 }
 
-/** The marketplace as an event property: named only when it is the one this build ships with. */
+/**
+ * The marketplace as an event property: named only when it is the one this
+ * build ships with, and then by the built-in constant rather than by what the
+ * user typed - `--repo` is user input, and a differently cased spelling of the
+ * built-in repo is still not ours to send.
+ */
 export const marketplaceLabel = (brand: Brand): string =>
-  brand.repo === brand.telemetry.defaultRepo ? brand.repo : 'custom';
+  RepoSlug.same(brand.repo, brand.telemetry.defaultRepo) ? brand.telemetry.defaultRepo : 'custom';
 
 export interface TelemetryOptions {
   brand: Brand;

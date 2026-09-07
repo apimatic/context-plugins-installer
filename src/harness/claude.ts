@@ -160,7 +160,10 @@ export function ensureMarketplaceOnce(
   if (!session?.marketplaces) {
     return ensureMarketplace(cli, ids);
   }
-  const key = `${ids.repo}::${ids.marketplace}`;
+  // Case-folded on the repo, like the session's own keys: `isSameRepo` already
+  // reads two spellings as one marketplace, so registering it twice would be a
+  // second `marketplace add` for something already added.
+  const key = `${ids.repo.toLowerCase()}::${ids.marketplace}`;
   let pending = session.marketplaces.get(key);
   if (!pending) {
     pending = ensureMarketplace(cli, ids);

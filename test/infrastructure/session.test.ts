@@ -70,6 +70,48 @@ test('a registry file skipped once is reported once, however many plugins ask', 
   await session.cleanup();
 });
 
+/**
+ * `sameEntry` only folds rows that share a plugin id, so two plugins recorded
+ * from one GitHub repository in two spellings is a state today's code can be in
+ * - and `update` builds each row's brand from its own `repo` field. Keying the
+ * memo on the spelling made that one repository fetched and cloned twice, and
+ * announced twice, which is the opposite of what this memo is for.
+ */
+test('two spellings of one repository are one piece of shared work', async () => {
+  const registry = rawUrl('Acme/M', 'main', '.claude-plugin/marketplace.json');
+  const lower = rawUrl('acme/m', 'main', '.claude-plugin/marketplace.json');
+  const fetchImpl = stubFetch({
+    [registry]: { body: { name: 'acme', plugins: [{ name: 'alpha' }] } },
+    [lower]: { body: { name: 'acme', plugins: [{ name: 'alpha' }] } },
+  });
+  const session = createSession({ deps: { fetchImpl, env: {} } });
+
+  await session.catalog({ repo: 'Acme/M', ref: 'main' });
+  await session.catalog({ repo: 'acme/m', ref: 'main' });
+
+  assert.equal(fetchImpl.calls.length, 1, `read the same registry ${fetchImpl.calls.length} times`);
+  await session.cleanup();
+});
+
+test('a marketplace spelled two ways is registered with Claude once', async () => {
+  const { exec, calls } = recordingExec();
+  const session = createSession({ deps: {} });
+
+  await quietly(async () => {
+    for (const repo of ['Acme/M', 'acme/m']) {
+      await claude.ensureMarketplaceOnce(
+        claudeCli('claude', exec),
+        { marketplace: 'acme', repo },
+        session,
+      );
+    }
+  });
+
+  const adds = calls.filter((c) => c.startsWith('plugin marketplace add')).length;
+  assert.equal(adds, 1, `expected one registration, got ${adds}: ${calls.join(' | ')}`);
+  await session.cleanup();
+});
+
 test('a session keeps separate registries for separate marketplaces', async () => {
   const one = 'acme/plugin-marketplace';
   const two = 'other/plugin-marketplace';

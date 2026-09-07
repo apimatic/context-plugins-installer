@@ -6,7 +6,11 @@ import type { MarketplaceListener, RepoHandle, Session } from '../types/session.
 import { readRegistry } from './github-registry-client.js';
 import { openRepo } from './source-fetcher.js';
 
-const keyOf = (repo: string, ref: string): string => `${repo}@${ref}`;
+// Case-folded on the repo half, the way GitHub reads a slug: two rows spelled
+// `Acme/M` and `acme/m` are one repository, and keying on the spelling made one
+// `update` clone it twice and say so twice - which is the opposite of what this
+// memo exists for.
+const keyOf = (repo: string, ref: string): string => `${repo.toLowerCase()}@${ref}`;
 
 // Work shared by every plugin in one run - registry, clone, Claude marketplace
 // registration - each done once per repo@ref. Promises are cached rather than
