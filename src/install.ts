@@ -6,7 +6,7 @@ import {
 import { resolvePlugin } from './application/plugin-resolution.js';
 import { chooseTargets, resolveTargets } from './application/target-selection.js';
 import { loadCatalog } from './catalog.js';
-import { byName } from './harness/index.js';
+import { harnesses } from './harnesses/index.js';
 import { log } from './log.js';
 import * as paths from './infrastructure/paths.js';
 import { createPrompter } from './prompt.js';
@@ -20,6 +20,7 @@ import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js'
 import { BIN, type Brand } from './types/brand.js';
 import {
   NAMES,
+  TITLES,
   everyEditor,
   titlesOf,
   type HarnessContext,
@@ -81,7 +82,7 @@ type Ask = (question: string, defaultYes: boolean) => boolean | Promise<boolean>
 async function askEach(names: readonly HarnessName[], ask: Ask): Promise<HarnessName[]> {
   const chosen: HarnessName[] = [];
   for (const name of names) {
-    if (await ask(`Install into ${byName(name).title}?`, true)) chosen.push(name);
+    if (await ask(`Install into ${TITLES[name]}?`, true)) chosen.push(name);
   }
   return chosen;
 }
@@ -232,18 +233,18 @@ async function runInstall({
 
   log.step('[Harnesses]');
   const explicit = Array.isArray(targets) && targets.length > 0;
-  const available = requested.filter((name) => byName(name).detect(pathOpts));
+  const available = harnesses.detected(requested, pathOpts);
   const missing = requested.filter((name) => !available.includes(name));
 
   for (const name of missing) {
-    const h = byName(name);
+    const h = harnesses.byName(name);
     log.info(
       `${h.title} is not installed (looked in ${f.path(h.location(pathOpts), pathOpts?.home)}).`,
     );
   }
 
   if (!available.length) {
-    const names = missing.map((n) => byName(n).title);
+    const names = missing.map((n) => TITLES[n]);
     throw new UserError(
       explicit
         ? `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} not installed on this machine.`
@@ -284,7 +285,7 @@ async function runInstall({
   // still on disk, so they stay on the record or `update` would never refresh them.
   const untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
 
-  const needsSource = want.some((name) => byName(name).needsSource);
+  const needsSource = want.some((name) => harnesses.byName(name).needsSource);
   let srcDir: string | null = null;
   if (needsSource) {
     progress.stage = 'fetch';
@@ -302,7 +303,7 @@ async function runInstall({
   progress.stage = 'install';
   const installed: HarnessName[] = [];
   for (const name of want) {
-    const harness = byName(name);
+    const harness = harnesses.byName(name);
     log.step(`[${harness.title}]`);
     const ctx: HarnessContext = {
       plugin,
@@ -435,7 +436,7 @@ async function runUninstall({
   const outcomes = new Map<HarnessName, UninstallOutcome>();
 
   for (const name of want) {
-    const harness = byName(name);
+    const harness = harnesses.byName(name);
     log.step(`[${harness.title}]`);
     try {
       outcomes.set(
@@ -515,7 +516,7 @@ export async function updateAll({
       });
       // Nowhere to refresh it: a skip, not the failure that would make `update`
       // exit 1 on this row forever.
-      const reachable = entry.targets.filter((n) => byName(n).detect(pathOpts));
+      const reachable = harnesses.detected(entry.targets, pathOpts);
       if (!reachable.length) {
         log.warn(`${entry.plugin.padEnd(idWidth)}  no editor for it on this machine - skipping`);
         continue;

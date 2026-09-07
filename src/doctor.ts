@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 
 import { loadCatalog } from './catalog.js';
 import { ghHeaders, rawUrl } from './infrastructure/github-registry-client.js';
-import { HARNESSES } from './harness/index.js';
+import { harnesses } from './harnesses/index.js';
 import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
@@ -83,11 +83,16 @@ async function checkEnvironment(deps: Deps, pathOpts?: PathOpts): Promise<Doctor
 }
 
 function checkEditors(pathOpts?: PathOpts): DoctorCheck[] {
-  const checks = HARNESSES.map((h) =>
-    h.detect(pathOpts)
-      ? ok(h.title, f.path(h.location(pathOpts), pathOpts?.home))
-      : warn(h.title, `not installed (looked in ${f.path(h.location(pathOpts), pathOpts?.home)})`),
-  );
+  const checks = harnesses
+    .all()
+    .map((h) =>
+      h.detect(pathOpts)
+        ? ok(h.title, f.path(h.location(pathOpts), pathOpts?.home))
+        : warn(
+            h.title,
+            `not installed (looked in ${f.path(h.location(pathOpts), pathOpts?.home)})`,
+          ),
+    );
   if (!checks.some((c) => c.status === 'ok')) {
     checks.push(
       fail(

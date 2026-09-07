@@ -2,7 +2,6 @@ import { resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
 import { resolveTargets } from './application/target-selection.js';
-import { byName } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import { openManifest } from './infrastructure/manifest-store.js';
@@ -426,8 +425,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         log.plain('');
         const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
         for (const e of entries) {
-          const where = e.targets.map((n) => byName(n).title);
-          log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(where.join(', '))}`);
+          log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(titlesOf(e.targets))}`);
           log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
         }
         warnGaps(log.warn);
