@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
 
-import { BIN } from './brand.js';
 import { loadCatalog } from './catalog.js';
 import { ghHeaders, rawUrl } from './infrastructure/github-registry-client.js';
 import { HARNESSES } from './harness/index.js';
@@ -8,7 +7,7 @@ import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
 import { describeTelemetry, telemetryStatus } from './infrastructure/telemetry-service.js';
-import type { Brand } from './types/brand.js';
+import { BIN, type Brand } from './types/brand.js';
 import { REGISTRY_FILES } from './types/catalog.js';
 import type { DoctorCheck, DoctorReport } from './types/doctor.js';
 import { everyEditor } from './types/harness.js';

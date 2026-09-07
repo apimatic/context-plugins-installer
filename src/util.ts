@@ -1,7 +1,5 @@
 import type { Failure } from './types/failure.js';
-import { GitRef } from './types/ids/git-ref.js';
 import { PluginId } from './types/ids/plugin-id.js';
-import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Result } from './types/result.js';
 
 /** A problem the user can fix; the CLI prints it as one line with no stack trace. */
@@ -26,26 +24,22 @@ export const ENV_OFF: ReadonlySet<string> = new Set(['0', 'off', 'false', 'no'])
 export const envFlag = (value: string | undefined): boolean =>
   value !== undefined && value !== '' && !ENV_OFF.has(value.toLowerCase());
 
-// Each identifier's rule now lives with its type. These three are the throwing
-// edge their callers still expect: a plugin id, a repo and a ref are all
-// interpolated into URLs and passed as argv, so they are refused where they
-// enter rather than trusted from a flag, an env var, or an rc file. Phase 2
-// reads the Result itself and takes this helper with the last of them.
 /**
  * The bridge between a Result and the throw its callers still expect. Every
  * conversion of a module to Results leaves one of these at its caller until the
- * caller is converted too, and then it goes.
+ * caller is converted too, and then it goes. Phase 5 removes the last one.
  */
 export function orThrow<T>(parsed: Result<T, Failure>): T {
   if (!parsed.ok) throw new UserError(parsed.error.message, { hint: parsed.error.hint });
   return parsed.value;
 }
 
+// Each identifier's rule lives with its type. This is the throwing edge the
+// install and uninstall flows still expect: a plugin id is interpolated into
+// argv, so it is refused where it enters rather than trusted from a flag or an
+// env var. The repo and ref wrappers went when brand resolution started reading
+// the Result itself; this one goes with `orThrow`.
 export const assertPlugin = (id: unknown): string => orThrow(PluginId.parse(id)).toString();
-
-export const assertRepo = (repo: unknown): string => orThrow(RepoSlug.parse(repo)).toString();
-
-export const assertRef = (ref: unknown): string => orThrow(GitRef.parse(ref)).toString();
 
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);

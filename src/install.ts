@@ -1,4 +1,3 @@
-import { BIN } from './brand.js';
 import {
   decideUninstall,
   nothingChanged,
@@ -16,7 +15,7 @@ import { isInteractive } from './infrastructure/environment.js';
 import { openManifest } from './infrastructure/manifest-store.js';
 import { createSession } from './infrastructure/session.js';
 import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
-import type { Brand } from './types/brand.js';
+import { BIN, type Brand } from './types/brand.js';
 import {
   NAMES,
   everyEditor,

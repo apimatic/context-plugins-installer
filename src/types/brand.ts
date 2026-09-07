@@ -2,6 +2,31 @@
 // reports anything. Resolved from a flag, then `CP_*` env, then an rc file, then
 // the built-in defaults.
 
+/**
+ * The published command name, and the one this CLI calls itself by. Every
+ * message that suggests a command interpolates it rather than spelling it out,
+ * so `package.json`'s `bin` key is the only other place it appears.
+ */
+export const BIN = 'context-plugins';
+
+export const DEFAULTS: Readonly<{
+  id: string | null;
+  displayName: string;
+  repo: string;
+  ref: string;
+  telemetryToken: string;
+  telemetryHost: string;
+}> = Object.freeze({
+  id: null, // null => read the name from the repo's marketplace.json
+  displayName: 'Context Plugins',
+  repo: 'context-plugins/plugin-marketplace',
+  ref: 'main',
+  // A Mixpanel project token is a routing key meant for untrusted clients, not
+  // a secret; the project is US-resident, hence the default host.
+  telemetryToken: 'c20ead2eb17ee9ae6aad08545e86c00d',
+  telemetryHost: 'https://api.mixpanel.com',
+});
+
 export interface RcFile {
   repo?: string;
   ref?: string;

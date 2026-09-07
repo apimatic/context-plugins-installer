@@ -1,4 +1,4 @@
-import { BIN, resolveBrand } from './brand.js';
+import { resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
 import { resolveTargets } from './application/target-selection.js';
@@ -17,7 +17,7 @@ import {
   telemetryStatus,
 } from './infrastructure/telemetry-service.js';
 import type { Flags, ParsedArgs } from './types/args.js';
-import type { Brand } from './types/brand.js';
+import { BIN, type Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
 import { NAMES, everyEditor, titlesOf } from './types/harness.js';
 import type { Manifest } from './types/installed-record.js';
