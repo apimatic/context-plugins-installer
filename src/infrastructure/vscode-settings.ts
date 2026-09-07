@@ -7,16 +7,19 @@ import {
   type FileArg,
   type FilePath,
 } from '../types/file/paths.js';
-import type { AddLocationResult, RemoveLocationResult } from '../types/vscode-settings.js';
+import {
+  KEY,
+  toKey,
+  type AddLocationResult,
+  type RemoveLocationResult,
+} from '../types/vscode-settings.js';
 import { timestamp, stripBom } from '../util.js';
 import { ensureDirFor } from './file-system.js';
 
 // settings.json is JSONC and users care about its formatting, so every edit is
 // a targeted string splice - parsing and re-serializing would destroy both.
-export const KEY = 'chat.pluginLocations';
 const BOM = String.fromCharCode(0xfeff);
 
-export const toKey = (dir: DirArg): string => pathString(dir).replace(/\\/g, '/'); // forward slashes are valid JSON on Windows
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // As a key: a bare quoted match also hits the path used as another setting's value.

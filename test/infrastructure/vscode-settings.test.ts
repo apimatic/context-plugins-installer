@@ -6,8 +6,8 @@ import * as path from 'node:path';
 import {
   addPluginLocation,
   removePluginLocation,
-  toKey,
 } from '../../src/infrastructure/vscode-settings.js';
+import { toKey } from '../../src/types/vscode-settings.js';
 import { tmpDir, cleanupAll, parseJsonc } from '../helpers.js';
 
 test.after(cleanupAll);

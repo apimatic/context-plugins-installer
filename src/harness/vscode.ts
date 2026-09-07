@@ -1,12 +1,7 @@
 import { log } from '../log.js';
 import * as paths from '../infrastructure/paths.js';
 import { format as f } from '../prompts/format.js';
-import {
-  addPluginLocation,
-  removePluginLocation,
-  KEY,
-  toKey,
-} from '../infrastructure/vscode-settings.js';
+import { addPluginLocation, removePluginLocation } from '../infrastructure/vscode-settings.js';
 import type { DirectoryPath } from '../types/file/paths.js';
 import {
   TITLES,
@@ -15,6 +10,7 @@ import {
   type HarnessOpts,
   type UninstallOutcome,
 } from '../types/harness.js';
+import { KEY, toKey } from '../types/vscode-settings.js';
 import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 
 // VS Code loads a plugin from any folder listed in chat.pluginLocations, so the

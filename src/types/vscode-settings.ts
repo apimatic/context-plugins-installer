@@ -1,8 +1,22 @@
-import type { FilePath } from './file/paths.js';
+import { pathString, type DirArg, type FilePath } from './file/paths.js';
 
 // The outcome of splicing a plugin folder into VS Code's settings.json. The file
 // is JSONC the user also edits by hand, so an edit is a targeted string splice
 // and these say exactly which one happened.
+
+/** The settings key VS Code reads plugin folders from. */
+export const KEY = 'chat.pluginLocations';
+
+/**
+ * A directory as it is spelled inside that key. Forward slashes are valid JSON
+ * on Windows and a backslash would have to be escaped, so the entry is written
+ * with the separator VS Code accepts on every platform.
+ *
+ * Pure, and here rather than beside the splice, because the two lines that tell
+ * a user to write the entry by hand are prose - and prompts cannot reach into
+ * infrastructure to spell the entry it is describing.
+ */
+export const toKey = (dir: DirArg): string => pathString(dir).replace(/\\/g, '/');
 
 /** `failed` means the file was left untouched: no object could be spliced into. */
 export type AddLocationAction =
