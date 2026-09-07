@@ -31,7 +31,14 @@ import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
 import type { TrackFn } from './types/telemetry.js';
-import { assertPlugin, nonEmptyString, orThrow, UserError, errorMessage } from './util.js';
+import {
+  assertPlugin,
+  errorMessage,
+  nonEmptyString,
+  orThrow,
+  throwFailure,
+  UserError,
+} from './util.js';
 
 const noTrack: TrackFn = () => {};
 
@@ -211,7 +218,7 @@ async function runInstall({
   progress.stage = 'harnesses';
   const requested = orThrow(resolveTargets(targets));
   const conflict = force ? null : records.conflictFor({ plugin, repo: brand.repo });
-  if (conflict) throw new UserError(conflict.message, { hint: conflict.hint });
+  if (conflict) throwFailure(conflict);
   const recorded = records.find({ plugin, repo: brand.repo });
 
   const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;

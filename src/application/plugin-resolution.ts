@@ -11,10 +11,7 @@ import { isPlainObject, nonEmptyString } from '../util.js';
 
 const nameOf = (p: CatalogPluginEntry): string => (typeof p === 'string' ? p : p.name);
 
-export const entryFor = (
-  catalog: Catalog | null,
-  plugin: string,
-): CatalogPluginEntry | undefined =>
+const entryFor = (catalog: Catalog | null, plugin: string): CatalogPluginEntry | undefined =>
   catalog ? catalog.plugins.find((p) => nameOf(p) === plugin) : undefined;
 
 export function sourcePathFor(

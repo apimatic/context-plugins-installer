@@ -27,10 +27,16 @@ export const envFlag = (value: string | undefined): boolean =>
 /**
  * The bridge between a Result and the throw its callers still expect. Every
  * conversion of a module to Results leaves one of these at its caller until the
- * caller is converted too, and then it goes. Phase 5 removes the last one.
+ * caller is converted too, and then it goes. Phase 5 removes the last one, so
+ * the conversion is spelled here and only here - `grep 'new UserError'` finding
+ * two sites is how a phase comes to miss one.
  */
+export function throwFailure(failure: Failure): never {
+  throw new UserError(failure.message, { hint: failure.hint });
+}
+
 export function orThrow<T>(parsed: Result<T, Failure>): T {
-  if (!parsed.ok) throw new UserError(parsed.error.message, { hint: parsed.error.hint });
+  if (!parsed.ok) throwFailure(parsed.error);
   return parsed.value;
 }
 

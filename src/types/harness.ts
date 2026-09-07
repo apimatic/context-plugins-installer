@@ -16,12 +16,17 @@ export type HarnessName = 'claude' | 'cursor' | 'vscode';
  * `Record<HarnessName, string>` is total, so a name added to the union without
  * a title does not compile, and `NAMES` is derived from these keys rather than
  * written out again: there is one list, in one order, and nothing to forget.
+ *
+ * Frozen, like every other constant table here, because `isHarnessName` answers
+ * from these keys on every call while `NAMES` is taken once at load: a name
+ * assigned later would be a target this build claims to know and has no module
+ * for, and `rowShape` would read it as a list rather than as foreign.
  */
-export const TITLES: Record<HarnessName, string> = {
+export const TITLES: Readonly<Record<HarnessName, string>> = Object.freeze({
   claude: 'Claude Code',
   cursor: 'Cursor',
   vscode: 'VS Code',
-};
+});
 
 export const isHarnessName = (name: unknown): name is HarnessName =>
   typeof name === 'string' && Object.prototype.hasOwnProperty.call(TITLES, name);
