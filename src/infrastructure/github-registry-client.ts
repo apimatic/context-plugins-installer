@@ -32,32 +32,45 @@ function networkHint(env: Env = process.env): string {
   return 'Check your network connection, or whether access to github.com is blocked.';
 }
 
+// The host is what the "could not reach" line names, and a URL too malformed to
+// parse would otherwise throw a TypeError from inside the handler for the
+// original error, replacing it.
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
 /** A successful `null` on 404, so a missing registry is not an error. */
 export async function getJson(
   url: string,
   { env = process.env, fetchImpl = fetch }: Deps = {},
 ): Promise<Result<unknown, Failure>> {
   const doFetch: FetchLike = fetchImpl;
-  let res;
+  let text: string;
+  // Reading the body belongs in here with the request: a connection that dies
+  // mid-body is the same kind of problem as one that never opened, and left
+  // outside this it was the one way out of a Result-returning function that was
+  // still a throw.
   try {
-    res = await doFetch(url, { headers: ghHeaders(env), redirect: 'follow' });
+    const res = await doFetch(url, { headers: ghHeaders(env), redirect: 'follow' });
+    if (res.status === 404) return ok(null);
+    if (!res.ok) {
+      return err(
+        new Failure(
+          `GET ${url} returned ${res.status} ${res.statusText || ''}`.trim(),
+          res.status === 403
+            ? 'GitHub rate limit? Set GITHUB_TOKEN to raise it, or install git for the clone path.'
+            : undefined,
+        ),
+      );
+    }
+    text = await res.text();
   } catch (e) {
-    return err(
-      new Failure(`Could not reach ${new URL(url).host}: ${errorMessage(e)}`, networkHint(env)),
-    );
+    return err(new Failure(`Could not reach ${hostOf(url)}: ${errorMessage(e)}`, networkHint(env)));
   }
-  if (res.status === 404) return ok(null);
-  if (!res.ok) {
-    return err(
-      new Failure(
-        `GET ${url} returned ${res.status} ${res.statusText || ''}`.trim(),
-        res.status === 403
-          ? 'GitHub rate limit? Set GITHUB_TOKEN to raise it, or install git for the clone path.'
-          : undefined,
-      ),
-    );
-  }
-  const text = await res.text();
   try {
     return ok(JSON.parse(stripBom(text)) as unknown);
   } catch (e) {

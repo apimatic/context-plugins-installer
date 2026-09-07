@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import {
+  getJson,
   ghHeaders,
   rawUrl,
   readRegistry,
 } from '../../src/infrastructure/github-registry-client.js';
-import type { Deps } from '../../src/types/ports.js';
+import type { Deps, FetchResponseLike } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
 import { stubFetch, type StubRoute } from '../helpers.js';
 
@@ -120,6 +121,40 @@ test('a registry that reads first time says nothing at all', async () => {
   const result = await read({ [CLAUDE_REG]: { body: registry() } }, seen.notify);
   assert.ok(result.ok);
   assert.deepEqual(seen.events, []);
+});
+
+/**
+ * A body that dies mid-read was the one way out of this function that was still
+ * a throw: the request was guarded and the `res.text()` after it was not, so a
+ * connection reset during the body escaped as a raw Error while every other
+ * network problem came back as a Failure.
+ */
+test('a body that dies mid-read is a failure like any other network problem', async () => {
+  const fetchImpl = async (): Promise<FetchResponseLike> => ({
+    ok: true,
+    status: 200,
+    text: async () => {
+      throw new Error('ECONNRESET');
+    },
+    json: async () => ({}),
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
+  const result = await readRegistry({ repo: REPO, ref: 'main', deps: { fetchImpl, env: {} } });
+  assert.equal(result.ok, false);
+  assert.match(
+    result.ok ? '' : result.error.message,
+    /Could not reach raw\.githubusercontent\.com/,
+  );
+  assert.match(result.ok ? '' : (result.error.hint ?? ''), /network connection/);
+});
+
+test('a url too malformed to parse still reports the failure it hit', async () => {
+  const fetchImpl = async (): Promise<FetchResponseLike> => {
+    throw new Error('Invalid URL');
+  };
+  const result = await getJson('not://a real url', { fetchImpl, env: {} });
+  assert.equal(result.ok, false);
+  assert.match(result.ok ? '' : result.error.message, /Invalid URL/);
 });
 
 test('a body that is not JSON at all names the file it came from', async () => {
