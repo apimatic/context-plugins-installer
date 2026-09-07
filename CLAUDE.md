@@ -130,8 +130,16 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   fallback for a CLI too old to list as JSON, holds only phrases that cannot be
   about anything but a plugin: anything built around "is not installed" also
   matches `Marketplace 'plugin-marketplace' is not installed`, and `plugin
-marketplace` is Claude's own subcommand wording. `listJson` is the single validated boundary for every
-  `claude ... --json` read.
+marketplace` is Claude's own subcommand wording. All of that policy lives in the
+  harness; talking to the binary does not. `infrastructure/claude-cli.ts` is the
+  only place `claude` argv is spelled and the only `claude ... --json` reader
+  (`listJson`), and it is where the whole-or-null rule for plugins and the
+  drop-junk rule for marketplaces are enforced - so the harness receives rows it
+  can trust or `null` for "the CLI could not answer", and never has to decide how
+  to parse. Its command methods return the `RunResult`, not a `Result`: a non-zero
+  exit from `claude` is evidence, not a failure to report, and which of "stale
+  local copy" or "no such plugin" it means is the harness's call from the exit code
+  and the output.
   `harness/index.ts` is the registry, and `byName` is total over
   `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor

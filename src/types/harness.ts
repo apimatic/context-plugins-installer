@@ -45,3 +45,10 @@ export interface Harness {
 
 /** `claude plugin marketplace list --json` entries; the shape varies by CLI version. */
 export type MarketplaceListing = Record<string, unknown>;
+
+/** One row of `claude plugin list --json`, as much of it as this build reads. */
+export interface InstalledPlugin {
+  plugin: string;
+  /** null when the listing does not say, which counts as "could be ours". */
+  scope: string | null;
+}

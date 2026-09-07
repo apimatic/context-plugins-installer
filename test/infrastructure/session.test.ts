@@ -3,6 +3,7 @@ import assert from 'node:assert';
 
 import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import * as claude from '../../src/harness/claude.js';
+import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
@@ -130,7 +131,11 @@ test('the Claude marketplace is registered once per session, not once per plugin
 
   await quietly(async () => {
     for (const _plugin of ['alpha', 'beta', 'gamma']) {
-      await claude.ensureMarketplaceOnce(exec, 'claude', { marketplace: 'acme', repo }, session);
+      await claude.ensureMarketplaceOnce(
+        claudeCli('claude', exec),
+        { marketplace: 'acme', repo },
+        session,
+      );
     }
   });
 
@@ -144,8 +149,9 @@ test('without a session the marketplace is registered per call, as before', asyn
   const { exec, calls } = recordingExec();
 
   await quietly(async () => {
-    await claude.ensureMarketplaceOnce(exec, 'claude', { marketplace: 'acme', repo }, null);
-    await claude.ensureMarketplaceOnce(exec, 'claude', { marketplace: 'acme', repo }, null);
+    const cli = claudeCli('claude', exec);
+    await claude.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null);
+    await claude.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null);
   });
 
   assert.equal(calls.filter((c) => c === `plugin marketplace add ${repo}`).length, 2);

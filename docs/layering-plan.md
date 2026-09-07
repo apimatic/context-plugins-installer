@@ -687,7 +687,14 @@ back into a `UserError`. That helper is the bridge; Phase 5 removes its last cal
 - **2c · Claude CLI**: `claude-cli.ts` with `listMarketplaces`, `listPlugins`
   (whole-or-null), `marketplaceAdd`, `marketplaceUpdate`, `pluginInstall`,
   `pluginUninstall`. `harness/claude.ts` calls it instead of `exec` directly; its policy is
-  untouched.
+  untouched. One correction to the phase's own rule while doing it: the command methods
+  return `RunResult`, not `Result`. A non-zero exit from `claude` is not a failure to hand
+  upwards, it is the evidence the harness reads to tell "the local marketplace copy is
+  stale" from "no such plugin" - the same reason `process-runner.run` returns a code
+  rather than throwing. The listings keep their own convention, `T[] | null`, where null
+  means "the CLI could not answer": wrapping that in a `Result` would invite a caller to
+  read a failure as an empty listing, which is the one conclusion this boundary must never
+  allow.
 
 **Exit:** `grep -rn 'log\.' src/infrastructure` is empty. Every infrastructure test runs
 against a temp directory or a fake runner, none against the developer's home. Shim:
