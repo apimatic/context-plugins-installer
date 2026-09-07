@@ -145,3 +145,11 @@ export function silenceConsole(): {
     },
   };
 }
+
+/**
+ * A value with every path in it reduced to its string. `DirectoryPath` and
+ * `FilePath` carry their platform's rules, and two objects holding the same
+ * rules are not `deepEqual` - the bound functions inside differ - so an event
+ * carrying a path is compared through the JSON form both sides agree on.
+ */
+export const plainly = (value: unknown): unknown => JSON.parse(JSON.stringify(value));

@@ -3,23 +3,39 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { ClaudeHarness } from '../src/harnesses/claude.js';
-import type { Env } from '../src/types/env.js';
-import type { HarnessContext, HarnessOpts } from '../src/types/harness.js';
-import type { RunCommand, RunResult } from '../src/types/ports.js';
-import { UserError } from '../src/util.js';
-import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
+import { ClaudeHarness } from '../../src/harnesses/claude.js';
+import type { Env } from '../../src/types/env.js';
+import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
+import type { RunCommand, RunResult } from '../../src/types/ports.js';
+import { UserError } from '../../src/util.js';
+import { tmpDir, cleanupAll } from '../helpers.js';
 
 test.after(cleanupAll);
 
 const claude = new ClaudeHarness();
 const REPO = 'apimatic/context-plugins';
+/**
+ * These tests assert the conversation with the `claude` CLI, which is what this
+ * harness is: policy over exit codes and listings. What it *reports* is asserted
+ * through `recording()` below, and the words for each event live in
+ * test/prompts/harness.test.ts.
+ */
 const CTX: HarnessContext = {
   plugin: 'xero-sdk',
   marketplace: 'context-plugins',
   repo: REPO,
   listener: () => {},
 };
+
+/** A context that keeps what the harness reported, in order. */
+function recording(over: Partial<HarnessContext> = {}) {
+  const events: HarnessEvent[] = [];
+  return {
+    events,
+    kinds: (): string[] => events.map((e) => e.kind),
+    ctx: { ...CTX, ...over, listener: (e: HarnessEvent) => events.push(e) },
+  };
+}
 
 /** A PATH with a `claude` on it, whatever the platform's executable rules are. */
 function withClaude(): Env {
@@ -51,21 +67,12 @@ const listing = (entries: unknown): Partial<RunResult> => ({
 
 const opts = (run: RunCommand): HarnessOpts => ({ env: withClaude(), run });
 
-async function quietly<T>(fn: () => Promise<T>): Promise<T> {
-  const con = silenceConsole();
-  try {
-    return await fn();
-  } finally {
-    con.restore();
-  }
-}
-
 test('an already-registered marketplace is updated, not re-added', async () => {
   const run = fakeCli({
     'plugin marketplace list': listing([{ name: 'context-plugins', repo: REPO }]),
   });
 
-  assert.equal(await quietly(() => claude.install(CTX, opts(run))), true);
+  assert.equal(await claude.install(CTX, opts(run)), true);
 
   assert.ok(
     run.calls.includes('plugin marketplace update context-plugins'),
@@ -86,7 +93,7 @@ test('an existing entry is updated under the name Claude knows it by', async () 
     ]),
   });
 
-  await quietly(() => claude.install(CTX, opts(run)));
+  await claude.install(CTX, opts(run));
 
   assert.ok(run.calls.includes('plugin marketplace update apimatic-plugins'));
   assert.ok(run.calls.includes('plugin install xero-sdk@apimatic-plugins --scope user'));
@@ -95,7 +102,7 @@ test('an existing entry is updated under the name Claude knows it by', async () 
 test('an unregistered marketplace is added', async () => {
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
 
-  await quietly(() => claude.install(CTX, opts(run)));
+  await claude.install(CTX, opts(run));
 
   assert.ok(run.calls.includes(`plugin marketplace add ${REPO}`));
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
@@ -127,7 +134,7 @@ test('after adding, the install targets the name Claude filed it under', async (
     return { code: 0, stdout: '', stderr: '' };
   };
 
-  await quietly(() => claude.install(CTX, opts(run)));
+  await claude.install(CTX, opts(run));
 
   assert.ok(
     calls.includes('plugin install xero-sdk@ctx-plugins --scope user'),
@@ -156,7 +163,7 @@ test('a stale local copy is refreshed and the install retried', async () => {
     { calls: run.calls },
   );
 
-  assert.equal(await quietly(() => claude.install(CTX, opts(wrapped))), true);
+  assert.equal(await claude.install(CTX, opts(wrapped)), true);
 
   assert.equal(attempt, 2, 'the install should be retried once');
   assert.ok(run.calls.includes('plugin marketplace update context-plugins'));
@@ -169,7 +176,7 @@ test('a marketplace that cannot be listed is still refreshed before installing',
     'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
   });
 
-  await quietly(() => claude.install(CTX, opts(run)));
+  await claude.install(CTX, opts(run));
 
   assert.ok(run.calls.includes('plugin marketplace update context-plugins'));
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
@@ -181,7 +188,7 @@ test('a different marketplace under the same name is reported, not installed int
   });
 
   await assert.rejects(
-    () => quietly(() => claude.install(CTX, opts(run))),
+    () => claude.install(CTX, opts(run)),
     (err) =>
       err instanceof UserError &&
       /marketplace named 'context-plugins', from someone\/else/.test(err.message),
@@ -197,7 +204,7 @@ test('a same-named entry with no visible source is refreshed, not refused', asyn
     ]),
   });
 
-  assert.equal(await quietly(() => claude.install(CTX, opts(run))), true);
+  assert.equal(await claude.install(CTX, opts(run)), true);
   assert.ok(run.calls.includes('plugin marketplace update context-plugins'));
   assert.ok(!run.calls.some((c) => c.startsWith('plugin marketplace add')));
 });
@@ -210,7 +217,7 @@ test('the repo is matched however the listing spells its source', async () => {
     { name: 'mp', source: `https://github.com/${REPO}` },
   ]) {
     const run = fakeCli({ 'plugin marketplace list': listing([entry]) });
-    await quietly(() => claude.install(CTX, opts(run)));
+    await claude.install(CTX, opts(run));
     assert.ok(
       run.calls.includes('plugin marketplace update mp'),
       `unmatched entry: ${JSON.stringify(entry)}`,
@@ -224,7 +231,7 @@ test('an update failure does not stop the install', async () => {
     'plugin marketplace update': { code: 1, stderr: 'network unreachable' },
   });
 
-  assert.equal(await quietly(() => claude.install(CTX, opts(run))), true);
+  assert.equal(await claude.install(CTX, opts(run)), true);
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
 });
 
@@ -238,7 +245,7 @@ test('a genuinely missing plugin still fails, with the marketplace named', async
   });
 
   await assert.rejects(
-    () => quietly(() => claude.install({ ...CTX, plugin: 'nope' }, opts(run))),
+    () => claude.install({ ...CTX, plugin: 'nope' }, opts(run)),
     (err) =>
       err instanceof UserError && /not in marketplace 'context-plugins'/.test(err.hint || ''),
   );
@@ -249,7 +256,7 @@ test('uninstall targets the name Claude knows the marketplace by', async () => {
     'plugin marketplace list': listing([{ name: 'apimatic-plugins', repo: REPO }]),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'removed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'removed');
   assert.ok(run.calls.includes('plugin uninstall xero-sdk@apimatic-plugins --scope user'));
 });
 
@@ -272,7 +279,7 @@ test('a plugin Claude does not have is absent, not a failed uninstall', async ()
     'plugin list': plugins(['other-sdk@context-plugins']),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'absent');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'absent');
 });
 
 test('a plugin Claude still lists is a failure, whatever the message says', async () => {
@@ -281,7 +288,7 @@ test('a plugin Claude still lists is a failure, whatever the message says', asyn
     'plugin list': plugins(['xero-sdk@context-plugins']),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 // The id is `plugin@marketplace`, and the marketplace half is whatever name
@@ -294,7 +301,7 @@ test('a marketplace Claude knows by another name is not absence', async () => {
     'plugin list': plugins(['xero-sdk@apimatic-plugins']),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 // Everything here installs and uninstalls at user scope, so a project-scope
@@ -305,7 +312,7 @@ test('a copy at another scope leaves the user-scope record clearable', async () 
     'plugin list': plugins(['xero-sdk@context-plugins'], 'project'),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'absent');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'absent');
 });
 
 test('a listing that does not say the scope counts as possibly ours', async () => {
@@ -314,18 +321,18 @@ test('a listing that does not say the scope counts as possibly ours', async () =
     'plugin list': { code: 0, stdout: JSON.stringify([{ id: 'xero-sdk@context-plugins' }]) },
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 test('absence falls back to the message when the CLI cannot list plugins', async () => {
   const stale = fakeCli({ 'plugin uninstall': NOT_INSTALLED, 'plugin list': { code: 1 } });
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(stale))), 'absent');
+  assert.equal(await claude.uninstall(CTX, opts(stale)), 'absent');
 
   const broken = fakeCli({
     'plugin uninstall': { code: 1, stderr: 'EACCES: permission denied' },
     'plugin list': { code: 1 },
   });
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(broken))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(broken)), 'failed');
 });
 
 // The fallback pattern has to be about a plugin. A bare "is not installed" also
@@ -342,7 +349,7 @@ test('a marketplace failure is not read as the plugin being absent', async () =>
     'xero-sdk is not installed',
   ]) {
     const run = fakeCli({ 'plugin uninstall': { code: 1, stderr }, 'plugin list': { code: 1 } });
-    assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed', stderr);
+    assert.equal(await claude.uninstall(CTX, opts(run)), 'failed', stderr);
   }
 });
 
@@ -354,7 +361,7 @@ test('a scope this build has never seen counts as possibly ours', async () => {
     'plugin list': plugins(['xero-sdk@context-plugins'], 'Global'),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 // Absence is the one conclusion this listing is read for, so it has to be read
@@ -367,7 +374,7 @@ test('a listing of a shape this build cannot parse is unknown, not absence', asy
     'plugin list': { code: 0, stdout: JSON.stringify(['xero-sdk@context-plugins', 'other@x']) },
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 test('one unreadable row makes the whole listing unknown', async () => {
@@ -383,12 +390,12 @@ test('one unreadable row makes the whole listing unknown', async () => {
     },
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 test('an empty listing is still proof that nothing is installed', async () => {
   const run = fakeCli({ 'plugin uninstall': NOT_INSTALLED, 'plugin list': plugins([]) });
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'absent');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'absent');
 });
 
 test('a listing whose rows carry no id is unknown, not proof of absence', async () => {
@@ -399,14 +406,14 @@ test('a listing whose rows carry no id is unknown, not proof of absence', async 
     'plugin list': { code: 0, stdout: JSON.stringify([{ name: 'xero-sdk' }]) },
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 // A skip, not a failure: Claude Code is not here to fail. The record still
 // survives - nothing could be established either way - but the run does not.
 test('no claude to ask is a skip, and the record survives it', async () => {
   const run = fakeCli({});
-  assert.equal(await quietly(() => claude.uninstall(CTX, { env: { PATH: '' }, run })), 'skipped');
+  assert.equal(await claude.uninstall(CTX, { env: { PATH: '' }, run }), 'skipped');
   assert.equal(run.calls.length, 0);
 });
 
@@ -416,12 +423,12 @@ test('a real uninstall failure is a failure, not a skip', async () => {
     'plugin list': plugins(['xero-sdk@context-plugins']),
   });
 
-  assert.equal(await quietly(() => claude.uninstall(CTX, opts(run))), 'failed');
+  assert.equal(await claude.uninstall(CTX, opts(run)), 'failed');
 });
 
 test('no claude on PATH is a skip, not a failure', async () => {
   const run = fakeCli({});
-  assert.equal(await quietly(() => claude.install(CTX, { env: { PATH: '' }, run })), false);
+  assert.equal(await claude.install(CTX, { env: { PATH: '' }, run }), false);
   assert.equal(run.calls.length, 0);
 });
 
@@ -430,10 +437,154 @@ test('junk entries in the marketplace listing are ignored, not crashed on', asyn
     'plugin marketplace list': listing([null, 'junk', 42, { name: 'context-plugins', repo: REPO }]),
   });
 
-  assert.equal(await quietly(() => claude.install(CTX, opts(run))), true);
+  assert.equal(await claude.install(CTX, opts(run)), true);
 
   assert.ok(
     run.calls.includes('plugin marketplace update context-plugins'),
     `the real entry is still found among the junk; ran: ${run.calls.join(' | ')}`,
   );
+});
+
+// What the harness *reports*. These are the events the prompts class renders,
+// so a case that stops emitting one goes silent in the terminal - and the order
+// matters: a line that explains a wait is only useful before it.
+
+test('a fresh registration reports the add, the install and how to load it', async () => {
+  const run = fakeCli({ 'plugin marketplace list': listing([]) });
+  const { ctx, kinds, events } = recording();
+
+  assert.equal(await claude.install(ctx, opts(run)), true);
+
+  assert.deepEqual(kinds(), ['marketplace-added', 'plugin-installed', 'reload']);
+  assert.deepEqual(events[1], {
+    harness: 'claude',
+    kind: 'plugin-installed',
+    target: 'xero-sdk@context-plugins',
+    scope: 'user',
+  });
+});
+
+test('a marketplace Claude filed under another name says so before using it', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': listing([{ name: 'apimatic-plugins', repo: REPO }]),
+  });
+  const { ctx, events } = recording();
+
+  await claude.install(ctx, opts(run));
+
+  assert.deepEqual(events[0], {
+    harness: 'claude',
+    kind: 'marketplace-renamed',
+    known: 'apimatic-plugins',
+    configured: 'context-plugins',
+  });
+  assert.equal(events[1]?.kind, 'marketplace-registered');
+});
+
+test('a stale local copy is announced before the refresh that explains the wait', async () => {
+  let attempt = 0;
+  const run = fakeCli({ 'plugin marketplace list': listing([]) });
+  const wrapped: RunCommand = async (file, args) => {
+    const line = args.join(' ');
+    if (line.startsWith('plugin install')) {
+      attempt += 1;
+      if (attempt === 1) {
+        run.calls.push(line);
+        return { code: 1, stdout: '', stderr: 'not found in marketplace' };
+      }
+    }
+    return run(file, args);
+  };
+  const { ctx, kinds } = recording();
+
+  assert.equal(await claude.install(ctx, { env: withClaude(), run: wrapped }), true);
+
+  assert.deepEqual(kinds(), [
+    'marketplace-added',
+    'plugin-stale',
+    'marketplace-updated',
+    'plugin-installed',
+    'reload',
+  ]);
+});
+
+test('a refresh that fails reports the exit code and what it said', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': listing([{ name: 'context-plugins', repo: REPO }]),
+    'plugin marketplace update': { code: 7, stderr: 'network unreachable' },
+  });
+  const { ctx, events } = recording();
+
+  assert.equal(await claude.install(ctx, opts(run)), true);
+
+  assert.deepEqual(events[1], {
+    harness: 'claude',
+    kind: 'marketplace-update-failed',
+    known: 'context-plugins',
+    code: 7,
+    detail: 'network unreachable',
+  });
+});
+
+test('an absent plugin reports the scope it looked at, not a failure', async () => {
+  const run = fakeCli({
+    'plugin uninstall': NOT_INSTALLED,
+    'plugin list': plugins(['other-sdk@context-plugins']),
+  });
+  const { ctx, events } = recording();
+
+  assert.equal(await claude.uninstall(ctx, opts(run)), 'absent');
+
+  assert.deepEqual(events, [
+    { harness: 'claude', kind: 'plugin-absent', plugin: 'xero-sdk', scope: 'user' },
+  ]);
+});
+
+test('a failed uninstall reports the code and the tail, and says nothing about reloading', async () => {
+  const run = fakeCli({
+    'plugin uninstall': { code: 3, stderr: 'EPERM: operation not permitted' },
+    'plugin list': plugins(['xero-sdk@context-plugins']),
+  });
+  const { ctx, events } = recording();
+
+  assert.equal(await claude.uninstall(ctx, opts(run)), 'failed');
+
+  assert.deepEqual(events, [
+    {
+      harness: 'claude',
+      kind: 'plugin-uninstall-failed',
+      target: 'xero-sdk@context-plugins',
+      code: 3,
+      detail: 'EPERM: operation not permitted',
+    },
+  ]);
+});
+
+test('no claude on PATH is said once, for either verb', async () => {
+  const run = fakeCli({});
+  const off: HarnessOpts = { env: { PATH: '' }, run };
+
+  const installing = recording();
+  assert.equal(await claude.install(installing.ctx, off), false);
+  assert.deepEqual(installing.kinds(), ['cli-missing']);
+
+  const uninstalling = recording();
+  assert.equal(await claude.uninstall(uninstalling.ctx, off), 'skipped');
+  assert.deepEqual(uninstalling.kinds(), ['cli-missing']);
+});
+
+test('with no marketplace name each verb says which one it could not do', async () => {
+  const run = fakeCli({ 'plugin marketplace list': listing([]) });
+
+  const installing = recording({ marketplace: null });
+  assert.equal(await claude.install(installing.ctx, opts(run)), false);
+  assert.deepEqual(installing.events, [
+    { harness: 'claude', kind: 'no-marketplace-name', after: 'install' },
+  ]);
+
+  const uninstalling = recording({ marketplace: null });
+  assert.equal(await claude.uninstall(uninstalling.ctx, opts(run)), 'skipped');
+  assert.deepEqual(uninstalling.events, [
+    { harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' },
+  ]);
 });
