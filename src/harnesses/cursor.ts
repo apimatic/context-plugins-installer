@@ -31,7 +31,7 @@ export class CursorHarness implements Harness {
     return paths.cursorRoot(opts);
   }
 
-  destFor(plugin: string, opts?: HarnessOpts): DirectoryPath {
+  private destFor(plugin: string, opts?: HarnessOpts): DirectoryPath {
     return paths.cursorLocalDir(opts).join(plugin);
   }
 
