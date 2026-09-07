@@ -19,9 +19,13 @@ test('an unknown target names the valid ones', () => {
 });
 
 // `all` is a decision, so one bad name beside it is still a typo worth naming
-// rather than something to widen past.
+// rather than something to widen past. It used to widen: `all` was read before
+// the names were checked, so the typo was accepted in silence.
 test('an unknown target is refused even alongside all', () => {
-  assert.equal(resolveTargets(['all', 'emacs']).ok, true, 'all short-circuits, as it always has');
+  const result = resolveTargets(['all', 'emacs']);
+  assert.ok(!result.ok);
+  assert.match(result.error.message, /Unknown target\(s\): emacs/);
+  assert.deepEqual(resolveTargets(['all', 'cursor']), { ok: true, value: [...NAMES] });
   assert.equal(resolveTargets(['cursor', 'emacs']).ok, false);
 });
 

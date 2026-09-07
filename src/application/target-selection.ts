@@ -9,8 +9,13 @@ import { err, ok, type Result } from '../types/result.js';
 export function resolveTargets(
   requested?: readonly string[] | null,
 ): Result<HarnessName[], Failure> {
-  if (!requested || requested.length === 0 || requested.includes('all')) return ok([...NAMES]);
-  const unknown = requested.filter((t) => !isHarnessName(t));
+  if (!requested || requested.length === 0) return ok([...NAMES]);
+  // Names are checked before `all` is read, so a typo beside it is still
+  // reported. `all` used to short-circuit first, which made
+  // `--targets all,emacs` install into every editor and say nothing about
+  // `emacs` - the same shape of silence as `installed --targets vscode`
+  // answering as though the flag were absent.
+  const unknown = requested.filter((t) => t !== 'all' && !isHarnessName(t));
   if (unknown.length) {
     return err(
       new Failure(
@@ -19,6 +24,7 @@ export function resolveTargets(
       ),
     );
   }
+  if (requested.includes('all')) return ok([...NAMES]);
   return ok(NAMES.filter((n) => requested.includes(n)));
 }
 
