@@ -4,6 +4,7 @@ import {
   type ClaudeEvent,
   type Harness,
   type HarnessContext,
+  type HarnessListener,
   type HarnessName,
   type HarnessOpts,
   type MarketplaceListing,
@@ -14,7 +15,11 @@ import type { RunResult } from '../types/ports.js';
 import type { Session } from '../types/session.js';
 import { UserError, isPlainObject, nonEmptyString } from '../util.js';
 
-/** This harness's half of the listener: it only ever emits Claude events. */
+/**
+ * This harness's half of the listener: it only ever emits Claude events, so the
+ * private steps below say so. The one public method takes the whole
+ * `HarnessListener` instead, because a caller has to be able to name its type.
+ */
 type Say = (event: ClaudeEvent) => void;
 
 const tail = (res: RunResult): string =>
@@ -195,10 +200,10 @@ export class ClaudeHarness implements Harness {
     cli: ClaudeCli,
     ids: MarketplaceIds,
     session: Session | null | undefined,
-    say: Say,
+    listener: HarnessListener,
   ): Promise<Registration> {
     if (!session?.marketplaces) {
-      return this.ensureMarketplace(cli, ids, say);
+      return this.ensureMarketplace(cli, ids, listener);
     }
     // Case-folded on the repo, like the session's own keys: `isSameRepo` already
     // reads two spellings as one marketplace, so registering it twice would be a
@@ -206,7 +211,7 @@ export class ClaudeHarness implements Harness {
     const key = `${ids.repo.toLowerCase()}::${ids.marketplace}`;
     let pending = session.marketplaces.get(key);
     if (!pending) {
-      pending = this.ensureMarketplace(cli, ids, say);
+      pending = this.ensureMarketplace(cli, ids, listener);
       session.marketplaces.set(key, pending);
     }
     return pending;
@@ -230,7 +235,7 @@ export class ClaudeHarness implements Harness {
       cli,
       { marketplace, repo },
       session,
-      say,
+      ctx.listener,
     );
     const target = `${plugin}@${known}`;
 
