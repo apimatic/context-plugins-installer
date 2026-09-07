@@ -85,8 +85,8 @@ async function checkEnvironment(deps: Deps, pathOpts?: PathOpts): Promise<Doctor
 function checkEditors(pathOpts?: PathOpts): DoctorCheck[] {
   const checks = HARNESSES.map((h) =>
     h.detect(pathOpts)
-      ? ok(h.title, h.location(pathOpts))
-      : warn(h.title, `not installed (looked in ${h.location(pathOpts)})`),
+      ? ok(h.title, f.path(h.location(pathOpts), pathOpts?.home))
+      : warn(h.title, `not installed (looked in ${f.path(h.location(pathOpts), pathOpts?.home)})`),
   );
   if (!checks.some((c) => c.status === 'ok')) {
     checks.push(

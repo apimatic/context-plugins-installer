@@ -10,6 +10,8 @@ import { byName } from './harness/index.js';
 import { log } from './log.js';
 import * as paths from './infrastructure/paths.js';
 import { createPrompter } from './prompt.js';
+import { format as f } from './prompts/format.js';
+import { harnessListener } from './prompts/harness/index.js';
 import { announceMarketplace } from './prompts/marketplace.js';
 import { isInteractive } from './infrastructure/environment.js';
 import { openManifest } from './infrastructure/manifest-store.js';
@@ -203,6 +205,7 @@ async function runInstall({
   const startedAt = Date.now();
   const effectiveRef = ref || brand.ref;
   const records = openManifest(paths.manifestPath(pathOpts));
+  const say = harnessListener(pathOpts?.home);
 
   const catalog = orThrow(await run.catalog({ repo: brand.repo, ref: effectiveRef }));
   const resolved = orThrow(
@@ -234,7 +237,9 @@ async function runInstall({
 
   for (const name of missing) {
     const h = byName(name);
-    log.info(`${h.title} is not installed (looked in ${h.location(pathOpts)}).`);
+    log.info(
+      `${h.title} is not installed (looked in ${f.path(h.location(pathOpts), pathOpts?.home)}).`,
+    );
   }
 
   if (!available.length) {
@@ -305,6 +310,7 @@ async function runInstall({
       repo: brand.repo,
       srcDir,
       session: run,
+      listener: say,
     };
     if (harness.needsSource && !ctx.srcDir) {
       log.warn(`${harness.title} not detected - skipping.`);
@@ -395,6 +401,7 @@ async function runUninstall({
 }: UninstallOptions): Promise<UninstallResult> {
   assertPlugin(plugin);
   const records = openManifest(paths.manifestPath(pathOpts));
+  const say = harnessListener(pathOpts?.home);
   const key = { plugin, repo: brand.repo };
   // The raw row: uninstall must also clear rows the sanitized view hides, and
   // their recorded marketplace is what keeps the Claude path offline.
@@ -433,7 +440,7 @@ async function runUninstall({
     try {
       outcomes.set(
         name,
-        await harness.uninstall({ plugin, marketplace, repo: brand.repo }, pathOpts),
+        await harness.uninstall({ plugin, marketplace, repo: brand.repo, listener: say }, pathOpts),
       );
     } catch (err) {
       // One editor's I/O failure is not the others' business.

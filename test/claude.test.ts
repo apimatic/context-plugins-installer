@@ -13,7 +13,12 @@ import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 test.after(cleanupAll);
 
 const REPO = 'apimatic/context-plugins';
-const CTX: HarnessContext = { plugin: 'xero-sdk', marketplace: 'context-plugins', repo: REPO };
+const CTX: HarnessContext = {
+  plugin: 'xero-sdk',
+  marketplace: 'context-plugins',
+  repo: REPO,
+  listener: () => {},
+};
 
 /** A PATH with a `claude` on it, whatever the platform's executable rules are. */
 function withClaude(): Env {

@@ -1,4 +1,5 @@
 import type { PathOpts } from './env.js';
+import type { DirectoryPath, FilePath } from './file/paths.js';
 import type { RunCommand } from './ports.js';
 import type { Session } from './session.js';
 
@@ -56,12 +57,95 @@ export interface HarnessOpts extends PathOpts {
   run?: RunCommand;
 }
 
+/**
+ * Which way round a run is going. Only the lines that differ between the two
+ * take it - the reload hint, mostly, which has to say load or unload.
+ */
+export type HarnessVerb = 'install' | 'uninstall';
+
+/**
+ * What an editor whose install is a directory copy can report. Cursor and VS
+ * Code say all six of these in the same words, so they are one template each
+ * with the title filled in rather than a pair that can drift - the same reason
+ * `TITLES` exists.
+ */
+type CopyEvent =
+  | { kind: 'not-installed'; root: DirectoryPath }
+  | { kind: 'no-source' }
+  | { kind: 'copied'; dest: DirectoryPath }
+  | { kind: 'removed'; dest: DirectoryPath }
+  | { kind: 'nothing-to-remove'; dest: DirectoryPath }
+  | { kind: 'reload'; after: HarnessVerb };
+
+/** The shared half of both file-copying editors, as one prompts class sees it. */
+export type EditorEvent = { harness: 'cursor' | 'vscode' } & CopyEvent;
+
+export type CursorEvent = { harness: 'cursor' } & (CopyEvent | { kind: 'no-plugin-json' });
+
+/**
+ * VS Code's copy is registered in a settings file the user also edits, so most
+ * of what it has to say is about that file: which shape of entry it found, and
+ * what to write by hand when the splice could not.
+ */
+export type VscodeEvent = { harness: 'vscode' } & (
+  | CopyEvent
+  | { kind: 'unregistered-only'; dest: DirectoryPath }
+  | { kind: 'settings-failed'; settings: FilePath; dest: DirectoryPath }
+  | { kind: 'settings-conflict'; settings: FilePath; dest: DirectoryPath }
+  | { kind: 'settings-already'; settings: FilePath }
+  | { kind: 'settings-registered'; settings: FilePath }
+  | { kind: 'settings-unregistered'; settings: FilePath }
+  | { kind: 'settings-unremovable'; settings: FilePath; dest: DirectoryPath }
+  | { kind: 'settings-backed-up'; backup: FilePath }
+);
+
+/**
+ * Claude Code installs through its own CLI, up to five calls of it, so these are
+ * the steps of that conversation: which name the marketplace is filed under,
+ * whether the local copy had to be refreshed, and what the install said. Exit
+ * codes and the tail of the output travel as facts - deciding what they mean is
+ * the harness's job, and saying it is this file's.
+ */
+export type ClaudeEvent = { harness: 'claude' } & (
+  | { kind: 'cli-missing' }
+  | { kind: 'no-marketplace-name'; after: HarnessVerb }
+  | { kind: 'marketplace-renamed'; known: string; configured: string }
+  | { kind: 'marketplace-registered'; known: string }
+  | { kind: 'marketplace-updated'; known: string }
+  | { kind: 'marketplace-update-failed'; known: string; code: number; detail: string }
+  | { kind: 'marketplace-added'; marketplace: string }
+  | { kind: 'marketplace-add-rejected'; code: number; detail: string }
+  | { kind: 'plugin-stale'; target: string; known: string }
+  | { kind: 'plugin-installed'; target: string; scope: string }
+  | { kind: 'plugin-absent'; plugin: string; scope: string }
+  | { kind: 'plugin-uninstalled'; target: string }
+  | { kind: 'plugin-uninstall-failed'; target: string; code: number; detail: string }
+  | { kind: 'reload'; after: HarnessVerb }
+);
+
+/**
+ * What a harness did, as facts rather than sentences. A prompts class turns each
+ * into the line it has always been, which is what lets a harness report five
+ * steps of a slow install without knowing there is a terminal - and what keeps
+ * each line where it was, since a warning is only useful before the work it
+ * explains, not after.
+ *
+ * Every event names its editor. The lines usually need the title anyway, it
+ * makes a recorded event say what it is about without its surroundings, and it
+ * is what lets one listener render whichever harness a loop reaches next.
+ */
+export type HarnessEvent = ClaudeEvent | CursorEvent | VscodeEvent;
+
+export type HarnessListener = (event: HarnessEvent) => void;
+
 export interface HarnessContext {
   plugin: string;
   marketplace: string | null;
   repo: string;
   srcDir?: string | null;
   session?: Session;
+  /** Where the harness says what it did. Required: a dropped line is a bug. */
+  listener: HarnessListener;
 }
 
 /**
@@ -80,8 +164,12 @@ export interface Harness {
   /** Whether install needs the plugin files on disk (Claude installs from the marketplace itself). */
   needsSource: boolean;
   detect(opts?: HarnessOpts): boolean;
-  /** Where detect looked; printed as "not installed (looked in ...)". */
-  location(opts?: HarnessOpts): string;
+  /**
+   * Where detect looked, for "not installed (looked in ...)": a path for an
+   * editor with a root on disk, and prose for one found on `$PATH`. The caller
+   * renders it, because a harness cannot reach the formatter.
+   */
+  location(opts?: HarnessOpts): DirectoryPath | string;
   /** false means "skipped", not failed. */
   install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean>;
   uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome>;
