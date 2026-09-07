@@ -1,22 +1,17 @@
 import type { InstallRequest } from './actions/install.js';
 import type { UninstallRequest } from './actions/uninstall.js';
-import { loadCatalog } from './catalog.js';
+import type { UpdateRequest } from './actions/update.js';
 import { InstallCommand } from './commands/install.js';
 import { UninstallCommand } from './commands/uninstall.js';
-import { harnesses } from './harnesses/index.js';
-import { openManifest } from './infrastructure/manifest-store.js';
-import * as paths from './infrastructure/paths.js';
+import { UpdateCommand } from './commands/update.js';
 import { createSession } from './infrastructure/session.js';
 import { log } from './log.js';
 import { announceMarketplace } from './prompts/marketplace.js';
-import type { Brand } from './types/brand.js';
-import { titlesOf, type HarnessName, type HarnessOpts } from './types/harness.js';
-import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps } from './types/ports.js';
-import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
+import type { InstallResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
 import type { TrackFn } from './types/telemetry.js';
-import { errorMessage, nonEmptyString, throwFailure, UserError } from './util.js';
+import { errorMessage, throwFailure } from './util.js';
 
 const noTrack: TrackFn = () => {};
 
@@ -68,137 +63,13 @@ export async function uninstallPlugin(options: UninstallOptions): Promise<Uninst
   return result.report;
 }
 
-export interface UpdateOptions {
-  brand: Brand;
-  deps?: Deps;
-  pathOpts?: HarnessOpts;
-}
+/**
+ * The last shim: `update` and `list` are commands now, and the only thing left
+ * here is the telemetry sink the three of them share until Phase 6 builds one.
+ */
+export type UpdateOptions = UpdateRequest;
 
-export async function updateAll({
-  brand,
-  deps = {},
-  pathOpts,
-}: UpdateOptions): Promise<UpdateResult> {
-  const { plugins: entries, ignored, elided } = openManifest(paths.manifestPath(pathOpts)).read();
-  if (!entries.length && !ignored.length) {
-    log.warn('No plugins installed yet - nothing to update.');
-    return { updated: [], failed: [] };
-  }
-
-  log.banner(`Updating ${log.plural(entries.length + ignored.length, 'plugin')}`);
-  log.plain('');
-  const updated: string[] = [];
-  const failed: UpdateResult['failed'] = [];
-  // One line per plugin instead of a full install report each, unless --verbose.
-  const collapse = !log.isVerbose && !log.isQuiet;
-  const names = [...entries, ...ignored].map((e) => (e.plugin || '').length);
-  const idWidth = Math.min(Math.max(...names, 4), 42);
-
-  for (const skip of ignored) {
-    const name = skip.plugin || '(unreadable entry)';
-    failed.push({ plugin: name, error: `cannot update - ${skip.reason}` });
-    log.error(`${name.padEnd(idWidth)}  cannot update - ${skip.reason}`);
-  }
-  // Not a failure: the row updates for the targets this build knows, and the
-  // ones it does not are written back untouched.
-  for (const row of elided) {
-    log.warn(
-      `${row.plugin.padEnd(idWidth)}  not updating unknown target(s): ${row.targets.join(', ')}`,
-    );
-  }
-
-  const session = createSession({ deps, notify: announceMarketplace });
-  try {
-    for (const entry of entries) {
-      const entryBrand: Brand = Object.freeze({
-        ...brand,
-        repo: entry.repo || brand.repo,
-        ref: entry.ref || brand.ref,
-        id: entry.marketplace || brand.id,
-      });
-      // Nowhere to refresh it: a skip, not the failure that would make `update`
-      // exit 1 on this row forever.
-      const reachable = harnesses.detected(entry.targets, pathOpts);
-      if (!reachable.length) {
-        log.warn(`${entry.plugin.padEnd(idWidth)}  no editor for it on this machine - skipping`);
-        continue;
-      }
-      if (collapse) log.setQuiet(true);
-      try {
-        const result = await installPlugin({
-          brand: entryBrand,
-          plugin: entry.plugin,
-          ref: entry.ref,
-          targets: reachable,
-          force: true,
-          assumeYes: true,
-          deps,
-          pathOpts,
-          session,
-        });
-        if (collapse) log.setQuiet(false);
-        updated.push(entry.plugin);
-        const where = titlesOf(result.targets);
-        if (collapse) log.ok(`${entry.plugin.padEnd(idWidth)}  ${log.dim(where)}`);
-      } catch (err) {
-        if (collapse) log.setQuiet(false);
-        failed.push({ plugin: entry.plugin, error: errorMessage(err) });
-        log.error(`${entry.plugin.padEnd(idWidth)}  ${errorMessage(err)}`);
-      }
-    }
-  } finally {
-    await session.cleanup();
-  }
-
-  log.plain('');
-  log.rule();
-  if (failed.length) {
-    log.warn(
-      `Updated ${updated.length} of ${entries.length + ignored.length}; failed: ${failed.map((f) => f.plugin).join(', ')}`,
-    );
-  } else {
-    log.ok(`Updated ${log.plural(updated.length, 'plugin')}`);
-  }
-  log.plain('');
-  return { updated, failed };
-}
-
-export interface ListOptions {
-  brand: Brand;
-  deps?: Deps;
-  pathOpts?: HarnessOpts;
-}
-
-export async function listPlugins({
-  brand,
-  deps = {},
-  pathOpts,
-}: ListOptions): Promise<ListResult> {
-  const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
-  if (!catalog) {
-    throw new UserError(`Could not read ${brand.label}.`, {
-      hint: 'Check --repo, or the branch you pointed at with --ref.',
-    });
-  }
-  const targetsByPlugin = new Map(
-    openManifest(paths.manifestPath(pathOpts))
-      .list()
-      .filter((p) => RepoSlug.same(p.repo, brand.repo))
-      .map((p): [string, HarnessName[]] => [p.plugin, p.targets]),
-  );
-  return {
-    label: brand.label,
-    marketplace: catalog.marketplace,
-    repo: brand.repo,
-    plugins: catalog.plugins.map((p) => {
-      const name = typeof p === 'string' ? p : p.name;
-      const targets = targetsByPlugin.get(name) || [];
-      return {
-        name,
-        description: typeof p === 'object' && nonEmptyString(p.description) ? p.description : '',
-        targets,
-        installed: targets.length > 0,
-      };
-    }),
-  };
+export async function updateAll(options: UpdateOptions): Promise<UpdateResult> {
+  const result = await new UpdateCommand(sinkOf(options.deps)).run(options);
+  return result.report;
 }

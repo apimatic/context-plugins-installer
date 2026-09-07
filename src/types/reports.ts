@@ -44,6 +44,26 @@ export interface UpdateResult {
 }
 
 /**
+ * One recorded plugin as `update` left it. `report` is what the install action
+ * answered, absent when no install ran - a row this build cannot read, a row
+ * with no editor on this machine, or one whose install threw. `stage` survives
+ * that last case, because a failure event still has to say where it happened.
+ */
+export interface UpdatedRow {
+  plugin: string;
+  /** How telemetry may name this row's marketplace; null when it has no row. */
+  marketplace: string | null;
+  report: InstallReport | null;
+  stage: InstallStage | null;
+  error: string | null;
+  outcome: 'updated' | 'failed' | 'skipped';
+}
+
+export interface UpdateReport extends UpdateResult {
+  rows: UpdatedRow[];
+}
+
+/**
  * What `installed` found. `entries` is already filtered to the editors asked
  * for, but each row still names every editor it is recorded for: `--targets`
  * chooses which plugins are listed, not what is said about them.
