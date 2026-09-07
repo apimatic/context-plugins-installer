@@ -768,8 +768,36 @@ against a temp directory or a fake runner, none against the developer's home. Sh
 
 **Exit:** `grep -rn 'node:' src/application` is empty. `install.ts` no longer touches
 `manifest.upsert` directly. No new shim. All met: `src/application` imports `types/` and
-`util.ts` and nothing else, `src/manifest.ts` is gone, and the suite is 397 tests, up
+`util.ts` and nothing else, `src/manifest.ts` is gone, and the suite is 409 tests, up
 from 372 at the end of Phase 2.
+
+**Review round.** Thirteen findings, twelve addressed and one declined. Three were
+consequences of the case fix rather than of the moves, and they are the lesson worth
+keeping: folding a comparison changes what a _key_ means, and every reader and writer of
+that key has to be revisited together.
+
+- Folding the repo's case made "one key, one row" false, and `upsert` and `remove` were
+  already acting on every matching row while `findRaw` returned the first. An uninstall
+  therefore decided from one row, said `Uninstalled from: Cursor`, and deleted two -
+  taking a foreign target and a foreign field with nothing naming them. `foldRows` and
+  one private `rowFor` in the context fixed it.
+- Three comparisons were still keyed on the spelling after a commit that claimed
+  "everywhere": `marketplaceLabel`, `session.keyOf` and `ensureMarketplaceOnce`'s key.
+  The middle one is reachable in ordinary use, not only in a legacy manifest.
+- `resolveTargets` read `all` before checking the names, so `--targets all,emacs`
+  widened to every editor in silence - and the test written for it one commit earlier
+  said in its comment that this was a defect and asserted it anyway. Pinning behaviour
+  while documenting it as a bug is how a bug survives a review round.
+- Smaller: `TITLES` was mutable while being the source `isHarnessName` reads and `NAMES`
+  is derived from; `conflictFor`'s caller open-coded `orThrow`'s body, now
+  `throwFailure`; a clock default sat in `types/`; the store port carried a `write`
+  nothing called; and the context's own tests drove it through a real file, so nothing
+  exercised the port the class exists to take.
+- **Declined**, with the reason: that removing `brand.telemetry?.` leaves
+  `marketplaceLabel` able to throw from inside the failure-reporting path. It can only
+  do so for a Brand built by a cast, `resolveBrand` is the only builder, and restoring
+  the guard would restore the dead branch this phase was asked to settle. Recorded here
+  rather than left implicit.
 
 ### Phase 4 · Harnesses go silent (1 PR, medium)
 

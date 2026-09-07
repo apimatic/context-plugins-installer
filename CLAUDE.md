@@ -51,7 +51,9 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   `nonEmptyString` from `util.ts`. `as` on parsed JSON is the anti-pattern. The
   manifest drops bad entries from its read view but never from disk (it is shared
   state; a newer CLI may own a row); the rc file fails loudly naming the file (it is
-  user-written configuration). Keep that split.
+  user-written configuration). Keep that split. Turning a `Failure` back into a
+  throw is `throwFailure` in `util.ts` and nothing else - `orThrow` calls it, and
+  a second open-coded copy is a site Phase 5 has to find.
 - **Node 18 is the engine floor**, and `@types/node` is pinned to 18 so the compiler
   cannot let a newer API in. tsx is the price of running TypeScript tests on 18/20.
 - **TypeScript stays on 6.x** until typescript-eslint's peer range admits 7 (`<6.1`
@@ -69,19 +71,22 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   notice and `telemetry status` print; keep it, `common`, and install.ts's per-event
   properties (`plugin` once validated, `harness`, `marketplace` as the built-in repo or
   `custom`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step. Never send
-  a path, hostname, username, error message, env var, or a user-supplied `--repo`.
-  Opt-out precedence is `DO_NOT_TRACK`, `CP_TELEMETRY=off`, rc `"telemetry": false` in
-  _either_ rc file, then the state file, which fails closed: a `telemetry.json` that
-  exists but cannot be read or parsed disables telemetry rather than being replaced, and
-  `enabled: false` is honoured even without an id. If the state directory cannot be
-  written, nothing is sent (no stable id, and the notice would repeat).
-  `CP_TELEMETRY=log` prints the payload instead of sending it. The one-time notice and
-  the log mode go to stderr through `log.notice`, which ignores `--quiet` on purpose.
-  `createTelemetry` does no I/O and never dereferences global `fetch`; everything is
-  resolved in `flush`, only once something was tracked. Tests never reach the network:
-  `scripts/test.js` sets `CP_TELEMETRY=off`, the CI smoke job does too, and
-  install/uninstall report through the `deps.track` seam, wrapped so a throwing sink
-  cannot fail a run.
+  a path, hostname, username, error message, env var, or a user-supplied `--repo`
+  - which is why `marketplaceLabel` answers with the built-in constant or
+    `custom` and never with `brand.repo`: a differently cased spelling of the
+    built-in marketplace counts as the built-in one, and the spelling stays home.
+    Opt-out precedence is `DO_NOT_TRACK`, `CP_TELEMETRY=off`, rc `"telemetry": false` in
+    _either_ rc file, then the state file, which fails closed: a `telemetry.json` that
+    exists but cannot be read or parsed disables telemetry rather than being replaced, and
+    `enabled: false` is honoured even without an id. If the state directory cannot be
+    written, nothing is sent (no stable id, and the notice would repeat).
+    `CP_TELEMETRY=log` prints the payload instead of sending it. The one-time notice and
+    the log mode go to stderr through `log.notice`, which ignores `--quiet` on purpose.
+    `createTelemetry` does no I/O and never dereferences global `fetch`; everything is
+    resolved in `flush`, only once something was tracked. Tests never reach the network:
+    `scripts/test.js` sets `CP_TELEMETRY=off`, the CI smoke job does too, and
+    install/uninstall report through the `deps.track` seam, wrapped so a throwing sink
+    cannot fail a run.
 
 ## Architecture
 
@@ -161,7 +166,10 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   editor names and CI steps the compiler cannot flag.
 - **Session** (`src/infrastructure/session.ts`): work shared by every plugin in one run — the
   registry fetch, the repo clone, the Claude marketplace registration — each done
-  once, keyed `repo@ref`. Promises are cached rather than results, so concurrent
+  once, keyed `repo@ref` with the repo lower-cased - two spellings are one
+  repository, and keying on the spelling made one `update` read the registry
+  twice and clone it twice, announcing both; `ensureMarketplaceOnce`'s key folds
+  the same way. Promises are cached rather than results, so concurrent
   callers share one request and a deterministic failure is not retried. `update`
   threads one session through all plugins; a lone `install` gets a throwaway one.
   It reads the registry through `infrastructure/github-registry-client.ts` and the
@@ -200,13 +208,23 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   installed marks and its gap-warning scope use the same comparison, because a
   run whose halves disagree about `Acme/M` and `acme/m` writes a second row for a
   plugin that is already installed and then cannot uninstall either by the
-  other's spelling. `read()` returns the sanitized entries plus what it could not show: `ignored`
+  other's spelling. Folding that case also means a key can match _more than
+  one_ row - a manifest an older build wrote can hold both spellings - so
+  `ManifestContext` reads the rows a key matches as one row (`foldRows`: a later
+  row wins a field both set, target lists are unioned, this build's names first
+  and the foreign ones after). Every lookup and both writes go through that one
+  private method, because `upsert` and `remove` act on every matching row: read
+  one and write several and another row's targets leave with nothing naming
+  them, which is the one thing the uninstall summary may never do. `read()`
+  returns the sanitized entries plus what it could not show: `ignored`
   (rows it dropped, with reasons) and `elided` (rows it listed without a target name
   this build does not know); `upsert`/`remove` work on the raw file and carry every other row
   through verbatim. An entry with zero known targets must be _dropped_ from the read
   view, never kept as `targets: []` — `resolveTargets` reads an empty list as "every
   harness", which is why `uninstall` classifies the row with `rowShape` before
-  touching it. A `list` — an array naming at least one target this build knows —
+  touching it. (`resolveTargets` checks the names it was given before it reads
+  `all`, so `--targets all,emacs` reports the typo instead of quietly widening
+  to every editor.) A `list` — an array naming at least one target this build knows —
   is shortened per target. `unusable` (no `targets`, or an empty one) is dropped
   whole, but only when every editor was asked _and_ every one answered (`removed`
   or `absent`), or on `--force`: an empty `targets` reads as "every harness", so

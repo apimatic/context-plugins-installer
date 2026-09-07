@@ -86,9 +86,11 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      `infrastructure/vscode-settings.ts`
      does and take a backup first - do not parse-and-reserialize their file.
 
-4. **Register it in `src/harness/index.ts`**: import it, add it to `HARNESSES` (this is
-   the canonical order - how targets are listed in help, prompts, and the manifest) and
-   to `BY_NAME`. Export it with the others. The typecheck from step 1 goes green here.
+4. **Register it in `src/harness/index.ts`**: import it, add it to `BY_NAME`, and export
+   it with the others. The typecheck from step 1 goes green here. There is nothing else
+   to add: `HARNESSES` is `NAMES.map(byName)`, and the canonical order - how targets are
+   listed in help, prompts, and the manifest - is the order of the keys in `TITLES`, back
+   in `src/types/harness.ts`.
 
 5. **Tests.** Copy the pattern nearest the shape:
    - `test/infrastructure/paths.test.ts`: a row per platform for each new path function, including the
@@ -149,9 +151,10 @@ cases differ enough that the PR description should say which one applies:
   a default install records every editor it found. The row is acted on normally for the
   targets it understands, and the new name rides through the rewrite untouched.
 
-Both are the designed behavior, not a bug: `read()` in `src/manifest.ts` hides what it
-cannot represent, and the upsert in `src/install.ts` puts the foreign names back. Say so
-in the PR description - it is the one user-visible effect on people who have not upgraded.
+Both are the designed behavior, not a bug: `manifestView` in
+`src/types/installed-record.ts` hides what this build cannot represent, and
+`ManifestContext.recordInstall` puts the foreign names back on the way to disk. Say so in
+the PR description - it is the one user-visible effect on people who have not upgraded.
 
 ## Commit
 
