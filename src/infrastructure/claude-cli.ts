@@ -53,6 +53,12 @@ export function claudeCli(claude: string, exec: RunCommand = run): ClaudeCli {
     /**
      * Junk rows are dropped rather than fatal: one unreadable marketplace must
      * not hide the rest, and the worst case is re-adding one that was there.
+     *
+     * Do not memoise this. The harness calls it again immediately after
+     * `marketplaceAdd` to learn the name Claude filed the marketplace under,
+     * which is the whole point of that call; a cached listing would answer with
+     * the state from before the add and the install would use the configured
+     * name instead. `test/claude.test.ts` fails on exactly that.
      */
     async listMarketplaces() {
       const entries = await listJson(

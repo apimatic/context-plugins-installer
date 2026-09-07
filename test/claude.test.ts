@@ -95,6 +95,40 @@ test('an unregistered marketplace is added', async () => {
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
 });
 
+/**
+ * Claude files a marketplace under the name it had when added, which can differ
+ * from the one in marketplace.json - so after a successful `add` the harness asks
+ * what that name turned out to be, and installs under it. Every other add-path
+ * test answers the second listing with nothing, where the configured name is used
+ * as a fallback and the lookup's result cannot be seen. This is the case that can
+ * see it, and it is the reason the CLI boundary must not memoise a listing: the
+ * call right after `add` exists precisely to observe what `add` changed.
+ */
+test('after adding, the install targets the name Claude filed it under', async () => {
+  const calls: string[] = [];
+  let added = false;
+  const run = async (_file: string, args: string[]) => {
+    const line = args.join(' ');
+    calls.push(line);
+    if (line.startsWith('plugin marketplace add')) {
+      added = true;
+      return { code: 0, stdout: '', stderr: '' };
+    }
+    if (line.startsWith('plugin marketplace list')) {
+      const entries = added ? [{ name: 'ctx-plugins', repo: REPO }] : [];
+      return { code: 0, stdout: JSON.stringify(entries), stderr: '' };
+    }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+
+  await quietly(() => claude.install(CTX, opts(run)));
+
+  assert.ok(
+    calls.includes('plugin install xero-sdk@ctx-plugins --scope user'),
+    `installed under the wrong name: ${JSON.stringify(calls)}`,
+  );
+});
+
 test('a stale local copy is refreshed and the install retried', async () => {
   let attempt = 0;
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
