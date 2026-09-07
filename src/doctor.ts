@@ -4,7 +4,7 @@ import { BIN } from './brand.js';
 import { loadCatalog } from './catalog.js';
 import { ghHeaders, rawUrl } from './infrastructure/github-registry-client.js';
 import { HARNESSES } from './harness/index.js';
-import * as manifest from './manifest.js';
+import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
 import { describeTelemetry, telemetryStatus } from './infrastructure/telemetry-service.js';
@@ -188,7 +188,7 @@ function checkState(brand: Brand, deps: Deps, pathOpts?: PathOpts): DoctorCheck[
   }
 
   try {
-    const { plugins: entries, ignored, elided } = manifest.read(paths.manifestPath(pathOpts));
+    const { plugins: entries, ignored, elided } = openManifest(paths.manifestPath(pathOpts)).read();
     const detail = entries.length
       ? `${entries.length} ${entries.length === 1 ? 'plugin' : 'plugins'}`
       : 'none yet';

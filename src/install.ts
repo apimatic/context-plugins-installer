@@ -7,15 +7,14 @@ import {
 import { resolvePlugin, loadCatalog } from './catalog.js';
 import { byName, resolveTargets } from './harness/index.js';
 import { log } from './log.js';
-import * as manifest from './manifest.js';
 import * as paths from './infrastructure/paths.js';
 import { createPrompter } from './prompt.js';
 import { announceMarketplace } from './prompts/marketplace.js';
 import { isInteractive } from './infrastructure/environment.js';
+import { openManifest } from './infrastructure/manifest-store.js';
 import { createSession } from './infrastructure/session.js';
 import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
 import type { Brand } from './types/brand.js';
-import type { FileArg } from './types/file/paths.js';
 import {
   NAMES,
   everyEditor,
@@ -31,8 +30,6 @@ import type { InstallResult, ListResult, UninstallResult, UpdateResult } from '.
 import type { Session } from './types/session.js';
 import type { TrackFn } from './types/telemetry.js';
 import { assertPlugin, nonEmptyString, orThrow, UserError, errorMessage } from './util.js';
-
-const nowIso = (): string => new Date().toISOString();
 
 const noTrack: TrackFn = () => {};
 
@@ -107,24 +104,6 @@ export async function chooseHarnesses(
     return await askEach(available, (question, def) => prompter.confirm(question, def));
   } finally {
     prompter.close();
-  }
-}
-
-// Cursor and VS Code both keep plugins in a flat <plugin>/ directory, so the
-// same id from a second marketplace would silently overwrite the first.
-function assertNoMarketplaceConflict(
-  manifestFile: FileArg,
-  { plugin, repo }: { plugin: string; repo: string },
-  force: boolean,
-): void {
-  if (force) return;
-  const clash = manifest
-    .list(manifestFile)
-    .find((p) => p.plugin === plugin && (p.repo || '') !== repo);
-  if (clash) {
-    throw new UserError(`'${plugin}' is already installed from a different marketplace.`, {
-      hint: 'Uninstall it first, or re-run with --force to replace it.',
-    });
   }
 }
 
@@ -208,7 +187,7 @@ async function runInstall({
   const track = sinkOf(deps);
   const startedAt = Date.now();
   const effectiveRef = ref || brand.ref;
-  const manifestFile = paths.manifestPath(pathOpts);
+  const records = openManifest(paths.manifestPath(pathOpts));
 
   const resolved = await resolvePlugin({
     repo: brand.repo,
@@ -222,11 +201,9 @@ async function runInstall({
 
   progress.stage = 'harnesses';
   const requested = resolveTargets(targets);
-  assertNoMarketplaceConflict(manifestFile, { plugin, repo: brand.repo }, force);
-  const recorded = manifest.find(manifestFile, { plugin, repo: brand.repo });
-  // The raw row as well: the rewrite below must not drop what the sanitized view
-  // hides. A row naming a harness only a newer CLI knows still belongs to it.
-  const recordedRaw = manifest.findRaw(manifestFile, { plugin, repo: brand.repo });
+  const conflict = force ? null : records.conflictFor({ plugin, repo: brand.repo });
+  if (conflict) throw new UserError(conflict.message, { hint: conflict.hint });
+  const recorded = records.find({ plugin, repo: brand.repo });
 
   const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
   log.banner(`Installing '${plugin}' from ${from}`);
@@ -321,18 +298,13 @@ async function runInstall({
   }
 
   if (installed.length) {
-    const keep = new Set<HarnessName>([...untouched, ...installed]);
-    manifest.upsert(manifestFile, {
-      ...recordedRaw, // unknown fields ride along untouched
+    records.recordInstall({
       plugin,
       repo: brand.repo,
       marketplace: resolved.marketplace,
       ref: effectiveRef,
-      targets: [
-        ...NAMES.filter((n) => keep.has(n)), // canonical order
-        ...manifest.foreignTargets(recordedRaw),
-      ],
-      installedAt: nowIso(),
+      installed,
+      untouched,
     });
   }
 
@@ -406,10 +378,11 @@ async function runUninstall({
   pathOpts,
 }: UninstallOptions): Promise<UninstallResult> {
   assertPlugin(plugin);
-  const manifestFile = paths.manifestPath(pathOpts);
+  const records = openManifest(paths.manifestPath(pathOpts));
+  const key = { plugin, repo: brand.repo };
   // The raw row: uninstall must also clear rows the sanitized view hides, and
   // their recorded marketplace is what keeps the Claude path offline.
-  const recorded = manifest.findRaw(manifestFile, { plugin, repo: brand.repo });
+  const recorded = records.findRaw(key);
   const want = resolveTargets(targets);
 
   let marketplace: string | null =
@@ -453,10 +426,7 @@ async function runUninstall({
 
   const decision = decideUninstall({ recorded: recorded ?? null, outcomes, want, force });
 
-  if (decision.write === 'remove') manifest.remove(manifestFile, { plugin, repo: brand.repo });
-  else if (decision.write === 'shorten' && recorded) {
-    manifest.upsert(manifestFile, { ...recorded, targets: decision.targets });
-  }
+  records.applyUninstall(key, decision);
 
   // Nothing to say means a failure the thrown error reports; no empty framing.
   const lines = uninstallLines(decision, { plugin, bin: BIN });
@@ -481,8 +451,7 @@ export async function updateAll({
   deps = {},
   pathOpts,
 }: UpdateOptions): Promise<UpdateResult> {
-  const manifestFile = paths.manifestPath(pathOpts);
-  const { plugins: entries, ignored, elided } = manifest.read(manifestFile);
+  const { plugins: entries, ignored, elided } = openManifest(paths.manifestPath(pathOpts)).read();
   if (!entries.length && !ignored.length) {
     log.warn('No plugins installed yet - nothing to update.');
     return { updated: [], failed: [] };
@@ -584,8 +553,8 @@ export async function listPlugins({
     });
   }
   const targetsByPlugin = new Map(
-    manifest
-      .list(paths.manifestPath(pathOpts))
+    openManifest(paths.manifestPath(pathOpts))
+      .list()
       .filter((p) => (p.repo || '') === brand.repo)
       .map((p): [string, HarnessName[]] => [p.plugin, p.targets]),
   );

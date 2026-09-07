@@ -7,6 +7,8 @@ import {
   type EntryKey,
   type RawManifest,
 } from '../types/installed-record.js';
+import { ManifestContext } from '../types/manifest-context.js';
+import type { ManifestStore } from '../types/ports.js';
 import { isPlainObject, stripBom } from '../util.js';
 import { writeFileAtomic } from './file-system.js';
 
@@ -72,3 +74,20 @@ export function remove(file: FileArg, { plugin, repo }: EntryKey): number {
 /** The raw row, shape unchecked, for entries the sanitized view hides. */
 export const findRaw = (file: FileArg, key: EntryKey): Record<string, unknown> | null =>
   readRaw(file).plugins.find((p): p is Record<string, unknown> => matchesKey(p, key)) || null;
+
+/** The store bound to one file, which is the shape `ManifestContext` takes. */
+export const manifestStore = (file: FileArg): ManifestStore => ({
+  readRaw: () => readRaw(file),
+  write: (data) => write(file, data),
+  upsert: (entry) => upsert(file, entry),
+  remove: (key) => remove(file, key),
+  findRaw: (key) => findRaw(file, key),
+});
+
+/**
+ * The state file as a domain object. Until the composition root exists, this is
+ * where the two halves are put together; `now` is a seam so a test can assert
+ * the timestamp a row is written with.
+ */
+export const openManifest = (file: FileArg, now?: () => string): ManifestContext =>
+  new ManifestContext(manifestStore(file), now);

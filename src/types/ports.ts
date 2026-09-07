@@ -1,4 +1,5 @@
 import type { Env } from './env.js';
+import type { EntryKey, RawManifest } from './installed-record.js';
 import type { TrackFn } from './telemetry.js';
 
 // The interfaces through which this program reaches anything outside itself: a
@@ -55,6 +56,20 @@ export interface Deps {
   run?: RunCommand;
   /** Where install/uninstall report what they did; absent means nobody is listening. */
   track?: TrackFn;
+}
+
+/**
+ * `installed.json` as operations rather than bytes, which is what lets
+ * `ManifestContext` hold the rules about a row without knowing there is a file.
+ * Every operation works on the raw array: a row this build cannot read belongs
+ * to whoever wrote it, so nothing here may sanitize on the way through.
+ */
+export interface ManifestStore {
+  readRaw(): RawManifest;
+  write(data: { version?: number; plugins?: unknown[] }): RawManifest;
+  upsert(entry: Record<string, unknown>): RawManifest;
+  remove(key: EntryKey): number;
+  findRaw(key: EntryKey): Record<string, unknown> | null;
 }
 
 export interface Prompter {

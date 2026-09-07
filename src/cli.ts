@@ -4,7 +4,7 @@ import { packageVersion } from './infrastructure/environment.js';
 import { byName, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
-import * as manifest from './manifest.js';
+import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
 import { printTelemetryLines } from './prompts/telemetry.js';
@@ -316,7 +316,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         const result = await listPlugins({ brand });
         // Read again rather than widen ListResult: the payload shape is a contract,
         // and the manifest is one small file.
-        const gaps = gapWarnings(manifest.read(paths.manifestPath()), brand.repo);
+        const gaps = gapWarnings(openManifest(paths.manifestPath()).read(), brand.repo);
         if (flags.json) {
           for (const msg of gaps) log.warnStderr(msg);
           log.payload(JSON.stringify(result, null, 2));
@@ -395,7 +395,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         return report.ok ? 0 : 1;
       }
       case 'installed': {
-        const data = manifest.read(paths.manifestPath());
+        const data = openManifest(paths.manifestPath()).read();
         // `--targets` selects which plugins are listed, not what is said about
         // them: each one still shows every editor it is recorded for. Filtering
         // is unconditional because `resolveTargets` reads "nothing asked for" as

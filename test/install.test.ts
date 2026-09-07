@@ -12,7 +12,8 @@ import {
   listPlugins,
   chooseHarnesses,
 } from '../src/install.js';
-import * as manifest from '../src/manifest.js';
+import { openManifest, upsert } from '../src/infrastructure/manifest-store.js';
+import { foreignTargets } from '../src/types/installed-record.js';
 import * as paths from '../src/infrastructure/paths.js';
 import type { Brand } from '../src/types/brand.js';
 import type { HarnessName } from '../src/types/harness.js';
@@ -138,7 +139,7 @@ test('install places files for every detected harness and records the manifest',
   );
   assert.equal(settings['chat.pluginLocations'][vscodeDest.replace(/\\/g, '/')], true);
 
-  const recorded = manifest.list(paths.manifestPath(m.pathOpts));
+  const recorded = openManifest(paths.manifestPath(m.pathOpts)).list();
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].repo, repo);
   assert.deepEqual(recorded[0].targets, ['cursor', 'vscode']);
@@ -160,7 +161,9 @@ test('a second marketplace installs independently', async () => {
   );
 
   assert.equal(result.marketplace, 'acme');
-  const recorded = JSON.stringify(manifest.list(paths.manifestPath(m.pathOpts))).toLowerCase();
+  const recorded = JSON.stringify(
+    openManifest(paths.manifestPath(m.pathOpts)).list(),
+  ).toLowerCase();
   assert.ok(
     !recorded.includes('apimatic'),
     `unexpected marketplace value in manifest: ${recorded}`,
@@ -182,7 +185,7 @@ test('re-installing updates in place rather than duplicating', async () => {
   await quietly(() => installPlugin(args));
   await quietly(() => installPlugin(args));
 
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 1);
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 1);
   const settings = fs.readFileSync(
     path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json'),
     'utf8',
@@ -241,7 +244,7 @@ test('--force lets the second marketplace take over', async () => {
       pathOpts: m.pathOpts,
     }),
   );
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 2);
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 2);
 });
 
 test('uninstall removes the files, the settings entry, and the manifest row', async () => {
@@ -271,7 +274,7 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
 
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')));
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk')));
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 0);
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 0);
 
   const settings = parseJsonc(
     fs.readFileSync(path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json'), 'utf8'),
@@ -306,7 +309,7 @@ test('a row nothing has installed is cleared rather than left stuck', async () =
   );
 
   assert.deepEqual(result.targets, [], 'nothing was removed, because nothing was there');
-  assert.equal(manifest.list(file).length, 0, 'and the row it drifted from is gone');
+  assert.equal(openManifest(file).list().length, 0, 'and the row it drifted from is gone');
 });
 
 test('a target that could not be confirmed keeps the row until --force', async () => {
@@ -348,7 +351,7 @@ test('a target that could not be confirmed keeps the row until --force', async (
 
   seed();
   await quietly(() => uninstallPlugin({ ...args, force: true }));
-  assert.equal(manifest.list(file).length, 0, '--force clears what could not be confirmed');
+  assert.equal(openManifest(file).list().length, 0, '--force clears what could not be confirmed');
 });
 
 // Saying "cleared the stale record" while a target is still on it is the summary
@@ -424,7 +427,7 @@ test('--force names what it dropped without confirming', async () => {
   // Nothing looked, so no line may report a finding - in either direction.
   assert.doesNotMatch(out, /cleared the stale record|Nothing was installed/);
   assert.doesNotMatch(out, /Nothing was changed/);
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 // One editor removed and another found empty are two different things, and the
@@ -461,7 +464,7 @@ test('a removal does not hide a target cleared alongside it', async () => {
   const out = con.lines.join(' ');
   assert.match(out, /Uninstalled from: Cursor/);
   assert.match(out, /Nothing was installed in VS Code - cleared that from the record/);
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 // Cursor's plugin dir lives inside Cursor's own root, so a missing root is not
@@ -491,7 +494,11 @@ test('an editor that is not installed leaves its target recorded', async () => {
     }),
   );
 
-  assert.deepEqual(manifest.list(file)[0].targets, ['cursor'], 'nothing could be established');
+  assert.deepEqual(
+    openManifest(file).list()[0].targets,
+    ['cursor'],
+    'nothing could be established',
+  );
 });
 
 // No plugin files means nothing for VS Code to load, whatever settings.json
@@ -528,7 +535,7 @@ test('an unrecognised settings entry is reported, not silently kept or hidden', 
     con.restore();
   }
 
-  assert.equal(manifest.list(file).length, 0, 'no files means nothing is installed');
+  assert.equal(openManifest(file).list().length, 0, 'no files means nothing is installed');
   assert.equal(fs.readFileSync(settings, 'utf8'), source, 'the entry is left for the user');
   assert.match(flat(con), /in a form this tool did not write/);
 });
@@ -604,7 +611,7 @@ test('a harness that throws still records what was already removed', async () =>
 
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')));
   assert.deepEqual(
-    manifest.list(file)[0].targets,
+    openManifest(file).list()[0].targets,
     ['vscode'],
     'Cursor is off the record, VS Code is still on it',
   );
@@ -680,8 +687,8 @@ test('a row that names no editor is dropped once every editor has answered', asy
     }),
   );
 
-  assert.equal(manifest.read(file).ignored.length, 0, 'and `update` stops failing on it');
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).read().ignored.length, 0, 'and `update` stops failing on it');
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 // The row this branch's own rewrite produces: uninstalling Cursor from
@@ -726,7 +733,7 @@ test('a row naming only targets this build does not know has a way out', async (
       pathOpts: m.pathOpts,
     }),
   );
-  assert.equal(manifest.read(file).ignored.length, 0, '--force takes it');
+  assert.equal(openManifest(file).read().ignored.length, 0, '--force takes it');
 });
 
 // `targets: []` reads as "every harness", so one editor's answer cannot settle
@@ -899,7 +906,7 @@ test('--force clears a record offline, with no marketplace to resolve', async ()
     }),
   );
 
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 test('a lookup failure still stops an uninstall with no record to correct', async () => {
@@ -1058,7 +1065,7 @@ test('a declined harness is not touched', async () => {
     'declined harness got no files',
   );
   assert.ok(fs.existsSync(path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk')));
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, ['vscode']);
 });
 
 test('declining an editor it is ALREADY installed in keeps the record and the files', async () => {
@@ -1072,7 +1079,10 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
 
   // Installed into both to begin with.
   await quietly(() => installPlugin({ ...args, targets: TARGETS }));
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['cursor', 'vscode']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, [
+    'cursor',
+    'vscode',
+  ]);
 
   // Re-install, saying yes to Cursor and no to VS Code.
   const result = await quietly(() =>
@@ -1088,7 +1098,7 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
 
   // The record still names VS Code, so `update` keeps refreshing that copy.
   assert.deepEqual(
-    manifest.list(paths.manifestPath(m.pathOpts))[0].targets,
+    openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets,
     ['cursor', 'vscode'],
     'the declined editor stays on record',
   );
@@ -1148,7 +1158,7 @@ test('a fresh install records only what it installed', async () => {
   );
 
   // No prior record, so nothing to preserve - the union must not invent a target.
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['cursor']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, ['cursor']);
 });
 
 test('declining everything changes nothing at all', async () => {
@@ -1167,7 +1177,7 @@ test('declining everything changes nothing at all', async () => {
   );
 
   assert.deepEqual(result.targets, []);
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 0, 'no manifest entry');
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 0, 'no manifest entry');
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json')));
 });
 
@@ -1252,7 +1262,7 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
   );
 
   assert.deepEqual(confirm.asked, []);
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, ['vscode']);
 });
 
 test('update names the targets it cannot update, and leaves them recorded', async () => {
@@ -1272,9 +1282,9 @@ test('update names the targets it cannot update, and leaves them recorded', asyn
   );
   // As if a newer CLI had installed the same plugin into an editor this build
   // knows nothing about.
-  const raw = manifest.findRaw(file, { plugin: 'my-sdk', repo });
+  const raw = openManifest(file).findRaw({ plugin: 'my-sdk', repo });
   assert.ok(raw);
-  manifest.upsert(file, { ...raw, targets: [...TARGETS, 'zed'] });
+  upsert(file, { ...raw, targets: [...TARGETS, 'zed'] });
 
   const con = silenceConsole();
   try {
@@ -1291,7 +1301,7 @@ test('update names the targets it cannot update, and leaves them recorded', asyn
     .join(' ');
   assert.ok(out.includes('not updating unknown target(s): zed'), `no such warning in: ${out}`);
   assert.deepEqual(
-    manifest.foreignTargets(manifest.findRaw(file, { plugin: 'my-sdk', repo })),
+    foreignTargets(openManifest(file).findRaw({ plugin: 'my-sdk', repo })),
     ['zed'],
     'and the update wrote it back untouched',
   );
