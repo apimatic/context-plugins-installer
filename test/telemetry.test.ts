@@ -7,16 +7,15 @@ import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
 import * as paths from '../src/infrastructure/paths.js';
 import { printTelemetryLines } from '../src/prompts/telemetry.js';
 import {
-  EVENTS,
   createTelemetry,
-  marketplaceLabel,
   setTelemetryEnabled,
   telemetryStatus,
   type Telemetry,
   type TelemetryOptions,
 } from '../src/infrastructure/telemetry-service.js';
 import { describeTelemetry } from '../src/prompts/telemetry.js';
-import { COLLECTED } from '../src/types/telemetry.js';
+import { marketplaceLabel } from '../src/types/brand.js';
+import { EVENTS, COLLECTED } from '../src/types/telemetry.js';
 import type { Brand } from '../src/types/brand.js';
 import type { Env, PathOpts } from '../src/types/env.js';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';

@@ -4,7 +4,6 @@ import * as paths from './paths.js';
 import { BIN, type Brand } from '../types/brand.js';
 import type { Env, PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';
-import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { FilePath } from '../types/file/paths.js';
 import type { Deps, FetchLike } from '../types/ports.js';
 import type { Result } from '../types/result.js';
@@ -30,13 +29,6 @@ import {
 
 // Title case with a product prefix, the convention of the Mixpanel project
 // these land in.
-export const EVENTS = Object.freeze({
-  installed: 'Context Plugin Installed',
-  installFailed: 'Context Plugin Install Failed',
-  uninstalled: 'Context Plugin Uninstalled',
-  uninstallFailed: 'Context Plugin Uninstall Failed',
-});
-
 /** The request is a courtesy to the run, so it never gets to hold the exit. */
 export const FLUSH_TIMEOUT_MS = 1500;
 
@@ -102,9 +94,6 @@ export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Resu
  * user typed - `--repo` is user input, and a differently cased spelling of the
  * built-in repo is still not ours to send.
  */
-export const marketplaceLabel = (brand: Brand): string =>
-  RepoSlug.same(brand.repo, brand.telemetry.defaultRepo) ? brand.telemetry.defaultRepo : 'custom';
-
 export interface TelemetryOptions {
   brand: Brand;
   /** The CLI command this run is for; rides on every event. */

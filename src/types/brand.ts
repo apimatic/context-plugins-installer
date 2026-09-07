@@ -1,3 +1,5 @@
+import { RepoSlug } from './ids/repo-slug.js';
+
 // Which marketplace this run installs from, what it calls itself, and whether it
 // reports anything. Resolved from a flag, then `CP_*` env, then an rc file, then
 // the built-in defaults.
@@ -8,6 +10,15 @@
  * so `package.json`'s `bin` key is the only other place it appears.
  */
 export const BIN = 'context-plugins';
+
+/**
+ * Which marketplace a run used, as telemetry may say it: the built-in one by
+ * name, or `custom`. Never `brand.repo` - that is user input, and a
+ * differently cased spelling of the built-in marketplace is still the built-in
+ * one, so the spelling stays on this machine.
+ */
+export const marketplaceLabel = (brand: Brand): string =>
+  RepoSlug.same(brand.repo, brand.telemetry.defaultRepo) ? brand.telemetry.defaultRepo : 'custom';
 
 export const DEFAULTS: Readonly<{
   id: string | null;

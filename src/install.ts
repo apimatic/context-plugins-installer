@@ -1,11 +1,9 @@
-import {
-  decideUninstall,
-  nothingChanged,
-  uninstallLines,
-} from './application/uninstall-decision.js';
+import { nothingChanged } from './application/uninstall-decision.js';
 import { resolvePlugin } from './application/plugin-resolution.js';
+import type { UninstallRequest } from './actions/uninstall.js';
 import { chooseTargets, resolveTargets } from './application/target-selection.js';
 import { loadCatalog } from './catalog.js';
+import { UninstallCommand } from './commands/uninstall.js';
 import { harnesses } from './harnesses/index.js';
 import { log } from './log.js';
 import * as paths from './infrastructure/paths.js';
@@ -16,8 +14,8 @@ import { announceMarketplace } from './prompts/marketplace.js';
 import { isInteractive } from './infrastructure/environment.js';
 import { openManifest } from './infrastructure/manifest-store.js';
 import { createSession } from './infrastructure/session.js';
-import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
-import { BIN, type Brand } from './types/brand.js';
+
+import { marketplaceLabel, type Brand } from './types/brand.js';
 import type { DirectoryPath } from './types/file/paths.js';
 import {
   NAMES,
@@ -27,14 +25,13 @@ import {
   type HarnessContext,
   type HarnessName,
   type HarnessOpts,
-  type UninstallOutcome,
 } from './types/harness.js';
 import { PluginId } from './types/ids/plugin-id.js';
 import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
-import type { TrackFn } from './types/telemetry.js';
+import { EVENTS, type TrackFn } from './types/telemetry.js';
 import {
   assertPlugin,
   errorMessage,
@@ -353,118 +350,17 @@ async function runInstall({
   };
 }
 
-export interface UninstallOptions {
-  brand: Brand;
-  plugin: string;
-  targets?: readonly string[] | null;
-  /** Clear the record even for editors that could not confirm the removal. */
-  force?: boolean;
-  deps?: Deps;
-  pathOpts?: HarnessOpts;
-}
+/**
+ * The uninstall path is `commands/uninstall.ts` over `actions/uninstall.ts`
+ * now; this is the shim `update` and `cli.ts` still call, and it goes with
+ * `updateAll` in the next slice.
+ */
+export type UninstallOptions = UninstallRequest;
 
 export async function uninstallPlugin(options: UninstallOptions): Promise<UninstallResult> {
-  const track = sinkOf(options.deps);
-  try {
-    const result = await runUninstall(options);
-    // Before the failure below, so a partial uninstall still reports what it did.
-    for (const name of result.targets) {
-      track(EVENTS.uninstalled, {
-        plugin: result.plugin,
-        harness: name,
-        marketplace: marketplaceLabel(options.brand),
-      });
-    }
-    // Asked and went wrong is not a clean uninstall, however much else worked.
-    if (result.failed.length) {
-      throw new UserError(
-        `Could not uninstall '${result.plugin}' from ${titlesOf(result.failed)}.`,
-        { hint: 'Close the editor if it is running, then try again - or --verbose for detail.' },
-      );
-    }
-    return result;
-  } catch (err) {
-    trackFailure(track, EVENTS.uninstallFailed, {
-      plugin: options.plugin,
-      brand: options.brand,
-      err,
-    });
-    throw err;
-  }
-}
-
-async function runUninstall({
-  brand,
-  plugin,
-  targets,
-  force = false,
-  deps = {},
-  pathOpts,
-}: UninstallOptions): Promise<UninstallResult> {
-  assertPlugin(plugin);
-  const records = openManifest(paths.manifestPath(pathOpts));
-  const say = harnessListener(pathOpts?.home);
-  const key = { plugin, repo: brand.repo };
-  // The raw row: uninstall must also clear rows the sanitized view hides, and
-  // their recorded marketplace is what keeps the Claude path offline.
-  const recorded = records.findRaw(key);
-  const want = orThrow(resolveTargets(targets));
-
-  let marketplace: string | null =
-    brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
-  if (!marketplace && want.includes('claude')) {
-    try {
-      const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
-      marketplace = orThrow(
-        resolvePlugin(catalog, { plugin, repo: brand.repo, ref: brand.ref }),
-      ).marketplace;
-    } catch (err) {
-      // With a record to correct, reaching the registry must not block cleaning
-      // it up; with none, the error and its suggestion are the useful answer.
-      if (!recorded) throw err;
-      log.warn(
-        `Could not look up the marketplace for '${plugin}' - continuing. ${errorMessage(err)}`,
-      );
-    }
-  }
-
-  log.banner(`Uninstalling '${plugin}' from ${brand.label}`);
-  log.info(`Removing from: ${titlesOf(want)}`);
-  log.rule();
-
-  // One entry per editor visited. `decideUninstall` derives everything the
-  // record and the summary say from exactly this, so the two cannot disagree.
-  const outcomes = new Map<HarnessName, UninstallOutcome>();
-
-  for (const name of want) {
-    const harness = harnesses.byName(name);
-    log.step(`[${harness.title}]`);
-    try {
-      outcomes.set(
-        name,
-        await harness.uninstall({ plugin, marketplace, repo: brand.repo, listener: say }, pathOpts),
-      );
-    } catch (err) {
-      // One editor's I/O failure is not the others' business.
-      log.warn(`${harness.title}: ${errorMessage(err)}`);
-      outcomes.set(name, 'failed');
-    }
-  }
-
-  const decision = decideUninstall({ recorded: recorded ?? null, outcomes, want, force });
-
-  records.applyUninstall(key, decision);
-
-  // Nothing to say means a failure the thrown error reports; no empty framing.
-  const lines = uninstallLines(decision, { plugin, bin: BIN });
-  if (lines.length) {
-    log.plain('');
-    log.rule();
-    for (const line of lines) log[line.level](line.text);
-    log.plain('');
-  }
-
-  return { plugin, targets: decision.removed, failed: decision.failed };
+  const result = await new UninstallCommand(sinkOf(options.deps)).run(options);
+  if (result.failure) throwFailure(result.failure);
+  return result.report;
 }
 
 export interface UpdateOptions {

@@ -33,6 +33,18 @@ export const COLLECTED =
   'or in CI, how long it took, a random id for this machine, and an approximate location ' +
   '(city, region, country) that Mixpanel derives from the request address and then discards';
 
+/**
+ * The four things this program reports. Names, not shapes: Phase 6 replaces the
+ * per-event property objects with classes, and until then a command needs to be
+ * able to name an event without reaching into infrastructure.
+ */
+export const EVENTS = Object.freeze({
+  installed: 'Context Plugin Installed',
+  installFailed: 'Context Plugin Install Failed',
+  uninstalled: 'Context Plugin Uninstalled',
+  uninstallFailed: 'Context Plugin Uninstall Failed',
+});
+
 /** What `telemetry` was asked to do; nothing named reads as `status`. */
 export type TelemetryVerb = 'status' | 'enable' | 'disable';
 
