@@ -979,6 +979,14 @@ scaffold a command from the skill without reading this document.
   do. Phase 2a noted it and Phase 4 was to take the chance while typing the source
   directory; it has nothing to do with harnesses, so it is here instead. A memo keyed on
   the parent directory, inside `downloadPath` in `infrastructure/source-fetcher.ts`.
+- **`materialize` in `source-fetcher.ts` has no production caller.** `session.source`
+  either calls the injected `deps.materialize` - the test seam - or `openRepo`, so the
+  real one is reached only from `test/infrastructure/source-fetcher.test.ts`. Found while
+  reviewing Phase 4, which changed its return type without noticing. It predates the
+  phase: Phase 2b added the caching `openRepo` beside it and nothing moved over. Either
+  the session should use it for the one-shot path or it should go with its four tests,
+  which is the "kept alive by its own test" shape Phase 3 settled three of by deletion.
+  Decide it in Phase 6, where the session is composed.
 
 ## Risks and how each is held
 

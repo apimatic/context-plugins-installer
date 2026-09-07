@@ -23,9 +23,10 @@ export class HarnessRegistry {
   }
 
   /**
-   * Which of `names` are installed on this machine, in the order given. The
-   * caller's order is kept rather than the canonical one: `--targets` is a list
-   * the user wrote, and an install reports what it did in the order it asked.
+   * Which of `names` are installed on this machine, in the order given. Both
+   * callers hand it a list that is already in canonical order - `resolveTargets`
+   * sorts one, a manifest row is written in that order - so this reorders
+   * nothing; it just has no business being the thing that decides.
    */
   detected(names: readonly HarnessName[], opts?: HarnessOpts): HarnessName[] {
     return names.filter((name) => this.byName(name).detect(opts));

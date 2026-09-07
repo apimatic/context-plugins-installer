@@ -61,6 +61,7 @@ test('a healthy machine reports ok', async () => {
   const report = await diagnose({ brand: brand(), deps: deps(), ...machine() });
   assert.equal(report.ok, true);
   assert.equal(report.failures, 0);
+  assert.match(find(report, 'Cursor').detail, /^~[/\\]\.cursor$/, 'shown against the home');
   assert.equal(find(report, 'Registry').detail, 'context-plugins, 1 plugins');
   assert.equal(find(report, 'State directory').status, 'ok');
 });
@@ -73,7 +74,10 @@ test('no editor at all is a failure, not a warning', async () => {
   });
   assert.equal(report.ok, false);
   assert.equal(find(report, 'Any editor').status, 'fail');
-  assert.match(find(report, 'Cursor').detail, /not installed \(looked in /);
+  // Shortened against the run's home, not printed as an absolute path: the
+  // harness answers with the path and `checkEditors` is what reads it against
+  // a home, so a caller that forgets names a directory the user never wrote.
+  assert.match(find(report, 'Cursor').detail, /^not installed \(looked in ~[/\\]\.cursor\)$/);
 });
 
 test('one editor present is enough to pass', async () => {

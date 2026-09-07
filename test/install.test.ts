@@ -998,16 +998,24 @@ test('a harness that is not installed is skipped, not failed', async () => {
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
 
-  const result = await quietly(() =>
-    installPlugin({
+  const con = silenceConsole();
+  let result;
+  try {
+    result = await installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
       deps: deps({ repo, srcDir }),
       pathOpts: m.pathOpts,
-    }),
-  );
+    });
+  } finally {
+    con.restore();
+  }
   assert.deepEqual(result.targets, ['vscode']);
+  // `location()` answers with the path and the caller shortens it against the
+  // run's home. Print it unshortened and the line names a directory the user
+  // did not write, which compiles, lints and passes every other assertion.
+  assert.match(flat(con), /Cursor is not installed \(looked in ~[/\\]\.cursor\)/);
 });
 
 // ---- harness consent -----------------------------------------------------

@@ -236,7 +236,7 @@ test('an uninstall answers absent even with no VS Code, because the copy is ours
   assert.deepEqual(m.kinds(), ['nothing-to-remove']);
 });
 
-test('detect and location answer about VS Code user directory', () => {
+test("detect and location answer about VS Code's user directory", () => {
   const here = machine();
   const gone = machine({ installed: false });
 

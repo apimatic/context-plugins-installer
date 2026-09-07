@@ -5,6 +5,7 @@ import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
+import type { HarnessEvent } from '../../src/types/harness.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
@@ -168,24 +169,32 @@ function recordingExec(): { exec: RunCommand; calls: string[] } {
   return { exec, calls };
 }
 
-test('the Claude marketplace is registered once per session, not once per plugin', async () => {
+/**
+ * Both halves of the memo, because they can fail apart. The registration is one
+ * `marketplace add` for three plugins - and it is announced once, because the
+ * event fires inside the cached promise rather than being reported from what it
+ * returns. Emitted at the caller instead, the line would be said once per
+ * plugin while the work happened once: the shape of the Phase 2b regression,
+ * and the reason a harness emits rather than returning facts.
+ */
+test('the Claude marketplace is registered once per session, and said once', async () => {
   const repo = 'acme/plugin-marketplace';
   const { exec, calls } = recordingExec();
   const session = createSession({ deps: {} });
+  const events: HarnessEvent[] = [];
 
-  await quietly(async () => {
-    for (const _plugin of ['alpha', 'beta', 'gamma']) {
-      await new ClaudeHarness().ensureMarketplaceOnce(
-        claudeCli('claude', exec),
-        { marketplace: 'acme', repo },
-        session,
-        () => {},
-      );
-    }
-  });
+  for (const _plugin of ['alpha', 'beta', 'gamma']) {
+    await new ClaudeHarness().ensureMarketplaceOnce(
+      claudeCli('claude', exec),
+      { marketplace: 'acme', repo },
+      session,
+      (e) => events.push(e),
+    );
+  }
 
   const adds = calls.filter((c) => c === `plugin marketplace add ${repo}`).length;
   assert.equal(adds, 1, `expected one registration for three plugins, got ${adds}`);
+  assert.deepEqual(events, [{ harness: 'claude', kind: 'marketplace-added', marketplace: 'acme' }]);
   await session.cleanup();
 });
 

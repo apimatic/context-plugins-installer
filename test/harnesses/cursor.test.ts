@@ -140,7 +140,7 @@ test('an uninstall cannot look when Cursor is not installed, so it skips', async
   assert.deepEqual(m.kinds(), ['not-installed']);
 });
 
-test('detect and location answer about Cursor own root', () => {
+test("detect and location answer about Cursor's own root", () => {
   const here = machine();
   const gone = machine({ installed: false });
 
