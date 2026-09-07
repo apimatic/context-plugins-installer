@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import * as claude from '../src/harness/claude.js';
+import { ClaudeHarness } from '../src/harnesses/claude.js';
 import type { Env } from '../src/types/env.js';
 import type { HarnessContext, HarnessOpts } from '../src/types/harness.js';
 import type { RunCommand, RunResult } from '../src/types/ports.js';
@@ -12,6 +12,7 @@ import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
 
 test.after(cleanupAll);
 
+const claude = new ClaudeHarness();
 const REPO = 'apimatic/context-plugins';
 const CTX: HarnessContext = {
   plugin: 'xero-sdk',

@@ -1,20 +1,18 @@
+import { ClaudeHarness } from '../harnesses/claude.js';
 import { CursorHarness } from '../harnesses/cursor.js';
 import { VscodeHarness } from '../harnesses/vscode.js';
 import { NAMES, type Harness, type HarnessName } from '../types/harness.js';
-import * as claude from './claude.js';
 
 // The editors this build can install into. The names and titles are static
 // knowledge and live in types/harness.ts; this is only the mapping from one to
 // the other, so a pure decision can name an editor without reaching for the
 // code that installs into it.
 //
-// Mid-move: each editor becomes a silent class under src/harnesses/ in its own
-// commit, and this registry becomes HarnessRegistry there once the last one has
-// gone. Claude Code still prints through src/log.ts, which is why it cannot sit
-// in that directory yet - eslint refuses it.
+// Mid-move: every editor is a silent class under src/harnesses/ now, so the
+// next commit moves this registry there as HarnessRegistry.
 
 const BY_NAME: Record<HarnessName, Harness> = {
-  claude,
+  claude: new ClaudeHarness(),
   cursor: new CursorHarness(),
   vscode: new VscodeHarness(),
 };
