@@ -60,6 +60,22 @@ test('upsert replaces the same repo+plugin rather than duplicating', () => {
   ]);
 });
 
+// The key folds case, because the repo it holds is a GitHub slug. Without it a
+// run that spelled `--repo` differently wrote a second row for a plugin that was
+// already installed, and neither row could then be uninstalled by the other's
+// spelling.
+test('a row is keyed by the repo case-insensitively', () => {
+  const f = file();
+  upsert(f, entry({ repo: 'Context-Plugins/Plugin-Marketplace' }));
+  upsert(f, entry({ repo: REPO, targets: ['cursor'] }));
+  assert.equal(rows(f).length, 1, 'the same repository, so the same row');
+  assert.deepEqual(
+    findRaw(f, { plugin: 'my-sdk', repo: 'CONTEXT-PLUGINS/PLUGIN-MARKETPLACE' })?.targets,
+    ['cursor'],
+  );
+  assert.equal(remove(f, { plugin: 'my-sdk', repo: REPO.toUpperCase() }), 1);
+});
+
 test('the same plugin id from two marketplaces coexists', () => {
   const f = file();
   upsert(f, entry({ repo: REPO, marketplace: 'apimatic' }));

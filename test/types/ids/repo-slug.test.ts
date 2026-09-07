@@ -63,6 +63,24 @@ test('matching ignores case, the way GitHub does', () => {
   assert.equal(new RepoSlug(REPO).matches(new RepoSlug('acme/other')), false);
 });
 
+/**
+ * The same rule for the callers holding whatever a manifest row, a flag or a
+ * registry said - none of which is a RepoSlug yet. Everything that is not a
+ * pair of strings keeps the identity its callers had before, so a garbage row
+ * does not start matching a missing repo.
+ */
+test('two recorded spellings name the same repo, case aside', () => {
+  assert.equal(RepoSlug.same(REPO, REPO.toUpperCase()), true);
+  assert.equal(RepoSlug.same('Acme/Payments', 'acme/payments'), true);
+  assert.equal(RepoSlug.same(REPO, 'acme/other'), false);
+
+  assert.equal(RepoSlug.same(undefined, ''), true, 'unset and empty are one thing');
+  assert.equal(RepoSlug.same(null, undefined), true);
+  assert.equal(RepoSlug.same(REPO, undefined), false);
+  assert.equal(RepoSlug.same({ owner: 'a' }, ''), false, 'a garbage row is not a missing repo');
+  assert.equal(RepoSlug.same({ owner: 'a' }, { owner: 'a' }), false, 'nor equal to another');
+});
+
 test('the search key is lower-cased, for callers scanning text for a mention', () => {
   assert.equal(new RepoSlug('Acme/Payments').toSearchKey(), 'acme/payments');
 });

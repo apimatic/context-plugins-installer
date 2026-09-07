@@ -1,4 +1,5 @@
 import { NAMES, isHarnessName, type HarnessName } from './harness.js';
+import { RepoSlug } from './ids/repo-slug.js';
 import { isPlainObject, nonEmptyString } from '../util.js';
 
 // `~/.context-plugins/installed.json` as this build reads it, and every rule
@@ -55,8 +56,13 @@ export interface Manifest {
   elided: ElidedTargets[];
 }
 
+// The repo half is compared the way GitHub reads it - case-insensitively -
+// because the Claude harness already did, and a run whose two halves disagree
+// about whether `Acme/M` and `acme/m` are one repository writes a second row
+// for a plugin that is already installed. The plugin half is kebab-case by
+// validation, so there is no case to fold there.
 export const sameEntry = (a: EntryKey, b: EntryKey): boolean =>
-  a.plugin === b.plugin && (a.repo || '') === (b.repo || '');
+  a.plugin === b.plugin && RepoSlug.same(a.repo, b.repo);
 
 export const matchesKey = (row: unknown, key: EntryKey): boolean =>
   isPlainObject(row) && sameEntry(row, key);

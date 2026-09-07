@@ -26,6 +26,7 @@ import {
   type UninstallOutcome,
 } from './types/harness.js';
 import { PluginId } from './types/ids/plugin-id.js';
+import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
@@ -565,7 +566,7 @@ export async function listPlugins({
   const targetsByPlugin = new Map(
     openManifest(paths.manifestPath(pathOpts))
       .list()
-      .filter((p) => (p.repo || '') === brand.repo)
+      .filter((p) => RepoSlug.same(p.repo, brand.repo))
       .map((p): [string, HarnessName[]] => [p.plugin, p.targets]),
   );
   return {

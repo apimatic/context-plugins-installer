@@ -57,6 +57,22 @@ export class RepoSlug {
     return this.slug.toLowerCase() === other.slug.toLowerCase();
   }
 
+  /**
+   * Whether two recorded spellings name the same repository. Untrusted values
+   * on purpose: this compares what a manifest row, a flag and a registry say,
+   * and none of those is a `RepoSlug` yet - a row on disk may hold anything at
+   * all. Case-insensitive for exactly the reason `matches` is, so the two
+   * halves of a run cannot disagree about it; anything that is not a pair of
+   * strings falls back to the identity the callers used before.
+   */
+  static same(a: unknown, b: unknown): boolean {
+    if (typeof a === 'string' && typeof b === 'string') {
+      return a.toLowerCase() === b.toLowerCase();
+    }
+    const key = (v: unknown): unknown => (v === undefined || v === null || v === '' ? '' : v);
+    return key(a) === key(b);
+  }
+
   /** Lower-cased, for the callers that search text for a mention of this repo. */
   toSearchKey(): string {
     return this.slug.toLowerCase();

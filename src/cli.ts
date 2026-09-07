@@ -20,6 +20,7 @@ import type { Flags, ParsedArgs } from './types/args.js';
 import { BIN, type Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
 import { NAMES, everyEditor, titlesOf } from './types/harness.js';
+import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Manifest } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
 import { UserError, errorMessage, orThrow } from './util.js';
@@ -42,7 +43,7 @@ const OUTLIER_NAME = 36;
  * one marketplace, whose repo is then implied and left out of the label.
  */
 export function gapWarnings({ ignored, elided }: Manifest, scope?: string): string[] {
-  const inScope = (repo?: string): boolean => !scope || !repo || repo === scope;
+  const inScope = (repo?: string): boolean => !scope || !repo || RepoSlug.same(repo, scope);
   const label = (plugin: string | null, repo?: string): string => {
     const name = plugin ? `'${plugin}'` : 'an entry';
     const where = !scope && repo ? ` (${repo})` : '';

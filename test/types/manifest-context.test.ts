@@ -132,6 +132,20 @@ test('findRaw returns the rows read hides', () => {
   assert.deepEqual(records.findRaw(key)?.targets, ['zed']);
 });
 
+/**
+ * GitHub treats an owner and a name case-insensitively and so does the Claude
+ * harness, but the manifest key, this check and `list`'s scope all compared with
+ * `===`. Two halves of one run therefore disagreed about whether `--repo
+ * Context-Plugins/Plugin-Marketplace` was the marketplace a row already named -
+ * this reported a clash for the plugin's own marketplace, and `--force` past it
+ * wrote a second row for the same plugin from the same repository.
+ */
+test('a differently cased spelling of the recorded repo is the same marketplace', () => {
+  const { records } = seeded(entry());
+  assert.equal(records.conflictFor({ plugin: 'my-sdk', repo: REPO.toUpperCase() }), null);
+  assert.ok(records.find({ plugin: 'my-sdk', repo: REPO.toUpperCase() }), 'and the same row');
+});
+
 // Cursor and VS Code keep plugins in a flat <plugin>/ directory, so the same id
 // from a second marketplace would overwrite the first.
 test('a conflict is reported only for the same id from another marketplace', () => {

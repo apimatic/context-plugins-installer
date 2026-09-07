@@ -1,5 +1,6 @@
 import { Failure } from './failure.js';
 import { NAMES, type HarnessName } from './harness.js';
+import { RepoSlug } from './ids/repo-slug.js';
 import {
   foreignTargets,
   manifestView,
@@ -68,7 +69,7 @@ export class ManifestContext {
    * `--force` is the caller's to honour: this only reports the clash.
    */
   conflictFor({ plugin, repo }: { plugin: string; repo: string }): Failure | null {
-    const clash = this.list().find((p) => p.plugin === plugin && (p.repo || '') !== repo);
+    const clash = this.list().find((p) => p.plugin === plugin && !RepoSlug.same(p.repo, repo));
     if (!clash) return null;
     return new Failure(
       `'${plugin}' is already installed from a different marketplace.`,
