@@ -6,36 +6,41 @@ description: Add support for a new editor or AI coding assistant ("harness") to 
 # Add a harness
 
 A harness is one editor's install strategy: how to tell it is on this machine, where its
-plugins go, how to put one there and take it away. The registry is `src/harness/index.ts`;
-`Harness` in `src/types/harness.ts` is the contract. Everything else in the program - prompts,
-`doctor`, `list`, `update`, the manifest - already iterates the registry, so most of the
-work is the module itself plus the places that spell out editor names by hand.
+plugins go, how to put one there and take it away. The registry is
+`src/harnesses/index.ts`; `Harness` in `src/types/harness.ts` is the contract. A harness
+never prints: it reports what it did as a `HarnessEvent` and `src/prompts/harness/` holds
+the words. Everything else in the program - `doctor`, `list`, `update`, the manifest -
+already iterates the registry, so most of the work is the class, its lines, and the
+places that spell out editor names by hand.
 
 ## Pick the shape first
 
 Read both existing shapes before writing anything; the new one is a copy of whichever
 matches, not a fresh design.
 
-| The editor...                                      | Template                                                                                                       | `needsSource` |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------- |
-| loads plugins from a folder on disk                | `src/harness/cursor.ts` (plain copy) or `src/harness/vscode.ts` (copy + registers the path in a settings file) | `true`        |
-| has its own CLI that installs from the marketplace | `src/harness/claude.ts`                                                                                        | `false`       |
+| The editor...                                      | Template                                                                                                           | `needsSource` |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------- |
+| loads plugins from a folder on disk                | `src/harnesses/cursor.ts` (plain copy) or `src/harnesses/vscode.ts` (copy + registers the path in a settings file) | `true`        |
+| has its own CLI that installs from the marketplace | `src/harnesses/claude.ts`                                                                                          | `false`       |
 
 `needsSource: true` means `install.ts` clones or downloads the plugin folder first and
-hands the harness `ctx.srcDir`. `false` means the harness never sees the files and must
-not ask for them.
+hands the harness `ctx.srcDir`, a `DirectoryPath` - so ask it for `srcDir.file(...)`
+rather than reaching for `node:path`. `false` means the harness never sees the files and
+must not ask for them.
 
 ## Steps
 
 Work in this order: the type goes first so the compiler enumerates the rest.
 
 1. **Add the name to `HarnessName` in `src/types/harness.ts`.** Kebab-case, short, the thing a
-   user would type after `--targets`. Then run `npm run typecheck`: two
-   `Record<HarnessName, ...>` tables now fail to compile until the editor is in both -
-   `TITLES` in the same file, which is where its display name goes and what `NAMES`,
-   `titlesOf` and `everyEditor` are derived from, and `BY_NAME` in
-   `src/harness/index.ts`, which needs the harness module. That error list is the
-   checklist for the code; the docs and CI items below are what the compiler cannot see.
+   user would type after `--targets`. Then run `npm run typecheck`: three
+   `Record<HarnessName, ...>` tables now fail to compile until the editor is in all of
+   them - `TITLES` in the same file, which is where its display name goes and what
+   `NAMES`, `titlesOf` and `everyEditor` are derived from; `RELOAD` in
+   `src/prompts/harness/editor.ts`, which is the line telling a user how to make the
+   editor pick the change up; and the object passed to `new HarnessRegistry` in
+   `src/harnesses/index.ts`, which needs the class. That error list is the checklist for
+   the code; the docs and CI items below are what the compiler cannot see.
 
 2. **Add the editor's directories to `src/infrastructure/paths.ts`.** One function for the directory
    that proves the editor is installed (what `detect` checks) and one for where plugins
@@ -50,17 +55,15 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      from these; without one, the new harness can only be tested against the developer's
      real editor.
 
-3. **Write `src/harness/<name>.ts`** by copying the template and changing what differs.
-   Keep the contract the copy already follows:
-   - `name: HarnessName`, `title` (`TITLES.<name>` - the string itself lives in
-     `types/harness.ts`, so prose that lists editors and the harness itself cannot
-     disagree), `needsSource`.
-   - `detect(opts)` is cheap and side-effect free; `location(opts)` returns where it
-     looked, because that string is printed as "not installed (looked in ...)" and shown
-     by `doctor`. Run both through `f.path` from `prompts/format.ts`, passing the run's
-     home as the second argument - `f.path(paths.zedRoot(opts), opts?.home)` - so the
-     home reads as `~`. Omit it and it shortens against the developer's real home
-     instead of the machine under test, which compiles, lints and passes.
+3. **Write `src/harnesses/<name>.ts`** by copying the template and changing what
+   differs. Keep the contract the copy already follows:
+   - A class implementing `Harness`, with `name: HarnessName`, `title` (`TITLES.<name>` -
+     the string itself lives in `types/harness.ts`, so prose that lists editors and the
+     harness itself cannot disagree), `needsSource`.
+   - `detect(opts)` is cheap and side-effect free; `location(opts)` returns the
+     `DirectoryPath` it looked at, which the caller prints as "not installed (looked in
+     ...)" and `doctor` shows. Do not shorten it here: a harness cannot reach
+     `prompts/format.ts`, and eslint refuses the import.
    - `install` returns `false` to mean "skipped, and said why" - not installed, nothing to
      do. A failure the user can fix is a thrown `UserError` with a `hint`. Never throw a
      bare `Error` for a predictable condition.
@@ -77,26 +80,46 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      escape for a target stuck on `skipped` or `failed`.
    - Copy files with `replaceDir` (wholesale replace), so a plugin that shrank between
      versions leaves no orphan files behind.
-   - All output goes through `log` (which re-exports `prompts/terminal.ts`); end
-     `install` and `uninstall` with the line that
-     tells the user how to make the editor pick the change up (reload window, restart).
+   - **It says nothing itself.** Every line is
+     `ctx.listener({ harness: '<name>', kind, ... })`, carrying facts - a path, an exit
+     code, the tail of some output - and never a sentence. Emit at the moment the thing
+     happens rather than from what a function returns: a line explaining a wait is only
+     useful before it, and a memo that caches the work then says it as often as the work
+     is done. End `install` and `uninstall` with
+     `{ kind: 'reload', after: 'install' | 'uninstall' }`.
    - Treat anything read from the editor (a config file, a CLI's JSON output) as a JSON
      boundary: `isPlainObject` / `nonEmptyString` checks, never an `as` cast. If it edits
      a config file the user also edits by hand, splice text like
      `infrastructure/vscode-settings.ts`
      does and take a backup first - do not parse-and-reserialize their file.
 
-4. **Register it in `src/harness/index.ts`**: import it, add it to `BY_NAME`, and export
-   it with the others. The typecheck from step 1 goes green here. There is nothing else
-   to add: `HARNESSES` is `NAMES.map(byName)`, and the canonical order - how targets are
-   listed in help, prompts, and the manifest - is the order of the keys in `TITLES`, back
-   in `src/types/harness.ts`.
+4. **Give it words in `src/prompts/harness/`.** Add its `RELOAD` entry in `editor.ts`,
+   then - only if it says anything no other editor says - a `<name>.ts` with one case per
+   kind of its own and a `default` that hands the rest to `announceEditor`, plus a case in
+   the switch in `index.ts`. A file-copying editor may need nothing but the `RELOAD`
+   entry: the six lines Cursor and VS Code share are one template each in `editor.ts`
+   with the title filled in, and a seventh copy of any of them is the drift `TITLES`
+   exists to prevent. Add the event type to `types/harness.ts` in the same shape as
+   `CursorEvent` - `{ harness: '<name>' }` intersected with `CopyEvent` and whatever is
+   its own.
 
-5. **Tests.** Copy the pattern nearest the shape:
+5. **Register it in `src/harnesses/index.ts`**: import the class and add an instance to
+   the object passed to `new HarnessRegistry`. The typecheck from step 1 goes green here.
+   There is nothing else to add: `all()` walks `NAMES`, and the canonical order - how
+   targets are listed in help, prompts, and the manifest - is the order of the keys in
+   `TITLES`, back in `src/types/harness.ts`.
+
+6. **Tests.** Copy the pattern nearest the shape:
    - `test/infrastructure/paths.test.ts`: a row per platform for each new path function, including the
      env override.
-   - A CLI-driven harness gets `test/<name>.test.ts` modelled on `test/claude.test.ts`: a
-     `fakeCli` that records argv and a PATH stub, so the real binary is never run.
+   - `test/harnesses/<name>.test.ts`, modelled on the file for the shape it copied. A
+     file-based harness follows `cursor.test.ts` or `vscode.test.ts`: a `machine()` built
+     from `CP_<EDITOR>_DIR`, asserting the events, the return value and the files left
+     behind. A CLI-driven one follows `claude.test.ts`: a `fakeCli` that records argv and
+     a PATH stub, so the real binary is never run.
+   - **A row per event kind in `test/prompts/harness.test.ts`.** That table is where the
+     words a user reads are pinned, and its own test refuses an editor that appears in
+     `NAMES` with no case there.
    - A file-based harness joins the sandboxed machine: add its `CP_<EDITOR>_DIR` to
      `machine()` in **both** `test/install.test.ts` and `test/doctor.test.ts` (each has
      its own), and to `TARGETS` in `install.test.ts`. Leave `claude` out of `TARGETS` -
@@ -105,7 +128,7 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    - The claude harness stays in every `NAMES`-driven expectation
      (`test/cli.test.ts`, "targets resolve to canonical order"); update those lists.
 
-6. **The hand-written editor lists.** These are prose, so nothing enforces them; the
+7. **The hand-written editor lists.** These are prose, so nothing enforces them; the
    compiler is silent and the old text simply stays wrong. Update every one:
    - `src/install.ts`, `src/cli.ts` and `src/doctor.ts` need nothing: their editor lists
      all come from `everyEditor()` / `titlesOf()` in `types/harness.ts`. Do not hand-write
@@ -126,13 +149,13 @@ Work in this order: the type goes first so the compiler enumerates the rest.
        description of what a harness actually does, giving mechanism and install
        location. A harness missing from it is undocumented for users.
 
-7. **CI smoke test** (`.github/workflows/ci.yml`, job `smoke`). A file-based harness
+8. **CI smoke test** (`.github/workflows/ci.yml`, job `smoke`). A file-based harness
    should join the real install there: export its `CP_<EDITOR>_DIR`, `mkdir -p` it, add
    the name to both `--targets` lists, and assert on the artifact it leaves behind (the
    VS Code line checks `settings.json` exists). A CLI-driven harness cannot run there -
    the runner has no such binary - and is covered by its fake-CLI tests instead.
 
-8. **Gate**, in this order, before committing:
+9. **Gate**, in this order, before committing:
    `npm run typecheck && npm run lint && npm run format:check && npm test && npm run build`
    then `node bin/cli.js doctor` to see the new editor listed, and if it is installed on
    this machine, a real `node bin/cli.js install <plugin> --targets <name>` followed by

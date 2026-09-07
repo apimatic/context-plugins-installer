@@ -98,16 +98,29 @@ The codebase is part-way through the layering in `docs/layering-plan.md`, so rea
 a directory as what it is allowed to reach rather than by where a file happens to
 sit: `src/application/` is pure decisions over `src/types/` and does no I/O;
 `src/infrastructure/` talks to the world, returns a `Result` and never prints;
+`src/harnesses/` reaches infrastructure but emits events rather than speaking;
 `src/prompts/` holds every user-visible string and the only `console` in the
-codebase. `eslint` enforces those three from `no-restricted-imports`, so a
+codebase. `eslint` enforces those four from `no-restricted-imports`, so a
 crossing import fails `npm run lint` rather than review. `src/cli.ts`,
 `src/install.ts`, `src/doctor.ts` and `src/catalog.ts` are the orchestration those
 layers were carved out of and still do the rest; Phase 5 splits them into
 `commands/` and `actions/`.
 
-- **Harnesses** (`src/harness/`): one module per editor implementing the `Harness`
+- **Harnesses** (`src/harnesses/`): one class per editor implementing the `Harness`
   interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
-  `needsSource`). `uninstall` returns
+  `needsSource`). None of them prints. Each reports what it did as a
+  `HarnessEvent` on `ctx.listener`, and `src/prompts/harness/` turns each one
+  into the line it has always been - which is what lets Claude Code's install
+  report five shell-outs without a silent stretch, and what keeps each line
+  where it was, since a warning that explains a wait is only useful before it.
+  The six lines both file-copying editors say are one template each in
+  `prompts/harness/editor.ts` with the title filled in, and the reload hints are
+  a `Record<HarnessName, ...>` there, so an editor added without one does not
+  compile. `location()` answers with a `DirectoryPath` (or, for Claude Code,
+  prose about `$PATH`) and the caller formats it: a harness cannot reach
+  `f.path`. `ctx.srcDir` is a `DirectoryPath` too, typed all the way from the
+  fetcher, so a copying harness needs no path arithmetic of its own.
+  `uninstall` returns
   `'removed' | 'absent' | 'skipped' | 'failed'`, never a boolean — and every one
   of those is a truthy string, so a caller must never test the result for truth.
   Only `removed` is reported and tracked; `absent` also clears the target from
@@ -156,10 +169,12 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   exit from `claude` is evidence, not a failure to report, and which of "stale
   local copy" or "no such plugin" it means is the harness's call from the exit code
   and the output.
-  `harness/index.ts` maps a name to a module and holds nothing else; the names
-  and titles are static knowledge in `types/harness.ts`, so a pure decision can
-  say "Cursor" without importing the code that installs into it. `byName` is
-  total over `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
+  `harnesses/index.ts` is a `HarnessRegistry` over instances and holds nothing
+  else; the names and titles are static knowledge in `types/harness.ts`, so a
+  pure decision can say "Cursor" without importing the code that installs into
+  it - and a caller that only wants a title should read `TITLES` rather than
+  reach for a harness. `byName` is total over `HarnessName` - narrow a string
+  with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
   and VS Code copy files and need the fetched source. To add an editor, use the
   `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written

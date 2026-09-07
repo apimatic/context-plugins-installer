@@ -815,7 +815,67 @@ that key has to be revisited together.
   byte-identical.
 
 **Exit:** `grep -rn 'log\.' src/harnesses` is empty. The CI smoke job's output is
-unchanged. No new shim.
+unchanged. No new shim. All met: `src/harness/` is gone, nothing under
+`src/harnesses/` imports `prompts/` or `src/log.ts` (eslint refuses both), and the suite
+is 443 tests, up from 409 at the end of Phase 3.
+
+**Corrections, in the order they came up.**
+
+- **The words move as one commit, ahead of two of the three conversions.** The
+  exhaustiveness check at the end of each renderer is a `default: never`, and TypeScript
+  narrows a switch's default to `never` only for a union - with one editor in
+  `HarnessEvent` the check does not compile. Measured with a probe rather than guessed.
+  So the vocabulary and every string land together, then Cursor, VS Code and Claude Code
+  stop printing in a commit each. That also makes each conversion reviewable as a pure
+  swap: the strings are already in one file to diff against.
+- **Six lines are shared, not per editor.** The plan said `prompts/harness/<editor>.ts`,
+  one file each. Cursor and VS Code say "not installed", "no source", "installed",
+  "removed", "nothing to remove" and the reload hint in the same words with the title
+  swapped, so those are one template each in `prompts/harness/editor.ts` and the
+  per-editor files hold only their own. A copy per editor is exactly the drift `TITLES`
+  exists to prevent. The reload hints are a `Record<HarnessName, ...>` there, so an
+  editor added without one does not compile - the same property, one layer up.
+- **Every event names its editor.** The alternative was a listener per harness, which
+  costs the caller a decision it has no business making and loses the property that a
+  recorded event says what it is about on its own. `prompts/harness/index.ts` is then a
+  three-case switch, and `harnessListener(home)` is the whole wiring.
+- **`location()` cannot format itself.** It returned a string already shortened with
+  `f.path`, which a harness may no longer reach. It answers with the path now - prose for
+  Claude Code, whose "location" is `$PATH` - and the two callers that print it format it.
+  Applying `f.path` to an already-shortened path is identity, which is what let the two
+  unconverted harnesses keep formatting theirs for a commit.
+- **No service ports in the constructors.** The plan's file map has the copying harnesses
+  "over `FileSystem` and `VsCodeSettings`". The boundary lint already permits
+  `harnesses/` -> `infrastructure/`, the documented test seam is `HarnessOpts` plus a
+  sandboxed machine asserting on real files, and no test would use a fake file system -
+  so a second seam here would be a branch kept alive by nothing, which is the shape
+  Phase 3 settled three of by deletion. Phase 6 adds constructor injection when
+  `composition.ts` has services to inject and a router to inject them from.
+- **The string arm of `DirArg`/`FileArg` stays.** Phase 2a deferred its removal to here,
+  and it should not happen at all. Narrowing both aliases fails to compile in 109 places,
+  95 of them tests, and all 14 in `src/` are one of two legitimate things: an fs module
+  handing itself a host string, or `f.path` being given something that was never a path -
+  `which('git')`'s answer, a `location()` describing `$PATH`. The leak that mattered is
+  closed instead: `checkout`, `MaterializedSource.dir`, `Session.source` and
+  `HarnessContext.srcDir` are `DirectoryPath`, and so is `TelemetryStatus.file`, which was
+  the same leak in miniature. Nothing in `types/` spells a machine path as a string now.
+  The alias documentation says what the arm is for instead of promising its own removal.
+- **The per-blob `mkdirSync` memo, also deferred here, is not done.** It is a performance
+  nicety in the API download with nothing to do with harnesses; it belongs in the open
+  items below rather than riding on a phase it has no bearing on.
+
+**Verification.** Two CLI comparisons against the pre-phase build, both normalised only
+for the sandbox path, the manifest timestamp and GitHub's rate-limit counter: 18 editor
+shapes at **198 non-empty lines identical**, and the Claude path - a fake `claude` on
+PATH, five shapes plus a CLI too old for `--json` - at **93 lines identical** including
+all 18 recorded `claude` invocations. Each was shown to catch a one-word change to a line
+on the path it covers. A throwaway probe drove the old VS Code module and the new class
+over the eleven scenarios neither comparison reaches, comparing every line printed, the
+outcome, the settings file left behind and whether the copy survived; it became
+`test/harnesses/vscode.test.ts`. And the strings were diffed at the source: 33 of the 47
+`log.<level>(...)` templates in the three old harnesses are byte-identical in the prompts
+files, with the other 14 accounted for by the six deliberate collapses above, each pinned
+to its original words by `test/prompts/harness.test.ts`.
 
 ### Phase 5 · Commands, actions and prompts, one command per PR (7 PRs)
 
@@ -915,6 +975,10 @@ scaffold a command from the skill without reading this document.
 - **Nothing enforces import order.** Six of the imports Phase 1 added landed out of
   position and were caught by review rather than by lint. Worth an `import/order` rule
   before the phases that move imports by the dozen.
+- **The API download calls `mkdirSync` once per blob**, where once per directory would
+  do. Phase 2a noted it and Phase 4 was to take the chance while typing the source
+  directory; it has nothing to do with harnesses, so it is here instead. A memo keyed on
+  the parent directory, inside `downloadPath` in `infrastructure/source-fetcher.ts`.
 
 ## Risks and how each is held
 
