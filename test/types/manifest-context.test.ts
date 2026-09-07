@@ -1,23 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import { decideUninstall, uninstallLines } from '../../src/application/uninstall-decision.js';
-import { findRaw, openManifest, readRaw, upsert } from '../../src/infrastructure/manifest-store.js';
 import type { HarnessName, UninstallOutcome } from '../../src/types/harness.js';
-import type { ManifestContext } from '../../src/types/manifest-context.js';
-import { tmpDir, cleanupAll } from '../helpers.js';
-
-test.after(cleanupAll);
+import {
+  MANIFEST_VERSION,
+  matchesKey,
+  type EntryKey,
+  type RawManifest,
+} from '../../src/types/installed-record.js';
+import { ManifestContext } from '../../src/types/manifest-context.js';
+import type { ManifestStore } from '../../src/types/ports.js';
 
 // What a row means, as opposed to what the file holds: which rows this build can
-// act on, what it drops and says it dropped, and the two writes it makes. The
-// bytes are test/infrastructure/manifest-store.test.ts.
+// act on, what it drops and says it dropped, and the two writes it makes.
+//
+// Driven over the port with the rows in an array, which is the point of the
+// port: this class lives in `types/`, so it has to work without knowing there is
+// a file, and nothing else demonstrated that it does. The bytes are
+// test/infrastructure/manifest-store.test.ts; the two halves wired together are
+// test/install.test.ts, which asserts on real files after real installs.
 
 const REPO = 'context-plugins/plugin-marketplace';
-
-const file = (): string => path.join(tmpDir('cp-manifest-'), 'installed.json');
 
 const entry = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   plugin: 'my-sdk',
@@ -28,12 +32,48 @@ const entry = (over: Record<string, unknown> = {}): Record<string, unknown> => (
   ...over,
 });
 
-/** A context over a file seeded with the given rows, and the file itself. */
-function seeded(...plugins: unknown[]): { records: ManifestContext; f: string } {
-  const f = file();
-  if (plugins.length) fs.writeFileSync(f, JSON.stringify({ plugins }));
-  return { records: openManifest(f, () => 'AT'), f };
+interface Fake extends ManifestStore {
+  /** The rows as they stand, which is what the file would hold. */
+  rows: unknown[];
 }
+
+/**
+ * The port over an array. Matching goes through the same `matchesKey` the real
+ * store uses, so the one rule a fake could quietly get wrong is not restated.
+ */
+function fakeStore(...plugins: unknown[]): Fake {
+  let rows: unknown[] = [...plugins];
+  const raw = (): RawManifest => ({ version: MANIFEST_VERSION, plugins: rows });
+  return {
+    get rows() {
+      return rows;
+    },
+    readRaw: raw,
+    findAllRaw: (key: EntryKey) =>
+      rows.filter((p): p is Record<string, unknown> => matchesKey(p, key)),
+    upsert: (row) => {
+      rows = rows.filter((p) => !matchesKey(p, row));
+      rows.push(row);
+      return raw();
+    },
+    remove: (key) => {
+      const before = rows.length;
+      rows = rows.filter((p) => !matchesKey(p, key));
+      return before - rows.length;
+    },
+  };
+}
+
+/** A context over those rows, with a clock a test can assert against. */
+function seeded(...plugins: unknown[]): { records: ManifestContext; store: Fake } {
+  const store = fakeStore(...plugins);
+  return { records: new ManifestContext(store, () => 'AT'), store };
+}
+
+const KEY: EntryKey = { plugin: 'my-sdk', repo: REPO };
+
+const rowIn = (store: Fake, key: EntryKey = KEY): Record<string, unknown> | undefined =>
+  store.rows.filter((p): p is Record<string, unknown> => matchesKey(p, key))[0];
 
 test('a missing manifest reads as empty', () => {
   assert.deepEqual(seeded().records.list(), []);
@@ -166,7 +206,7 @@ test('a conflict is reported only for the same id from another marketplace', () 
  * what removes the way a caller used to be able to pair them wrongly.
  */
 test('recording an install keeps the fields and targets this build cannot read', () => {
-  const { records, f } = seeded(
+  const { records, store } = seeded(
     entry({ targets: ['cursor', 'zed'], keptByANewerCli: { any: 'shape' } }),
   );
   records.recordInstall({
@@ -177,7 +217,7 @@ test('recording an install keeps the fields and targets this build cannot read',
     installed: ['vscode'],
     untouched: ['cursor'],
   });
-  const raw = findRaw(f, { plugin: 'my-sdk', repo: REPO });
+  const raw = rowIn(store);
   assert.deepEqual(raw?.targets, ['cursor', 'vscode', 'zed'], 'canonical order, then the foreign');
   assert.deepEqual(raw?.keptByANewerCli, { any: 'shape' });
   assert.equal(raw?.ref, 'v2', 'and what this run knows is updated');
@@ -185,7 +225,7 @@ test('recording an install keeps the fields and targets this build cannot read',
 });
 
 test('recording an install writes a row where there was none', () => {
-  const { records, f } = seeded();
+  const { records, store } = seeded();
   records.recordInstall({
     plugin: 'my-sdk',
     repo: REPO,
@@ -194,7 +234,7 @@ test('recording an install writes a row where there was none', () => {
     installed: ['claude'],
     untouched: [],
   });
-  assert.deepEqual(findRaw(f, { plugin: 'my-sdk', repo: REPO })?.targets, ['claude']);
+  assert.deepEqual(rowIn(store)?.targets, ['claude']);
 });
 
 /**
@@ -231,7 +271,7 @@ test('a key with no repo spans marketplaces, so those rows are not folded', () =
 });
 
 test('an uninstall decides from every row the key matches, and writes them as one', () => {
-  const { records, f } = seeded(
+  const { records, store } = seeded(
     entry({ repo: 'Acme/M', targets: ['cursor'] }),
     entry({ repo: 'acme/m', targets: ['cursor', 'zed'], yours: 2 }),
   );
@@ -244,10 +284,10 @@ test('an uninstall decides from every row the key matches, and writes them as on
   });
   assert.equal(decision.write, 'shorten', 'the foreign name is still on the row');
   records.applyUninstall(key, decision);
-  const raw = findRaw(f, key);
+  const raw = rowIn(store, key);
   assert.deepEqual(raw?.targets, ['zed'], 'so the row stays, shortened');
   assert.equal(raw?.yours, 2, 'with the field the second row held');
-  assert.equal(readRaw(f).plugins.length, 1, 'and both spellings are now one row');
+  assert.equal(store.rows.length, 1, 'and both spellings are now one row');
   assert.match(
     uninstallLines(decision, { plugin: 'my-sdk', bin: 'cp' })
       .map((l) => l.text)
@@ -258,7 +298,7 @@ test('an uninstall decides from every row the key matches, and writes them as on
 });
 
 test('recording an install keeps what a second spelling of the row held', () => {
-  const { records, f } = seeded(
+  const { records, store } = seeded(
     entry({ repo: 'Acme/M', targets: ['cursor'] }),
     entry({ repo: 'acme/m', targets: ['vscode'], yours: 2 }),
   );
@@ -270,10 +310,10 @@ test('recording an install keeps what a second spelling of the row held', () => 
     installed: ['claude'],
     untouched: records.find({ plugin: 'my-sdk', repo: 'acme/m' })?.targets ?? [],
   });
-  const raw = findRaw(f, { plugin: 'my-sdk', repo: 'acme/m' });
+  const raw = rowIn(store, { plugin: 'my-sdk', repo: 'acme/m' });
   assert.deepEqual(raw?.targets, ['claude', 'cursor', 'vscode']);
   assert.equal(raw?.yours, 2);
-  assert.equal(readRaw(f).plugins.length, 1);
+  assert.equal(store.rows.length, 1);
 });
 
 test('applying an uninstall shortens, removes, or leaves the row alone', () => {
@@ -292,23 +332,22 @@ test('applying an uninstall shortens, removes, or leaves the row alone', () => {
 
   const untouched = seeded(entry({ targets: ['cursor', 'zed'] }));
   untouched.records.applyUninstall(key, decision);
-  assert.deepEqual(findRaw(untouched.f, key)?.targets, ['cursor', 'zed'], 'none writes nothing');
+  assert.deepEqual(rowIn(untouched.store, key)?.targets, ['cursor', 'zed'], 'none writes nothing');
 
   const shortened = seeded(entry({ targets: ['cursor', 'zed'], keptByANewerCli: 1 }));
   shortened.records.applyUninstall(key, { ...decision, write: 'shorten', targets: ['zed'] });
-  const row = findRaw(shortened.f, key);
+  const row = rowIn(shortened.store, key);
   assert.deepEqual(row?.targets, ['zed'], 'the foreign name stays on the row');
   assert.equal(row?.keptByANewerCli, 1, 'and so does the foreign field');
 
   const dropped = seeded(entry({ targets: ['cursor'] }), entry({ plugin: 'other' }));
   dropped.records.applyUninstall(key, { ...decision, write: 'remove' });
-  assert.equal(findRaw(dropped.f, key), null);
-  assert.ok(findRaw(dropped.f, { plugin: 'other', repo: REPO }), 'and only that row');
+  assert.equal(rowIn(dropped.store, key), undefined);
+  assert.ok(rowIn(dropped.store, { plugin: 'other', repo: REPO }), 'and only that row');
 });
 
-test('a shorten with no row on disk writes nothing rather than inventing one', () => {
-  const { records, f } = seeded();
-  upsert(f, entry({ plugin: 'other' }));
+test('a shorten with no row of its own writes nothing rather than inventing one', () => {
+  const { records, store } = seeded(entry({ plugin: 'other' }));
   records.applyUninstall(
     { plugin: 'my-sdk', repo: REPO },
     {
@@ -323,6 +362,64 @@ test('a shorten with no row on disk writes nothing rather than inventing one', (
       targets: ['cursor'],
     },
   );
-  assert.equal(findRaw(f, { plugin: 'my-sdk', repo: REPO }), null);
-  assert.equal(records.list().length, 1);
+  assert.equal(rowIn(store), undefined);
+  assert.equal(store.rows.length, 1);
+});
+
+// The claim the port makes, as a test: the class is in types/, so the only thing
+// it may reach for is the store it was handed. Every case above ran without a
+// file; this one names the calls it makes and says so.
+test('the context reaches its store and nothing else', () => {
+  const asked: string[] = [];
+  const store: ManifestStore = {
+    readRaw: () => {
+      asked.push('readRaw');
+      return { version: 1, plugins: [entry()] };
+    },
+    findAllRaw: () => {
+      asked.push('findAllRaw');
+      return [entry()];
+    },
+    upsert: (row) => {
+      asked.push('upsert');
+      return { version: 1, plugins: [row] };
+    },
+    remove: () => {
+      asked.push('remove');
+      return 1;
+    },
+  };
+  const records = new ManifestContext(store, () => 'AT');
+  records.read();
+  records.find(KEY);
+  records.findRaw(KEY);
+  records.conflictFor({ plugin: 'my-sdk', repo: 'acme/m' });
+  records.recordInstall({
+    plugin: 'my-sdk',
+    repo: REPO,
+    marketplace: 'apimatic',
+    ref: 'main',
+    installed: ['claude'],
+    untouched: [],
+  });
+  records.applyUninstall(KEY, {
+    removed: [],
+    failed: [],
+    cleared: [],
+    forced: [],
+    stuck: [],
+    droppedUnknown: [],
+    rowLeft: 'none',
+    write: 'remove',
+    targets: [],
+  });
+  assert.deepEqual(asked, [
+    'readRaw',
+    'findAllRaw',
+    'findAllRaw',
+    'readRaw',
+    'findAllRaw',
+    'upsert',
+    'remove',
+  ]);
 });
