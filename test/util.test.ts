@@ -8,7 +8,6 @@ import {
   assertRef,
   timestamp,
   stripBom,
-  suggest,
 } from '../src/util.js';
 import { cleanupAll } from './helpers.js';
 
@@ -48,13 +47,6 @@ test('a rejected identifier throws a UserError carrying the hint its type wrote'
 
 test('timestamp matches the PowerShell backup suffix format', () => {
   assert.equal(timestamp(new Date(2026, 6, 27, 9, 5, 3)), '20260727-090503');
-});
-
-test('suggest finds a near miss even when a shared suffix inflates the distance', () => {
-  const names = ['azure-cognitive-sdk', 'docker-sdk', 'vimeo-sdk'];
-  assert.deepEqual(suggest('azure-cognitve', names), ['azure-cognitive-sdk']);
-  assert.deepEqual(suggest('docker', names), ['docker-sdk']);
-  assert.deepEqual(suggest('zzzzzzzzzzzzzzzz', names), []);
 });
 
 test('stripBom only removes a leading BOM', () => {

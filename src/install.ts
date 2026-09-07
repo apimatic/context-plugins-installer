@@ -4,7 +4,8 @@ import {
   nothingChanged,
   uninstallLines,
 } from './application/uninstall-decision.js';
-import { resolvePlugin, loadCatalog } from './catalog.js';
+import { resolvePlugin } from './application/plugin-resolution.js';
+import { loadCatalog } from './catalog.js';
 import { byName, resolveTargets } from './harness/index.js';
 import { log } from './log.js';
 import * as paths from './infrastructure/paths.js';
@@ -189,15 +190,16 @@ async function runInstall({
   const effectiveRef = ref || brand.ref;
   const records = openManifest(paths.manifestPath(pathOpts));
 
-  const resolved = await resolvePlugin({
-    repo: brand.repo,
-    ref: effectiveRef,
-    plugin,
-    marketplace: brand.id,
-    label: brand.label,
-    deps,
-    catalog: orThrow(await run.catalog({ repo: brand.repo, ref: effectiveRef })),
-  });
+  const catalog = orThrow(await run.catalog({ repo: brand.repo, ref: effectiveRef }));
+  const resolved = orThrow(
+    resolvePlugin(catalog, {
+      plugin,
+      repo: brand.repo,
+      ref: effectiveRef,
+      marketplace: brand.id,
+      label: brand.label,
+    }),
+  );
 
   progress.stage = 'harnesses';
   const requested = resolveTargets(targets);
@@ -389,8 +391,10 @@ async function runUninstall({
     brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
   if (!marketplace && want.includes('claude')) {
     try {
-      marketplace = (await resolvePlugin({ repo: brand.repo, ref: brand.ref, plugin, deps }))
-        .marketplace;
+      const catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
+      marketplace = orThrow(
+        resolvePlugin(catalog, { plugin, repo: brand.repo, ref: brand.ref }),
+      ).marketplace;
     } catch (err) {
       // With a record to correct, reaching the registry must not block cleaning
       // it up; with none, the error and its suggestion are the useful answer.
