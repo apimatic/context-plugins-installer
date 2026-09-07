@@ -31,14 +31,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const brand = (over: ResolveBrandOptions = {}): Brand =>
   resolveBrand({ env: {}, cwd: tmpDir('cp-cwd-'), home: tmpDir('cp-home-'), ...over });
 
-/**
- * A Brand carrying no Mixpanel token. `resolveBrand` always fills one in, so
- * only a hand-built Brand has this shape - and it is the one that must send
- * nothing at all rather than post to a project it cannot name.
- */
-const untokened = (b: Brand): Brand =>
-  Object.freeze({ ...b, telemetry: Object.freeze({ ...b.telemetry, token: null }) });
-
 interface Machine {
   root: string;
   pathOpts: PathOpts;
@@ -296,12 +288,6 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
       optOut: 'state',
       described: 'disabled (telemetry.json could not be read)',
     },
-    {
-      label: 'no token',
-      brand: () => untokened(brand()),
-      optOut: 'no-token',
-      described: 'not configured',
-    },
   ];
 
   for (const c of cases) {
@@ -469,8 +455,6 @@ test('a version that cannot be read is reported as unknown, not as a failure', a
 test('the marketplace is named only when it is the one this build ships with', () => {
   assert.equal(marketplaceLabel(brand()), REPO);
   assert.equal(marketplaceLabel(brand({ env: { CP_REPO: 'acme/plugin-marketplace' } })), 'custom');
-  const legacy = { ...brand(), telemetry: undefined } as unknown as Brand;
-  assert.equal(marketplaceLabel(legacy), 'custom', 'a Brand from an older caller does not throw');
 });
 
 /**

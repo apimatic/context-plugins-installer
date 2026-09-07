@@ -38,14 +38,13 @@ export interface RcFile {
 
 export interface BrandTelemetry {
   /**
-   * null means telemetry is not configured, so nothing is sent. Nothing in a
-   * real run produces it any more: with brand profiles gone, `resolveBrand`
-   * always fills the token in, and only a Brand built by hand in a test is
-   * null. The branch it feeds in telemetry.ts is therefore reachable from
-   * tests alone - see the Phase 3 note in docs/layering-plan.md, which decides
-   * whether to narrow this to `string` and delete that branch with it.
+   * Always the project's own, and never absent. It was `string | null` for the
+   * brand profiles a caller could once supply; with those gone `resolveBrand`
+   * is the only builder and it fills this in from `DEFAULTS`, so "telemetry is
+   * not configured" is a state nothing can reach. Whether telemetry runs is
+   * decided by the opt-out switches instead.
    */
-  readonly token: string | null;
+  readonly token: string;
   readonly host: string;
   /** The marketplace this build ships with; any other --repo is reported as "custom". */
   readonly defaultRepo: string;

@@ -15,7 +15,6 @@ import {
 import { openManifest, upsert } from '../src/infrastructure/manifest-store.js';
 import { foreignTargets } from '../src/types/installed-record.js';
 import * as paths from '../src/infrastructure/paths.js';
-import type { Brand } from '../src/types/brand.js';
 import type { HarnessName } from '../src/types/harness.js';
 import type { Deps } from '../src/types/ports.js';
 import { UserError, isPlainObject } from '../src/util.js';
@@ -1662,7 +1661,7 @@ test('uninstall reports one event per editor it removed', async () => {
   );
 });
 
-test('a throwing track sink, or a Brand without telemetry config, never fails an install', async () => {
+test('a throwing track sink never fails an install', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const spec = { repo, srcDir: pluginSource() };
@@ -1682,20 +1681,4 @@ test('a throwing track sink, or a Brand without telemetry config, never fails an
     }),
   );
   assert.deepEqual(result.targets, ['cursor', 'vscode']);
-
-  // A Brand built by an older caller has no telemetry field at all.
-  const legacy = { ...brandFor(repo), telemetry: undefined } as unknown as Brand;
-  const events: Tracked[] = [];
-  const again = await quietly(() =>
-    installPlugin({
-      brand: legacy,
-      plugin: 'my-sdk',
-      targets: TARGETS,
-      force: true,
-      deps: tracking(spec, events),
-      pathOpts: m.pathOpts,
-    }),
-  );
-  assert.deepEqual(again.targets, ['cursor', 'vscode']);
-  assert.equal(events[0]?.properties.marketplace, 'custom');
 });

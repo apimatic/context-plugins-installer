@@ -57,8 +57,8 @@ function optOutOf(brand: Brand, env: Env, read: StateRead): TelemetryOptOut | nu
   return null;
 }
 
-// Precedence: no token beats everything, then `log` (the user asked to see the
-// payload, whatever else is set), then the switches from broadest to narrowest.
+// Precedence: `log` first - the user asked to see the payload, whatever else is
+// set - then the switches from broadest to narrowest.
 function resolve(
   brand: Brand,
   env: Env,
@@ -73,7 +73,6 @@ function resolve(
     read,
     stateFile,
   });
-  if (!brand.telemetry?.token) return status('off', 'no-token');
   if ((env.CP_TELEMETRY || '').toLowerCase() === 'log') return status('log', null);
   const optOut = optOutOf(brand, env, read);
   return status(optOut ? 'off' : 'on', optOut);
@@ -96,8 +95,6 @@ export function describeTelemetry(status: TelemetryStatus, bin: string): string 
   if (status.mode === 'on') return 'enabled';
   if (status.mode === 'log') return 'log only (CP_TELEMETRY=log)';
   switch (status.optOut) {
-    case 'no-token':
-      return 'not configured';
     case 'rc':
       return 'disabled (.contextpluginsrc)';
     case 'state':
@@ -120,7 +117,7 @@ export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Resu
 
 /** The marketplace as an event property: named only when it is the one this build ships with. */
 export const marketplaceLabel = (brand: Brand): string =>
-  brand.repo === brand.telemetry?.defaultRepo ? brand.repo : 'custom';
+  brand.repo === brand.telemetry.defaultRepo ? brand.repo : 'custom';
 
 export interface TelemetryOptions {
   brand: Brand;
@@ -189,8 +186,8 @@ export function createTelemetry({
   async function send(events: TelemetryEvent[], lines: TelemetryLine[]): Promise<void> {
     const env = deps.env || process.env;
     const { status, read, stateFile } = resolve(brand, env, pathOpts);
-    const token = brand.telemetry?.token;
-    if (status.mode === 'off' || !token) return;
+    if (status.mode === 'off') return;
+    const token = brand.telemetry.token;
 
     // A fresh id is persisted before anything is sent: without a stable id there
     // is no per-machine count, and without the file the notice would repeat.
