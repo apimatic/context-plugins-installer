@@ -66,10 +66,14 @@ export interface Deps {
  */
 export interface ManifestStore {
   readRaw(): RawManifest;
-  write(data: { version?: number; plugins?: unknown[] }): RawManifest;
+  /**
+   * Every row the key matches, not the first: folding the repo's case into the
+   * key means one key can match rows an older build wrote in two spellings, and
+   * `upsert` and `remove` already act on all of them.
+   */
+  findAllRaw(key: EntryKey): Record<string, unknown>[];
   upsert(entry: Record<string, unknown>): RawManifest;
   remove(key: EntryKey): number;
-  findRaw(key: EntryKey): Record<string, unknown> | null;
 }
 
 export interface Prompter {

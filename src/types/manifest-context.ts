@@ -2,9 +2,10 @@ import { Failure } from './failure.js';
 import { NAMES, type HarnessName } from './harness.js';
 import { RepoSlug } from './ids/repo-slug.js';
 import {
+  foldRows,
   foreignTargets,
   manifestView,
-  sameEntry,
+  sanitizeEntry,
   type EntryKey,
   type Manifest,
   type ManifestEntry,
@@ -39,10 +40,20 @@ export interface InstallRecord {
 }
 
 export class ManifestContext {
+  /** `now` is required: a clock default here would put nondeterminism in types/. */
   constructor(
     private readonly store: ManifestStore,
-    private readonly now: () => string = () => new Date().toISOString(),
+    private readonly now: () => string,
   ) {}
+
+  /**
+   * The rows a key matches, as one row. There can be several - see `foldRows` -
+   * and reading only the first is how a decision came to be written onto a row
+   * it had never seen.
+   */
+  private rowFor(key: EntryKey): Record<string, unknown> | null {
+    return foldRows(this.store.findAllRaw(key));
+  }
 
   read(): Manifest {
     return manifestView(this.store.readRaw());
@@ -53,14 +64,15 @@ export class ManifestContext {
   }
 
   find({ plugin, repo }: EntryKey): ManifestEntry | null {
-    return (
-      this.list().find((p) => (repo ? sameEntry(p, { plugin, repo }) : p.plugin === plugin)) || null
-    );
+    // Without a repo the key spans marketplaces, so those rows are different
+    // plugins that share an id and must not be folded together.
+    if (!repo) return this.list().find((p) => p.plugin === plugin) || null;
+    return sanitizeEntry(this.rowFor({ plugin, repo }));
   }
 
   /** The raw row, shape unchecked, for entries the sanitized view hides. */
   findRaw(key: EntryKey): Record<string, unknown> | null {
-    return this.store.findRaw(key);
+    return this.rowFor(key);
   }
 
   /**
@@ -78,7 +90,7 @@ export class ManifestContext {
   }
 
   recordInstall({ plugin, repo, marketplace, ref, installed, untouched }: InstallRecord): void {
-    const raw = this.store.findRaw({ plugin, repo });
+    const raw = this.rowFor({ plugin, repo });
     const keep = new Set<HarnessName>([...untouched, ...installed]);
     this.store.upsert({
       ...raw, // unknown fields ride along untouched
@@ -100,7 +112,7 @@ export class ManifestContext {
       return;
     }
     if (decision.write !== 'shorten') return;
-    const raw = this.store.findRaw(key);
+    const raw = this.rowFor(key);
     if (raw) this.store.upsert({ ...raw, targets: decision.targets });
   }
 }

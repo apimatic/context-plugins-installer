@@ -94,10 +94,44 @@ export function foreignTargets(raw: Record<string, unknown> | null): unknown[] {
   return Array.isArray(targets) ? targets.filter((t) => !NAMES.includes(t)) : [];
 }
 
+/**
+ * The rows a key matches, folded into one. Comparing the repo the way GitHub
+ * does made "one key, one row" false: a manifest an older build wrote can hold
+ * `Acme/M` and `acme/m` as separate rows for the same plugin, and `upsert` and
+ * `remove` act on both of them. A writer rebuilding from only the first would
+ * take the other's targets and fields out with it, and - worse - the decision
+ * it wrote would never have seen them, so the summary could not name what left.
+ *
+ * A later row wins a field both set. The target lists are unioned, this build's
+ * names first in canonical order and the foreign ones after, which is the order
+ * `recordInstall` writes anyway.
+ */
+export function foldRows(rows: readonly Record<string, unknown>[]): Record<string, unknown> | null {
+  const [first] = rows;
+  if (!first) return null;
+  if (rows.length === 1) return first;
+  const folded: Record<string, unknown> = Object.assign({}, ...rows);
+  const listed = rows.filter((r) => Array.isArray(r.targets));
+  if (!listed.length) return folded;
+  const known = NAMES.filter((n) => listed.some((r) => (r.targets as unknown[]).includes(n)));
+  const foreign: unknown[] = [];
+  for (const row of listed) {
+    for (const target of foreignTargets(row)) if (!foreign.includes(target)) foreign.push(target);
+  }
+  folded.targets = [...known, ...foreign];
+  return folded;
+}
+
 const str = (v: unknown): string | undefined => (nonEmptyString(v) ? v : undefined);
 
-// An entry with no known target is dropped rather than kept as `targets: []`:
-// resolveTargets reads an empty list as "every harness".
+/**
+ * An entry with no known target is dropped rather than kept as `targets: []`:
+ * resolveTargets reads an empty list as "every harness".
+ *
+ * Exported for `ManifestContext.find`, which is the read view of one row, and
+ * for nothing else. What comes out of here is never what goes back to disk -
+ * that is `recordInstall` and `applyUninstall`, from the raw row.
+ */
 export function sanitizeEntry(raw: unknown): ManifestEntry | null {
   if (!isPlainObject(raw)) return null;
   const plugin = raw.plugin;
@@ -126,7 +160,7 @@ const unknownTargetNames = (raw: unknown): string[] => [
   ),
 ];
 
-export function describeIgnored(raw: unknown): IgnoredManifestEntry {
+function describeIgnored(raw: unknown): IgnoredManifestEntry {
   if (!isPlainObject(raw) || !nonEmptyString(raw.plugin)) {
     return { plugin: null, reason: 'not a plugin entry' };
   }

@@ -71,23 +71,29 @@ export function remove(file: FileArg, { plugin, repo }: EntryKey): number {
   return before - data.plugins.length;
 }
 
-/** The raw row, shape unchecked, for entries the sanitized view hides. */
+/** The raw rows, shape unchecked, for entries the sanitized view hides. */
+export const findAllRaw = (file: FileArg, key: EntryKey): Record<string, unknown>[] =>
+  readRaw(file).plugins.filter((p): p is Record<string, unknown> => matchesKey(p, key));
+
+/** The first of them, for callers that only ever wrote one. */
 export const findRaw = (file: FileArg, key: EntryKey): Record<string, unknown> | null =>
-  readRaw(file).plugins.find((p): p is Record<string, unknown> => matchesKey(p, key)) || null;
+  findAllRaw(file, key)[0] || null;
 
 /** The store bound to one file, which is the shape `ManifestContext` takes. */
-export const manifestStore = (file: FileArg): ManifestStore => ({
+const manifestStore = (file: FileArg): ManifestStore => ({
   readRaw: () => readRaw(file),
-  write: (data) => write(file, data),
+  findAllRaw: (key) => findAllRaw(file, key),
   upsert: (entry) => upsert(file, entry),
   remove: (key) => remove(file, key),
-  findRaw: (key) => findRaw(file, key),
 });
 
 /**
  * The state file as a domain object. Until the composition root exists, this is
- * where the two halves are put together; `now` is a seam so a test can assert
- * the timestamp a row is written with.
+ * where the two halves are put together - and where the clock comes from, since
+ * `types/` is the layer that must stay decidable twice. `now` is a seam so a
+ * test can assert the timestamp a row is written with.
  */
-export const openManifest = (file: FileArg, now?: () => string): ManifestContext =>
-  new ManifestContext(manifestStore(file), now);
+export const openManifest = (
+  file: FileArg,
+  now: () => string = () => new Date().toISOString(),
+): ManifestContext => new ManifestContext(manifestStore(file), now);

@@ -3,7 +3,9 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { findRaw, openManifest, upsert } from '../../src/infrastructure/manifest-store.js';
+import { decideUninstall, uninstallLines } from '../../src/application/uninstall-decision.js';
+import { findRaw, openManifest, readRaw, upsert } from '../../src/infrastructure/manifest-store.js';
+import type { HarnessName, UninstallOutcome } from '../../src/types/harness.js';
 import type { ManifestContext } from '../../src/types/manifest-context.js';
 import { tmpDir, cleanupAll } from '../helpers.js';
 
@@ -193,6 +195,85 @@ test('recording an install writes a row where there was none', () => {
     untouched: [],
   });
   assert.deepEqual(findRaw(f, { plugin: 'my-sdk', repo: REPO })?.targets, ['claude']);
+});
+
+/**
+ * Comparing the repo the way GitHub does made "one key, one row" false. A
+ * manifest an older build wrote can hold both spellings as separate rows - it
+ * took the very bug that fix repairs, plus `--force`, to write one - and
+ * `upsert` and `remove` now act on both. Reading only the first meant the
+ * decision never saw the second row, so `remove` took its targets and fields
+ * out with nothing naming them: the one thing the uninstall summary may never
+ * do.
+ */
+test('the rows an older build wrote in two spellings read as one row', () => {
+  const { records } = seeded(
+    entry({ repo: 'Acme/M', targets: ['cursor'], mine: 1 }),
+    entry({ repo: 'acme/m', targets: ['vscode', 'zed'], yours: 2 }),
+  );
+  const key = { plugin: 'my-sdk', repo: 'acme/m' };
+  assert.deepEqual(records.find(key)?.targets, ['cursor', 'vscode'], 'the known names, unioned');
+  const raw = records.findRaw(key);
+  assert.deepEqual(raw?.targets, ['cursor', 'vscode', 'zed'], 'and the foreign one after them');
+  assert.deepEqual([raw?.mine, raw?.yours], [1, 2], 'with the fields of both rows');
+});
+
+test('a key with no repo spans marketplaces, so those rows are not folded', () => {
+  const { records } = seeded(
+    entry({ repo: 'acme/m', targets: ['cursor'] }),
+    entry({ repo: 'other/m', targets: ['vscode'] }),
+  );
+  assert.deepEqual(
+    records.find({ plugin: 'my-sdk' })?.targets,
+    ['cursor'],
+    'two marketplaces are two plugins that share an id',
+  );
+});
+
+test('an uninstall decides from every row the key matches, and writes them as one', () => {
+  const { records, f } = seeded(
+    entry({ repo: 'Acme/M', targets: ['cursor'] }),
+    entry({ repo: 'acme/m', targets: ['cursor', 'zed'], yours: 2 }),
+  );
+  const key = { plugin: 'my-sdk', repo: 'acme/m' };
+  const decision = decideUninstall({
+    recorded: records.findRaw(key),
+    outcomes: new Map<HarnessName, UninstallOutcome>([['cursor', 'removed']]),
+    want: ['cursor'],
+    force: false,
+  });
+  assert.equal(decision.write, 'shorten', 'the foreign name is still on the row');
+  records.applyUninstall(key, decision);
+  const raw = findRaw(f, key);
+  assert.deepEqual(raw?.targets, ['zed'], 'so the row stays, shortened');
+  assert.equal(raw?.yours, 2, 'with the field the second row held');
+  assert.equal(readRaw(f).plugins.length, 1, 'and both spellings are now one row');
+  assert.match(
+    uninstallLines(decision, { plugin: 'my-sdk', bin: 'cp' })
+      .map((l) => l.text)
+      .join(' | '),
+    /--force/,
+    'a row this build cannot act on is never left in silence',
+  );
+});
+
+test('recording an install keeps what a second spelling of the row held', () => {
+  const { records, f } = seeded(
+    entry({ repo: 'Acme/M', targets: ['cursor'] }),
+    entry({ repo: 'acme/m', targets: ['vscode'], yours: 2 }),
+  );
+  records.recordInstall({
+    plugin: 'my-sdk',
+    repo: 'acme/m',
+    marketplace: 'apimatic',
+    ref: 'main',
+    installed: ['claude'],
+    untouched: records.find({ plugin: 'my-sdk', repo: 'acme/m' })?.targets ?? [],
+  });
+  const raw = findRaw(f, { plugin: 'my-sdk', repo: 'acme/m' });
+  assert.deepEqual(raw?.targets, ['claude', 'cursor', 'vscode']);
+  assert.equal(raw?.yours, 2);
+  assert.equal(readRaw(f).plugins.length, 1);
 });
 
 test('applying an uninstall shortens, removes, or leaves the row alone', () => {
