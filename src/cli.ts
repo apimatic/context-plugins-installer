@@ -1,13 +1,13 @@
 import { resolveBrand } from './brand.js';
 import { DoctorCommand } from './commands/doctor.js';
+import { ListCommand } from './commands/list.js';
 import { InstalledCommand } from './commands/installed.js';
 import { TelemetryCommand } from './commands/telemetry.js';
 import { packageVersion } from './infrastructure/environment.js';
-import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
+import { installPlugin, uninstallPlugin, updateAll } from './install.js';
 import { log } from './log.js';
 import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
-import { gapWarnings } from './prompts/gaps.js';
 import { printTelemetryLines } from './prompts/telemetry.js';
 import {
   createTelemetry,
@@ -16,7 +16,7 @@ import {
 } from './infrastructure/telemetry-service.js';
 import type { Flags, ParsedArgs } from './types/args.js';
 import { BIN, type Brand } from './types/brand.js';
-import { NAMES, everyEditor, titlesOf } from './types/harness.js';
+import { NAMES, everyEditor } from './types/harness.js';
 import type { Deps, TelemetrySettings } from './types/ports.js';
 import { UserError, errorMessage, throwFailure } from './util.js';
 
@@ -28,9 +28,6 @@ type BoolFlag = (typeof BOOL_FLAGS)[number];
 
 const isValueFlag = (key: string): key is ValueFlag => VALUE_FLAGS.some((f) => f === key);
 const isBoolFlag = (key: string): key is BoolFlag => BOOL_FLAGS.some((f) => f === key);
-
-// A plugin id longer than this is ignored when sizing the list grid.
-const OUTLIER_NAME = 36;
 
 const camel = (s: string): string => s.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
@@ -248,55 +245,13 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         return result.failed.length ? 1 : 0;
       }
       case 'list': {
-        const result = await listPlugins({ brand });
-        // Read again rather than widen ListResult: the payload shape is a contract,
-        // and the manifest is one small file.
-        const gaps = gapWarnings(openManifest(paths.manifestPath()).read(), brand.repo);
-        if (flags.json) {
-          for (const msg of gaps) log.warnStderr(msg);
-          log.payload(JSON.stringify(result, null, 2));
-          return 0;
-        }
-        const plugins = [...result.plugins].sort((a, b) => a.name.localeCompare(b.name));
-        log.banner(`${log.plural(plugins.length, 'plugin')} in ${result.label}`);
-        log.plain('');
-
-        if (flags.long) {
-          for (const p of plugins) {
-            const mark = p.installed ? log.MARK : ' ';
-            log.plain(`  ${mark} ${log.bold(p.name)}`);
-            if (p.description) log.info(p.description);
-            if (p.targets.length) {
-              log.info(`Installed into: ${titlesOf(p.targets)}`);
-            }
-          }
-        } else {
-          // A grid sized to the longest non-outlier name: one very long id would
-          // otherwise set the width for every column and collapse the grid.
-          const lengths = plugins.map((p) => p.name.length);
-          const cell = Math.max(16, ...lengths.filter((l) => l <= OUTLIER_NAME)) + 3;
-          const cols = Math.max(1, Math.floor((log.width(120) - 2) / cell));
-          const rows = Math.ceil(plugins.length / cols);
-          for (let r = 0; r < rows; r += 1) {
-            let line = '  ';
-            for (let c = 0; c < cols; c += 1) {
-              const p = plugins[c * rows + r]; // column-major keeps A-Z reading down
-              if (!p) continue;
-              line += `${p.installed ? log.MARK : ' '} ${p.name.padEnd(cell - 2)}`;
-            }
-            log.plain(line.trimEnd());
-          }
-        }
-
-        log.plain('');
-        const count = plugins.filter((p) => p.installed).length;
-        if (count) {
-          log.info(`${log.MARK} installed on this machine (${count})`);
-        }
-        for (const msg of gaps) log.warn(msg);
-        if (!flags.long) log.info(`Run \`${BIN} list --long\` for descriptions.`);
-        log.info(`Install one with \`${BIN} install <plugin>\`.`);
-        return 0;
+        const result = await new ListCommand().run({
+          brand,
+          json: flags.json,
+          long: flags.long,
+        });
+        if (result.failure) throwFailure(result.failure);
+        return result.exitCode();
       }
       case 'doctor': {
         const result = await new DoctorCommand().run({ brand, json: flags.json });

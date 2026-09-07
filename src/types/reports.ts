@@ -69,3 +69,12 @@ export interface ListResult {
   repo: string;
   plugins: ListedPlugin[];
 }
+
+/**
+ * `result` is exactly what `--json` prints, and its shape is a contract - so
+ * what the read view could not show travels beside it rather than inside it.
+ */
+export interface ListReport {
+  result: ListResult;
+  gaps: Manifest;
+}

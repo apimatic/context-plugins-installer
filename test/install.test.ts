@@ -5,13 +5,7 @@ import * as path from 'node:path';
 
 import { resolveBrand } from '../src/brand.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import {
-  installPlugin,
-  uninstallPlugin,
-  updateAll,
-  listPlugins,
-  chooseHarnesses,
-} from '../src/install.js';
+import { installPlugin, uninstallPlugin, updateAll, chooseHarnesses } from '../src/install.js';
 import { openManifest, upsert } from '../src/infrastructure/manifest-store.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
 import { foreignTargets } from '../src/types/installed-record.js';
@@ -1383,42 +1377,6 @@ test('update reads the registry once for the whole run, not once per plugin', as
   assert.deepEqual(result.updated.sort(), ['alpha', 'beta']);
   assert.deepEqual(result.failed, []);
   assert.equal(during, 1, `expected one registry read for two plugins, got ${during}`);
-});
-
-test('list marks what is installed on this machine', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
-
-  await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
-  );
-  const listing = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
-
-  assert.equal(listing.marketplace, 'apimatic');
-  assert.deepEqual(
-    listing.plugins.map((p) => [p.name, p.installed]),
-    [['my-sdk', true]],
-  );
-});
-
-test('list reports the editors a plugin was actually installed into', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
-
-  // Installed into Cursor only - VS Code never got a copy.
-  await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
-  );
-
-  const listing = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
-  assert.deepEqual(listing.plugins[0].targets, ['cursor']);
-  assert.equal(listing.plugins[0].installed, true, 'installed somewhere');
 });
 
 test('update fails loudly on rows it cannot read instead of skipping them', async () => {

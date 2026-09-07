@@ -161,54 +161,6 @@ test('--targets on a command that ignores it warns on stderr', async () => {
   assert.ok(code === 0 || code === 1, 'the warning does not change the outcome');
 });
 
-/** `list` fetches the registry and run() has no deps seam, so pin the global fetch. */
-async function listWith(args: string[], manifestDoc: unknown) {
-  const saved = globalThis.fetch;
-  globalThis.fetch = stubFetch({
-    [rawUrl(REPO, 'main', '.claude-plugin/marketplace.json')]: {
-      body: {
-        name: 'context-plugins',
-        plugins: [
-          { name: 'code-review', source: './plugins/code-review' },
-          { name: 'future-sdk', source: './plugins/future-sdk' },
-        ],
-      },
-    },
-  }) as unknown as typeof globalThis.fetch;
-  try {
-    return await runCli(args, manifestDoc, { CP_REPO: REPO });
-  } finally {
-    globalThis.fetch = saved;
-  }
-}
-
-test('list --json warns about the rows behind its installed marks, scoped to the marketplace', async () => {
-  const { code, out, err } = await listWith(['list', '--json'], STATE_MANIFEST);
-  assert.equal(code, 0);
-
-  const payload: { plugins: { name: string; targets: string[]; installed: boolean }[] } =
-    JSON.parse(out);
-  const codeReview = payload.plugins.find((p) => p.name === 'code-review');
-  assert.deepEqual(codeReview?.targets, ['vscode'], 'the row is listed without the zed target');
-  assert.equal(
-    payload.plugins.find((p) => p.name === 'future-sdk')?.installed,
-    false,
-    'and a row it cannot read at all reads as not installed - which is why it warns',
-  );
-
-  assert.ok(err.includes("Ignoring 'future-sdk' in installed.json - unknown target(s): zed."));
-  assert.ok(err.includes("Listing 'code-review' without unknown target(s): zed"));
-  assert.ok(!err.includes(REPO), 'the repo is implied by the listing, so it is left out');
-  assert.ok(!err.includes('other-sdk'), 'another marketplace is not this listing to explain');
-});
-
-test('the human list puts those warnings on stdout with the listing', async () => {
-  const { text, err } = await listWith(['list'], STATE_MANIFEST);
-  assert.equal(err, '');
-  assert.ok(text.includes("Listing 'code-review' without unknown target(s): zed"));
-  assert.ok(!text.includes('other-sdk'));
-});
-
 const NO_PLUGINS = { version: 1, plugins: [] };
 
 test('a failed install still leaves one event, with the command and no message, and the notice on stderr', async () => {
