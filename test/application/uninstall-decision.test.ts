@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { decideUninstall, uninstallLines } from '../src/install.js';
+import { decideUninstall, uninstallLines } from '../../src/application/uninstall-decision.js';
 import {
   NAMES,
   TITLES,
   isHarnessName,
   type HarnessName,
   type UninstallOutcome,
-} from '../src/types/harness.js';
+} from '../../src/types/harness.js';
 
 /**
  * Four review rounds each found another combination of row shape, outcomes and
