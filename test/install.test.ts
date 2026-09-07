@@ -1240,6 +1240,28 @@ test('--yes skips the prompt', async () => {
   assert.deepEqual(confirm.asked, []);
 });
 
+test('with nothing asked and someone to answer, every editor is a question', async () => {
+  const confirm = scriptedConfirm([true, false]);
+  const chosen = await chooseHarnesses(TARGETS, { confirm });
+  assert.deepEqual(chosen, ['cursor']);
+  assert.equal(confirm.asked.length, 2, 'both were asked, and one said no');
+});
+
+// The test runner is not a terminal and no confirm is injected, so this is the
+// "nobody to ask" branch: take every detected editor rather than hang, and say
+// why. Silence here would read as the user having chosen them.
+test('with nobody to ask, every detected editor is taken and the reason is given', async () => {
+  const con = silenceConsole();
+  let chosen: HarnessName[];
+  try {
+    chosen = await chooseHarnesses(TARGETS);
+  } finally {
+    con.restore();
+  }
+  assert.deepEqual(chosen, ['cursor', 'vscode']);
+  assert.match(con.lines.join(' '), /Non-interactive shell/);
+});
+
 test('update never re-asks, it replays the recorded harnesses', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';

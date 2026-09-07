@@ -5,8 +5,9 @@ import {
   uninstallLines,
 } from './application/uninstall-decision.js';
 import { resolvePlugin } from './application/plugin-resolution.js';
+import { chooseTargets, resolveTargets } from './application/target-selection.js';
 import { loadCatalog } from './catalog.js';
-import { byName, resolveTargets } from './harness/index.js';
+import { byName } from './harness/index.js';
 import { log } from './log.js';
 import * as paths from './infrastructure/paths.js';
 import { createPrompter } from './prompt.js';
@@ -84,20 +85,26 @@ export interface ChooseOptions {
   onPrompted?: () => void;
 }
 
-// An explicit --targets is a decision, --yes opts out, and a non-interactive
-// shell has nobody to ask - so it takes every detected harness rather than hang.
+// The decision - already answered, ask, or nobody to ask - is
+// application/target-selection; this is the asking, and the one line the third
+// case is worth. An injected confirm counts as someone to answer.
 export async function chooseHarnesses(
   available: HarnessName[],
   { explicit = false, assumeYes = false, confirm, onPrompted }: ChooseOptions = {},
 ): Promise<HarnessName[]> {
-  if (!available.length || explicit || assumeYes) return available;
-
-  if (confirm) return askEach(available, confirm);
-
-  if (!isInteractive()) {
+  const choice = chooseTargets({
+    detected: available.length,
+    explicit,
+    assumeYes,
+    canAsk: Boolean(confirm) || isInteractive(),
+  });
+  if (choice === 'take-all') return available;
+  if (choice === 'cannot-ask') {
     log.info('Non-interactive shell - using every detected harness (--targets to choose).');
     return available;
   }
+
+  if (confirm) return askEach(available, confirm);
 
   if (onPrompted) onPrompted();
   const prompter = createPrompter();
@@ -202,7 +209,7 @@ async function runInstall({
   );
 
   progress.stage = 'harnesses';
-  const requested = resolveTargets(targets);
+  const requested = orThrow(resolveTargets(targets));
   const conflict = force ? null : records.conflictFor({ plugin, repo: brand.repo });
   if (conflict) throw new UserError(conflict.message, { hint: conflict.hint });
   const recorded = records.find({ plugin, repo: brand.repo });
@@ -385,7 +392,7 @@ async function runUninstall({
   // The raw row: uninstall must also clear rows the sanitized view hides, and
   // their recorded marketplace is what keeps the Claude path offline.
   const recorded = records.findRaw(key);
-  const want = resolveTargets(targets);
+  const want = orThrow(resolveTargets(targets));
 
   let marketplace: string | null =
     brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);

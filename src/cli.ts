@@ -1,7 +1,8 @@
 import { BIN, resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
-import { byName, resolveTargets } from './harness/index.js';
+import { resolveTargets } from './application/target-selection.js';
+import { byName } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import { openManifest } from './infrastructure/manifest-store.js';
@@ -21,7 +22,7 @@ import type { DoctorStatus } from './types/doctor.js';
 import { NAMES, everyEditor, titlesOf } from './types/harness.js';
 import type { Manifest } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
-import { UserError, errorMessage } from './util.js';
+import { UserError, errorMessage, orThrow } from './util.js';
 
 const VALUE_FLAGS = ['repo', 'ref', 'marketplace', 'targets'] as const;
 const BOOL_FLAGS = ['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version'] as const;
@@ -400,7 +401,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         // them: each one still shows every editor it is recorded for. Filtering
         // is unconditional because `resolveTargets` reads "nothing asked for" as
         // every editor, and `read()` never yields a row with no known target.
-        const want = resolveTargets(targets);
+        const want = orThrow(resolveTargets(targets));
         // Naming every editor adds nothing, so `--targets all` reads as no scope.
         const scope = want.length < NAMES.length ? ` in ${titlesOf(want)}` : '';
         const entries = data.plugins.filter((e) => e.targets.some((t) => want.includes(t)));
