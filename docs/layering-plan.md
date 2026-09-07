@@ -906,6 +906,61 @@ routes that command through them, deletes the old code path for it, and moves it
 gone. Every action test constructs the action with fakes and never calls `silenceConsole`
 unless it asserts prose. Shim removed: `orThrow`.
 
+**Landed, in the planned order.** `src/doctor.ts` is gone; `src/install.ts` is 75 lines -
+three shims over the new commands plus the telemetry sink they share - and `src/cli.ts`
+holds no rendering. Two exits are not met and are Phase 6's by nature: `orThrow` still has
+one caller (`src/catalog.ts`, which `doctor` and the uninstall lookup still use), and the
+three shims in `install.ts` exist because `cli.ts` has no `Services` to build the commands
+from yet. The suite is 469, from 443 at the end of Phase 4.
+
+**Corrections, each with what forced it.** Every one of these was decided by the boundary
+lint or by a measurement, not by preference:
+
+- **`commands/` may not import `application/` or `infrastructure/`**, which decides where
+  several things live. The target filter is in `actions/installed.ts` rather than the
+  command, because `resolveTargets` is application. `EVENTS` and `marketplaceLabel` moved
+  into `types/` because a command has to name an event and label a marketplace.
+  `describeTelemetry` moved to `prompts/telemetry.ts` and `COLLECTED` to
+  `types/telemetry.ts` - the second not to prompts, because the service builds the
+  one-time notice around it and CLAUDE.md requires the two to stay in step.
+- **`prompts/` may not import `application/`**, so `uninstallLines` stays where it is and
+  the action asks it for `SummaryLine`s. That is the right answer for a reason the rule
+  did not know: those lines have to be derived from the same decision the record is
+  written from.
+- **`actions/` may not import `commands/`**, so `UpdateAction` calls `InstallAction`
+  directly and `UpdateCommand` fires each row's events from the reports it collects -
+  which is Phase 6's shape, arriving early.
+- **A muted `InstallPrompts` cannot replace `log.setQuiet` in `update`.** What has to go
+  quiet for the one-line grid includes the harnesses and the session's marketplace lines,
+  and the install prompts own neither. The toggle moved into `prompts/update.ts` instead.
+- **`nothingChanged()` moved to `types/harness.ts`**: one sentence determined entirely by
+  the editor list, said by both the uninstall decision (application) and the install
+  summary (prompts) - two layers that cannot see each other, which is the same reason
+  `everyEditor` is there.
+- **`ActionResult.failed` takes an optional `Failure`**, for `doctor`.
+- **`InstallReport.stage` replaced the mutable `progress` object**, and the action also
+  exposes it as a getter: an _unexpected_ throw still has to report where it happened,
+  which is what `progress` was threaded through the old wrapper for. Dropping that would
+  have quietly changed `stage` in the failure event.
+- **`error_kind` keeps both of its values.** A `Failure` from an action is `user`; a throw
+  out of one is `unexpected`, which is what each command's catch is for.
+
+**Verification.** Seven per-command comparisons against the pre-phase build, one per
+slice, each normalised only for the sandbox path, timestamps, the machine id and GitHub's
+rate-limit counter: `installed` 13 shapes / 126 lines, `telemetry` 15 / 166, `doctor` 9 /
+279, `list` 13 / 541, `uninstall` 18 / 192, `install` 17 / 180, `update` 11 / 127 - every
+one identical, and every one shown to catch a deliberate change (a widened comparison, a
+reworded sentence, a narrowed column, the grid's column-major order, a dropped summary, a
+dropped line, a disabled collapse). The 18-shape editor comparison and the fake-`claude`
+comparison are unchanged throughout.
+
+One thing the scripts got wrong first: `install`, `uninstall` and `update` reach the
+Claude harness, and the early versions left the developer's `PATH` alone - so one run
+installed a plugin into the real Claude Code and the next comparison differed for that
+reason rather than for a code change. All three put the fake `claude` on `PATH` now, with
+the same abort guard the Claude-path script has: if the fake is not reached, the script
+refuses to run.
+
 ### Phase 6 · Router, composition root, telemetry events (1 PR, medium)
 
 - `commands/router.ts`: parse (2 on failure), configure terminal, `--version` before the

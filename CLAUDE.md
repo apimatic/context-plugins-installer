@@ -90,21 +90,32 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
 
 ## Architecture
 
-Every command flows `bin/cli.js` → `src/cli.ts` (arg parsing and rendering only) →
-`src/install.ts` (orchestration) → the harness that owns each editor. `src/types/`
-is the type model for the whole surface; keep it in sync when behavior changes.
+Every command flows `bin/cli.js` → `src/cli.ts` (arg parsing and dispatch) →
+`src/commands/<cmd>.ts` (flags in, telemetry out) → `src/actions/<cmd>.ts` (the
+whole flow of one command) → the harness that owns each editor, with every
+user-visible string in `src/prompts/<cmd>.ts`. `src/types/` is the type model
+for the whole surface; keep it in sync when behavior changes.
 
 The codebase is part-way through the layering in `docs/layering-plan.md`, so read
 a directory as what it is allowed to reach rather than by where a file happens to
 sit: `src/application/` is pure decisions over `src/types/` and does no I/O;
 `src/infrastructure/` talks to the world, returns a `Result` and never prints;
 `src/harnesses/` reaches infrastructure but emits events rather than speaking;
+`src/actions/` is one command's flow, speaking only through its own prompts
+class; `src/commands/` parses flags, calls an action and fires telemetry;
 `src/prompts/` holds every user-visible string and the only `console` in the
-codebase. `eslint` enforces those four from `no-restricted-imports`, so a
-crossing import fails `npm run lint` rather than review. `src/cli.ts`,
-`src/install.ts`, `src/doctor.ts` and `src/catalog.ts` are the orchestration those
-layers were carved out of and still do the rest; Phase 5 splits them into
-`commands/` and `actions/`.
+codebase. `eslint` enforces all six from `no-restricted-imports`, so a crossing
+import fails `npm run lint` rather than review - and it is worth reading the
+message when it fires, because more than one of this refactor's decisions was
+made by that rule rather than by preference.
+
+An action answers with an `ActionResult<R>`: success, failure or cancellation,
+each carrying the run's report, because a command fires telemetry from those
+facts whether the run worked or not. A `failure` is optional on the failed arm -
+`doctor` prints its own checks and its own summary, so there is no sentence left
+for a caller to add. `src/cli.ts` is still the router and the composition root;
+`src/install.ts` is three shims over the commands, and `src/catalog.ts` is the
+`orThrow` bridge two callers still use. Phase 6 takes all of them.
 
 - **Harnesses** (`src/harnesses/`): one class per editor implementing the `Harness`
   interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
