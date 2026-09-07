@@ -1,13 +1,6 @@
 import { BIN } from './brand.js';
 import { resolvePlugin, loadCatalog } from './catalog.js';
-import {
-  byName,
-  resolveTargets,
-  isHarnessName,
-  titlesOf,
-  everyEditor,
-  NAMES,
-} from './harness/index.js';
+import { byName, resolveTargets } from './harness/index.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
 import * as paths from './infrastructure/paths.js';
@@ -18,11 +11,15 @@ import { createSession } from './infrastructure/session.js';
 import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
 import type { Brand } from './types/brand.js';
 import type { FileArg } from './types/file/paths.js';
-import type {
-  HarnessContext,
-  HarnessName,
-  HarnessOpts,
-  UninstallOutcome,
+import {
+  NAMES,
+  everyEditor,
+  isHarnessName,
+  titlesOf,
+  type HarnessContext,
+  type HarnessName,
+  type HarnessOpts,
+  type UninstallOutcome,
 } from './types/harness.js';
 import { PluginId } from './types/ids/plugin-id.js';
 import type { Deps } from './types/ports.js';

@@ -4,16 +4,17 @@ import { log } from '../log.js';
 import * as paths from '../infrastructure/paths.js';
 import { format as f } from '../prompts/format.js';
 import type { DirectoryPath } from '../types/file/paths.js';
-import type {
-  HarnessContext,
-  HarnessName,
-  HarnessOpts,
-  UninstallOutcome,
+import {
+  TITLES,
+  type HarnessContext,
+  type HarnessName,
+  type HarnessOpts,
+  type UninstallOutcome,
 } from '../types/harness.js';
 import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 
 export const name: HarnessName = 'cursor';
-export const title = 'Cursor';
+export const title = TITLES.cursor;
 export const needsSource = true;
 
 export const detect = (opts?: HarnessOpts): boolean => exists(paths.cursorRoot(opts));

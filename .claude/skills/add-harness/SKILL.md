@@ -30,10 +30,12 @@ not ask for them.
 Work in this order: the type goes first so the compiler enumerates the rest.
 
 1. **Add the name to `HarnessName` in `src/types/harness.ts`.** Kebab-case, short, the thing a
-   user would type after `--targets`. Then run `npm run typecheck`: `BY_NAME` in
-   `src/harness/index.ts` is a `Record<HarnessName, Harness>`, so it now fails to compile
-   until the harness exists and is registered. That error list is the checklist for the
-   code; the docs and CI items below are what the compiler cannot see.
+   user would type after `--targets`. Then run `npm run typecheck`: two
+   `Record<HarnessName, ...>` tables now fail to compile until the editor is in both -
+   `TITLES` in the same file, which is where its display name goes and what `NAMES`,
+   `titlesOf` and `everyEditor` are derived from, and `BY_NAME` in
+   `src/harness/index.ts`, which needs the harness module. That error list is the
+   checklist for the code; the docs and CI items below are what the compiler cannot see.
 
 2. **Add the editor's directories to `src/infrastructure/paths.ts`.** One function for the directory
    that proves the editor is installed (what `detect` checks) and one for where plugins
@@ -50,8 +52,9 @@ Work in this order: the type goes first so the compiler enumerates the rest.
 
 3. **Write `src/harness/<name>.ts`** by copying the template and changing what differs.
    Keep the contract the copy already follows:
-   - `name: HarnessName`, `title` (what the user sees: "Install into <title>?"),
-     `needsSource`.
+   - `name: HarnessName`, `title` (`TITLES.<name>` - the string itself lives in
+     `types/harness.ts`, so prose that lists editors and the harness itself cannot
+     disagree), `needsSource`.
    - `detect(opts)` is cheap and side-effect free; `location(opts)` returns where it
      looked, because that string is printed as "not installed (looked in ...)" and shown
      by `doctor`. Run both through `f.path` from `prompts/format.ts`, passing the run's
@@ -103,7 +106,7 @@ Work in this order: the type goes first so the compiler enumerates the rest.
 6. **The hand-written editor lists.** These are prose, so nothing enforces them; the
    compiler is silent and the old text simply stays wrong. Update every one:
    - `src/install.ts`, `src/cli.ts` and `src/doctor.ts` need nothing: their editor lists
-     all come from `everyEditor()` / `titlesOf()` in `harness/index.ts`. Do not hand-write
+     all come from `everyEditor()` / `titlesOf()` in `types/harness.ts`. Do not hand-write
      a new one anywhere - `install.ts` alone has two summary functions (`summarize` and
      `summarizeUninstall`), and a list added to one would silently go stale in the other.
    - `CLAUDE.md` - the "What this is" paragraph.

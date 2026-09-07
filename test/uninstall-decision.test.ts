@@ -1,9 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { NAMES, byName, isHarnessName } from '../src/harness/index.js';
 import { decideUninstall, uninstallLines } from '../src/install.js';
-import type { HarnessName, UninstallOutcome } from '../src/types/harness.js';
+import {
+  NAMES,
+  TITLES,
+  isHarnessName,
+  type HarnessName,
+  type UninstallOutcome,
+} from '../src/types/harness.js';
 
 /**
  * Four review rounds each found another combination of row shape, outcomes and
@@ -101,7 +106,7 @@ function* assignments(): Generator<Answer[]> {
   }
 }
 
-const title = (n: HarnessName): string => byName(n).title;
+const title = (n: HarnessName): string => TITLES[n];
 /** What the row's `targets` reads as after the decision is applied. */
 function targetsAfter(d: ReturnType<typeof decideUninstall>): unknown[] | 'gone' | 'same' {
   if (d.write === 'remove') return 'gone';

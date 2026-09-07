@@ -1,7 +1,7 @@
 import { BIN, resolveBrand } from './brand.js';
 import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
-import { NAMES, byName, titlesOf, everyEditor, resolveTargets } from './harness/index.js';
+import { byName, resolveTargets } from './harness/index.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import * as manifest from './manifest.js';
@@ -18,6 +18,7 @@ import {
 import type { Flags, ParsedArgs } from './types/args.js';
 import type { Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
+import { NAMES, everyEditor, titlesOf } from './types/harness.js';
 import type { Manifest } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
 import { UserError, errorMessage } from './util.js';

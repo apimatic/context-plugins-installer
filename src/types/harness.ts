@@ -7,6 +7,45 @@ import type { Session } from './session.js';
 
 export type HarnessName = 'claude' | 'cursor' | 'vscode';
 
+/**
+ * Editor titles, and through them the list of editors this build knows. Static
+ * data rather than something read off the harness modules, because a pure
+ * decision has to be able to name an editor without importing the code that
+ * installs into one - `uninstallLines` is the whole reason this lives here.
+ *
+ * `Record<HarnessName, string>` is total, so a name added to the union without
+ * a title does not compile, and `NAMES` is derived from these keys rather than
+ * written out again: there is one list, in one order, and nothing to forget.
+ */
+export const TITLES: Record<HarnessName, string> = {
+  claude: 'Claude Code',
+  cursor: 'Cursor',
+  vscode: 'VS Code',
+};
+
+export const isHarnessName = (name: unknown): name is HarnessName =>
+  typeof name === 'string' && Object.prototype.hasOwnProperty.call(TITLES, name);
+
+/** Every editor this build knows, in the order everything lists them in. */
+export const NAMES: readonly HarnessName[] = Object.keys(TITLES).filter(isHarnessName);
+
+/** Editor titles in the order the caller's list gives, for prose that lists them. */
+export const titlesOf = (names: readonly HarnessName[], sep = ', '): string =>
+  names.map((n) => TITLES[n]).join(sep);
+
+/**
+ * Every editor this build knows, in prose. Derived from `NAMES` on purpose:
+ * these lists are the one thing the compiler cannot keep honest when a harness
+ * is added, so there is nothing here to forget to update. Pass a conjunction
+ * for "a, b, or c"; omit it for the "a / b / c" form.
+ */
+export function everyEditor(conjunction?: string): string {
+  if (!conjunction || NAMES.length < 2) return titlesOf(NAMES, ' / ');
+  const last = TITLES[NAMES[NAMES.length - 1]];
+  const head = NAMES.slice(0, -1);
+  return `${titlesOf(head)}${head.length > 1 ? ',' : ''} ${conjunction} ${last}`;
+}
+
 /** PathOpts plus the process-runner seam the Claude harness reads. */
 export interface HarnessOpts extends PathOpts {
   run?: RunCommand;

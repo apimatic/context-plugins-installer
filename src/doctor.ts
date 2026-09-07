@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { BIN } from './brand.js';
 import { loadCatalog } from './catalog.js';
 import { ghHeaders, rawUrl } from './infrastructure/github-registry-client.js';
-import { HARNESSES, everyEditor } from './harness/index.js';
+import { HARNESSES } from './harness/index.js';
 import * as manifest from './manifest.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
@@ -11,6 +11,7 @@ import { describeTelemetry, telemetryStatus } from './infrastructure/telemetry-s
 import type { Brand } from './types/brand.js';
 import { REGISTRY_FILES } from './types/catalog.js';
 import type { DoctorCheck, DoctorReport } from './types/doctor.js';
+import { everyEditor } from './types/harness.js';
 import type { PathOpts } from './types/env.js';
 import { MarketplaceName } from './types/ids/marketplace-name.js';
 import type { Deps, FetchLike } from './types/ports.js';

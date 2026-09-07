@@ -8,18 +8,19 @@ import {
   toKey,
 } from '../infrastructure/vscode-settings.js';
 import type { DirectoryPath } from '../types/file/paths.js';
-import type {
-  HarnessContext,
-  HarnessName,
-  HarnessOpts,
-  UninstallOutcome,
+import {
+  TITLES,
+  type HarnessContext,
+  type HarnessName,
+  type HarnessOpts,
+  type UninstallOutcome,
 } from '../types/harness.js';
 import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 
 // VS Code loads a plugin from any folder listed in chat.pluginLocations, so the
 // copy lives under this tool's state dir rather than in VS Code's storage.
 export const name: HarnessName = 'vscode';
-export const title = 'VS Code';
+export const title = TITLES.vscode;
 export const needsSource = true;
 
 export const detect = (opts?: HarnessOpts): boolean => exists(paths.vscodeUserDir(opts));

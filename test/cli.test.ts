@@ -4,7 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { parseArgs, parseTargets, helpText, run } from '../src/cli.js';
-import { resolveTargets, NAMES } from '../src/harness/index.js';
+import { resolveTargets } from '../src/harness/index.js';
+import { NAMES } from '../src/types/harness.js';
 import { UserError } from '../src/util.js';
 import { silenceConsole, tmpDir, cleanupAll, stubFetch } from './helpers.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';

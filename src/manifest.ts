@@ -1,6 +1,6 @@
-import { NAMES } from './harness/index.js';
 import { readRaw, sameEntry } from './infrastructure/manifest-store.js';
 import type { FileArg } from './types/file/paths.js';
+import { NAMES } from './types/harness.js';
 import type {
   ElidedTargets,
   IgnoredManifestEntry,

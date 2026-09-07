@@ -1,11 +1,12 @@
 import { claudeCli, findClaude, type ClaudeCli } from '../infrastructure/claude-cli.js';
 import { log } from '../log.js';
-import type {
-  HarnessContext,
-  HarnessName,
-  HarnessOpts,
-  MarketplaceListing,
-  UninstallOutcome,
+import {
+  TITLES,
+  type HarnessContext,
+  type HarnessName,
+  type HarnessOpts,
+  type MarketplaceListing,
+  type UninstallOutcome,
 } from '../types/harness.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { RunResult } from '../types/ports.js';
@@ -13,7 +14,7 @@ import type { Session } from '../types/session.js';
 import { UserError, isPlainObject, nonEmptyString } from '../util.js';
 
 export const name: HarnessName = 'claude';
-export const title = 'Claude Code';
+export const title = TITLES.claude;
 export const needsSource = false;
 
 const binary = (opts?: HarnessOpts): string | null => findClaude(opts?.env || process.env);
