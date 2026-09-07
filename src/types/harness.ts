@@ -52,6 +52,13 @@ export function everyEditor(conjunction?: string): string {
   return `${titlesOf(head)}${head.length > 1 ? ',' : ''} ${conjunction} ${last}`;
 }
 
+/**
+ * What a run that changed nothing says. Derived from the editor list like the
+ * lines above, and shared by the uninstall decision and the install summary -
+ * two layers that cannot see each other, which is why it is here.
+ */
+export const nothingChanged = (): string => `Nothing was changed. Are ${everyEditor()} installed?`;
+
 /** PathOpts plus the process-runner seam the Claude harness reads. */
 export interface HarnessOpts extends PathOpts {
   run?: RunCommand;

@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { resolveBrand } from '../src/brand.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import { installPlugin, uninstallPlugin, updateAll, chooseHarnesses } from '../src/install.js';
+import { installPlugin, uninstallPlugin, updateAll } from '../src/install.js';
 import { openManifest, upsert } from '../src/infrastructure/manifest-store.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
 import { foreignTargets } from '../src/types/installed-record.js';
@@ -1010,6 +1010,9 @@ test('a harness that is not installed is skipped, not failed', async () => {
   // run's home. Print it unshortened and the line names a directory the user
   // did not write, which compiles, lints and passes every other assertion.
   assert.match(flat(con), /Cursor is not installed \(looked in ~[/\\]\.cursor\)/);
+  // And it says which editors it is going on with, so a shorter run than the
+  // one asked for is never silent about being shorter.
+  assert.match(flat(con), /Continuing with VS Code\./);
 });
 
 // ---- harness consent -----------------------------------------------------
@@ -1226,42 +1229,6 @@ test('nothing is downloaded when every harness is declined', async () => {
   );
 
   assert.equal(fetched, false, 'the prompt runs before the download');
-});
-
-test('--targets is a decision, so it skips the prompt', async () => {
-  const confirm = scriptedConfirm([]);
-  const chosen = await chooseHarnesses(TARGETS, { explicit: true, confirm });
-  assert.deepEqual(chosen, ['cursor', 'vscode']);
-  assert.deepEqual(confirm.asked, []);
-});
-
-test('--yes skips the prompt', async () => {
-  const confirm = scriptedConfirm([]);
-  const chosen = await chooseHarnesses(TARGETS, { assumeYes: true, confirm });
-  assert.deepEqual(chosen, ['cursor', 'vscode']);
-  assert.deepEqual(confirm.asked, []);
-});
-
-test('with nothing asked and someone to answer, every editor is a question', async () => {
-  const confirm = scriptedConfirm([true, false]);
-  const chosen = await chooseHarnesses(TARGETS, { confirm });
-  assert.deepEqual(chosen, ['cursor']);
-  assert.equal(confirm.asked.length, 2, 'both were asked, and one said no');
-});
-
-// The test runner is not a terminal and no confirm is injected, so this is the
-// "nobody to ask" branch: take every detected editor rather than hang, and say
-// why. Silence here would read as the user having chosen them.
-test('with nobody to ask, every detected editor is taken and the reason is given', async () => {
-  const con = silenceConsole();
-  let chosen: HarnessName[];
-  try {
-    chosen = await chooseHarnesses(TARGETS);
-  } finally {
-    con.restore();
-  }
-  assert.deepEqual(chosen, ['cursor', 'vscode']);
-  assert.match(con.lines.join(' '), /Non-interactive shell/);
 });
 
 test('update never re-asks, it replays the recorded harnesses', async () => {

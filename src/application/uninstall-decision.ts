@@ -1,6 +1,6 @@
 import {
   NAMES,
-  everyEditor,
+  nothingChanged,
   isHarnessName,
   titlesOf,
   type HarnessName,
@@ -131,5 +131,3 @@ export function uninstallLines(
   }
   return lines;
 }
-
-export const nothingChanged = (): string => `Nothing was changed. Are ${everyEditor()} installed?`;

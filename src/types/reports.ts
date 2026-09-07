@@ -15,6 +15,21 @@ export interface InstallResult {
   ref: string;
 }
 
+/** How far a run got; coarse on purpose, so no message travels with it. */
+export type InstallStage = 'resolve' | 'harnesses' | 'fetch' | 'install';
+
+/**
+ * The install result plus what only telemetry reads. `stage` is written as the
+ * run advances, which is what lets a failure say where it happened without a
+ * mutable object threaded alongside.
+ */
+export interface InstallReport extends InstallResult {
+  untouched: HarnessName[];
+  stage: InstallStage;
+  targetsExplicit: boolean;
+  durationMs: number;
+}
+
 export interface UninstallResult {
   plugin: string;
   /** Editors something was actually removed from - not editors whose record was corrected. */

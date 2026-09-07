@@ -1,45 +1,22 @@
-import { nothingChanged } from './application/uninstall-decision.js';
-import { resolvePlugin } from './application/plugin-resolution.js';
+import type { InstallRequest } from './actions/install.js';
 import type { UninstallRequest } from './actions/uninstall.js';
-import { chooseTargets, resolveTargets } from './application/target-selection.js';
 import { loadCatalog } from './catalog.js';
+import { InstallCommand } from './commands/install.js';
 import { UninstallCommand } from './commands/uninstall.js';
 import { harnesses } from './harnesses/index.js';
-import { log } from './log.js';
-import * as paths from './infrastructure/paths.js';
-import { createPrompter } from './prompt.js';
-import { format as f } from './prompts/format.js';
-import { harnessListener } from './prompts/harness/index.js';
-import { announceMarketplace } from './prompts/marketplace.js';
-import { isInteractive } from './infrastructure/environment.js';
 import { openManifest } from './infrastructure/manifest-store.js';
+import * as paths from './infrastructure/paths.js';
 import { createSession } from './infrastructure/session.js';
-
-import { marketplaceLabel, type Brand } from './types/brand.js';
-import type { DirectoryPath } from './types/file/paths.js';
-import {
-  NAMES,
-  TITLES,
-  everyEditor,
-  titlesOf,
-  type HarnessContext,
-  type HarnessName,
-  type HarnessOpts,
-} from './types/harness.js';
-import { PluginId } from './types/ids/plugin-id.js';
+import { log } from './log.js';
+import { announceMarketplace } from './prompts/marketplace.js';
+import type { Brand } from './types/brand.js';
+import { titlesOf, type HarnessName, type HarnessOpts } from './types/harness.js';
 import { RepoSlug } from './types/ids/repo-slug.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, ListResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
-import { EVENTS, type TrackFn } from './types/telemetry.js';
-import {
-  assertPlugin,
-  errorMessage,
-  nonEmptyString,
-  orThrow,
-  throwFailure,
-  UserError,
-} from './util.js';
+import type { TrackFn } from './types/telemetry.js';
+import { errorMessage, nonEmptyString, throwFailure, UserError } from './util.js';
 
 const noTrack: TrackFn = () => {};
 
@@ -57,297 +34,25 @@ function sinkOf(deps: Deps | undefined): TrackFn {
   };
 }
 
-/** How far a run got before it threw; coarse on purpose, so no message travels. */
-type Stage = 'resolve' | 'harnesses' | 'fetch' | 'install';
-
-// An error message can quote a path or a marketplace name, so only its class
-// goes out - and the plugin id only once it has passed validation.
-function trackFailure(
-  track: TrackFn,
-  event: string,
-  { plugin, brand, stage, err }: { plugin: string; brand: Brand; stage?: Stage; err: unknown },
-): void {
-  track(event, {
-    plugin: PluginId.create(plugin)?.toString() ?? null,
-    marketplace: marketplaceLabel(brand),
-    stage: stage ?? null,
-    error_kind: err instanceof UserError ? 'user' : 'unexpected',
-  });
-}
-
-type Ask = (question: string, defaultYes: boolean) => boolean | Promise<boolean>;
-
-async function askEach(names: readonly HarnessName[], ask: Ask): Promise<HarnessName[]> {
-  const chosen: HarnessName[] = [];
-  for (const name of names) {
-    if (await ask(`Install into ${TITLES[name]}?`, true)) chosen.push(name);
-  }
-  return chosen;
-}
-
-export interface ChooseOptions {
-  explicit?: boolean;
-  assumeYes?: boolean;
-  confirm?: Ask;
-  /** Called when the interactive flow is about to be drawn. */
-  onPrompted?: () => void;
-}
-
-// The decision - already answered, ask, or nobody to ask - is
-// application/target-selection; this is the asking, and the one line the third
-// case is worth. An injected confirm counts as someone to answer.
-export async function chooseHarnesses(
-  available: HarnessName[],
-  { explicit = false, assumeYes = false, confirm, onPrompted }: ChooseOptions = {},
-): Promise<HarnessName[]> {
-  const choice = chooseTargets({
-    detected: available.length,
-    explicit,
-    assumeYes,
-    canAsk: Boolean(confirm) || isInteractive(),
-  });
-  if (choice === 'take-all') return available;
-  if (choice === 'cannot-ask') {
-    log.info('Non-interactive shell - using every detected harness (--targets to choose).');
-    return available;
-  }
-
-  if (confirm) return askEach(available, confirm);
-
-  if (onPrompted) onPrompted();
-  const prompter = createPrompter();
-  try {
-    return await askEach(available, (question, def) => prompter.confirm(question, def));
-  } finally {
-    prompter.close();
-  }
-}
-
-export interface InstallOptions {
-  brand: Brand;
-  plugin: string;
-  ref?: string;
-  /** Harness names, `all`, or nothing for "ask". */
-  targets?: readonly string[] | null;
-  force?: boolean;
-  assumeYes?: boolean;
-  deps?: Deps;
-  /** HarnessOpts, not PathOpts: this is forwarded to the harnesses, runner and all. */
-  pathOpts?: HarnessOpts;
+/**
+ * The install path is `commands/install.ts` over `actions/install.ts` now; this
+ * is the shim `update` and `cli.ts` still call.
+ */
+export type InstallOptions = InstallRequest & {
   /** Shared per-run work; `update` threads one through every plugin. */
   session?: Session;
-}
+};
 
-export async function installPlugin({
-  brand,
-  plugin,
-  ref,
-  targets,
-  force = false,
-  assumeYes = false,
-  deps = {},
-  pathOpts,
-  session,
-}: InstallOptions): Promise<InstallResult> {
+export async function installPlugin({ session, ...req }: InstallOptions): Promise<InstallResult> {
   const ownSession = !session;
-  const run = session || createSession({ deps, notify: announceMarketplace });
-  const progress = { stage: 'resolve' as Stage };
+  const run = session || createSession({ deps: req.deps, notify: announceMarketplace });
   try {
-    return await runInstall({
-      brand,
-      plugin,
-      ref,
-      targets,
-      force,
-      assumeYes,
-      deps,
-      pathOpts,
-      run,
-      progress,
-    });
-  } catch (err) {
-    trackFailure(sinkOf(deps), EVENTS.installFailed, {
-      plugin,
-      brand,
-      stage: progress.stage,
-      err,
-    });
-    throw err;
+    const result = await new InstallCommand(sinkOf(req.deps)).run(req, run);
+    if (result.failure) throwFailure(result.failure);
+    return result.report;
   } finally {
     if (ownSession) await run.cleanup();
   }
-}
-
-interface RunInstallArgs extends InstallOptions {
-  force: boolean;
-  assumeYes: boolean;
-  deps: Deps;
-  run: Session;
-  /** Written as the run advances, so the wrapper can say where a throw came from. */
-  progress: { stage: Stage };
-}
-
-async function runInstall({
-  brand,
-  plugin,
-  ref,
-  targets,
-  force,
-  assumeYes,
-  deps,
-  pathOpts,
-  run,
-  progress,
-}: RunInstallArgs): Promise<InstallResult> {
-  assertPlugin(plugin);
-  const track = sinkOf(deps);
-  const startedAt = Date.now();
-  const effectiveRef = ref || brand.ref;
-  const records = openManifest(paths.manifestPath(pathOpts));
-  const say = harnessListener(pathOpts?.home);
-
-  const catalog = orThrow(await run.catalog({ repo: brand.repo, ref: effectiveRef }));
-  const resolved = orThrow(
-    resolvePlugin(catalog, {
-      plugin,
-      repo: brand.repo,
-      ref: effectiveRef,
-      marketplace: brand.id,
-      label: brand.label,
-    }),
-  );
-
-  progress.stage = 'harnesses';
-  const requested = orThrow(resolveTargets(targets));
-  const conflict = force ? null : records.conflictFor({ plugin, repo: brand.repo });
-  if (conflict) throwFailure(conflict);
-  const recorded = records.find({ plugin, repo: brand.repo });
-
-  const from = effectiveRef === 'main' ? brand.label : `${brand.label} (${effectiveRef})`;
-  log.banner(`Installing '${plugin}' from ${from}`);
-  log.debug(`source: ${brand.repo}@${effectiveRef}, marketplace: ${resolved.marketplace}`);
-  if (resolved.description) log.info(resolved.description);
-  log.rule();
-
-  log.step('[Harnesses]');
-  const explicit = Array.isArray(targets) && targets.length > 0;
-  const available = harnesses.detected(requested, pathOpts);
-  const missing = requested.filter((name) => !available.includes(name));
-
-  for (const name of missing) {
-    const h = harnesses.byName(name);
-    log.info(
-      `${h.title} is not installed (looked in ${f.path(h.location(pathOpts), pathOpts?.home)}).`,
-    );
-  }
-
-  if (!available.length) {
-    const names = missing.map((n) => TITLES[n]);
-    throw new UserError(
-      explicit
-        ? `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} not installed on this machine.`
-        : 'No supported editor found on this machine.',
-      {
-        hint: explicit
-          ? `Install it first, or choose another with --targets ${NAMES.join(',')}.`
-          : `Install ${everyEditor('or')}, then run this again.`,
-      },
-    );
-  }
-  if (missing.length) {
-    log.info(`Continuing with ${titlesOf(available)}.`);
-  }
-
-  let prompted = false;
-  const want = await chooseHarnesses(available, {
-    explicit,
-    assumeYes,
-    confirm: deps.confirm,
-    onPrompted: () => {
-      prompted = true;
-    },
-  });
-  // Closes the prompt flow's connector when one was drawn.
-  const closeGroup = (msg: string) => (prompted ? log.groupEnd(msg) : log.info(msg));
-  if (!want.length) {
-    if (prompted) log.groupEnd('No harness selected - nothing was installed.');
-    else {
-      log.plain('');
-      log.warn('No harness selected - nothing was installed.');
-    }
-    return { plugin, targets: [], marketplace: resolved.marketplace, ref: effectiveRef };
-  }
-  closeGroup(`Installing into: ${titlesOf(want)}`);
-
-  // Editors an earlier run installed into that this run skips. Their copies are
-  // still on disk, so they stay on the record or `update` would never refresh them.
-  const untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
-
-  const needsSource = want.some((name) => harnesses.byName(name).needsSource);
-  let srcDir: DirectoryPath | null = null;
-  if (needsSource) {
-    progress.stage = 'fetch';
-    log.step('[Fetch]');
-    srcDir = orThrow(
-      await run.source({
-        repo: brand.repo,
-        ref: effectiveRef,
-        sourcePath: resolved.sourcePath,
-      }),
-    );
-    log.ok('Plugin source ready');
-  }
-
-  progress.stage = 'install';
-  const installed: HarnessName[] = [];
-  for (const name of want) {
-    const harness = harnesses.byName(name);
-    log.step(`[${harness.title}]`);
-    const ctx: HarnessContext = {
-      plugin,
-      marketplace: resolved.marketplace,
-      repo: brand.repo,
-      srcDir,
-      session: run,
-      listener: say,
-    };
-    if (harness.needsSource && !ctx.srcDir) {
-      log.warn(`${harness.title} not detected - skipping.`);
-      continue;
-    }
-    if (await harness.install(ctx, pathOpts)) installed.push(name);
-  }
-
-  if (installed.length) {
-    records.recordInstall({
-      plugin,
-      repo: brand.repo,
-      marketplace: resolved.marketplace,
-      ref: effectiveRef,
-      installed,
-      untouched,
-    });
-  }
-
-  for (const name of installed) {
-    track(EVENTS.installed, {
-      plugin,
-      harness: name,
-      marketplace: marketplaceLabel(brand),
-      targets_explicit: explicit,
-      duration_ms: Date.now() - startedAt,
-    });
-  }
-
-  summarize(installed, 'Installed into', untouched);
-
-  return {
-    plugin,
-    targets: installed,
-    untouched,
-    marketplace: resolved.marketplace,
-    ref: effectiveRef,
-  };
 }
 
 /**
@@ -496,16 +201,4 @@ export async function listPlugins({
       };
     }),
   };
-}
-
-function summarize(done: HarnessName[], verb: string, unchanged: HarnessName[] = []): void {
-  log.plain('');
-  log.rule();
-  if (!done.length) {
-    log.warn(nothingChanged());
-  } else {
-    log.ok(`${verb}: ${titlesOf(done)}`);
-  }
-  if (unchanged.length) log.info(`Already installed: ${titlesOf(unchanged)}`);
-  log.plain('');
 }
