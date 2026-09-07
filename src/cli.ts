@@ -1,7 +1,7 @@
 import { resolveBrand } from './brand.js';
+import { DoctorCommand } from './commands/doctor.js';
 import { InstalledCommand } from './commands/installed.js';
 import { TelemetryCommand } from './commands/telemetry.js';
-import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
@@ -16,7 +16,6 @@ import {
 } from './infrastructure/telemetry-service.js';
 import type { Flags, ParsedArgs } from './types/args.js';
 import { BIN, type Brand } from './types/brand.js';
-import type { DoctorStatus } from './types/doctor.js';
 import { NAMES, everyEditor, titlesOf } from './types/harness.js';
 import type { Deps, TelemetrySettings } from './types/ports.js';
 import { UserError, errorMessage, throwFailure } from './util.js';
@@ -165,8 +164,6 @@ const telemetrySettings = (brand: Brand): TelemetrySettings => ({
   setEnabled: (enabled) => setTelemetryEnabled(enabled),
 });
 
-const DOCTOR_SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
-
 /** Returns the process exit code. */
 export async function run(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   let parsed: ParsedArgs;
@@ -302,35 +299,8 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         return 0;
       }
       case 'doctor': {
-        const report = await diagnose({ brand });
-        if (flags.json) {
-          log.payload(JSON.stringify(report, null, 2));
-          return report.ok ? 0 : 1;
-        }
-
-        const labels = report.groups.flatMap((g) => g.checks.map((c) => c.label.length));
-        const labelWidth = Math.min(Math.max(...labels, 8), 22);
-        for (const group of report.groups) {
-          log.step(group.title);
-          for (const c of group.checks) {
-            const symbol = DOCTOR_SYMBOL[c.status];
-            const paint = c.status === 'ok' ? log.dim : (s: string) => s;
-            log.plain(`  ${symbol}   ${c.label.padEnd(labelWidth)}  ${paint(c.detail)}`);
-            if (c.hint) log.info(c.hint);
-          }
-        }
-
-        log.plain('');
-        log.rule();
-        if (report.failures) {
-          log.error(`${log.plural(report.failures, 'problem')} found.`);
-        } else if (report.warnings) {
-          log.ok(`No problems. ${log.plural(report.warnings, 'warning')}.`);
-        } else {
-          log.ok('Everything checks out.');
-        }
-        log.plain('');
-        return report.ok ? 0 : 1;
+        const result = await new DoctorCommand().run({ brand, json: flags.json });
+        return result.exitCode();
       }
       case 'installed': {
         const result = new InstalledCommand().run(

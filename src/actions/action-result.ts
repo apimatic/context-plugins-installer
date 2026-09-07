@@ -22,7 +22,12 @@ export class ActionResult<R> {
     return new ActionResult('success', report, null);
   }
 
-  static failed<R>(report: R, failure: Failure): ActionResult<R> {
+  /**
+   * `failure` is optional because a run can fail having already said everything
+   * it has to say: `doctor` prints its own checks and its own summary, and there
+   * is no one sentence left for the caller to add. Anything else passes one.
+   */
+  static failed<R>(report: R, failure: Failure | null = null): ActionResult<R> {
     return new ActionResult('failed', report, failure);
   }
 

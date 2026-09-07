@@ -3,16 +3,25 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand } from '../src/brand.js';
-import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import { diagnose } from '../src/doctor.js';
-import * as paths from '../src/infrastructure/paths.js';
-import type { DoctorCheck, DoctorReport } from '../src/types/doctor.js';
-import type { Env } from '../src/types/env.js';
-import type { Deps } from '../src/types/ports.js';
-import { tmpDir, cleanupAll, stubFetch } from './helpers.js';
+import { resolveBrand } from '../../src/brand.js';
+import type { Brand } from '../../src/types/brand.js';
+import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
+import { DoctorAction } from '../../src/actions/doctor.js';
+import * as paths from '../../src/infrastructure/paths.js';
+import type { DoctorCheck, DoctorReport } from '../../src/types/doctor.js';
+import type { Env, PathOpts } from '../../src/types/env.js';
+import type { Deps } from '../../src/types/ports.js';
+import { tmpDir, cleanupAll, stubFetch } from '../helpers.js';
 
 test.after(cleanupAll);
+
+/** The action, as the command calls it: the report out of the ActionResult. */
+const run = async (args: {
+  brand: Brand;
+  deps?: Deps;
+  pathOpts?: PathOpts;
+}): Promise<DoctorReport> =>
+  (await new DoctorAction(args.deps, args.pathOpts).execute(args.brand)).report;
 
 const REPO = 'context-plugins/plugin-marketplace';
 const brand = () =>
@@ -58,7 +67,7 @@ function find(report: DoctorReport, label: string): DoctorCheck {
 }
 
 test('a healthy machine reports ok', async () => {
-  const report = await diagnose({ brand: brand(), deps: deps(), ...machine() });
+  const report = await run({ brand: brand(), deps: deps(), ...machine() });
   assert.equal(report.ok, true);
   assert.equal(report.failures, 0);
   assert.match(find(report, 'Cursor').detail, /^~[/\\]\.cursor$/, 'shown against the home');
@@ -67,7 +76,7 @@ test('a healthy machine reports ok', async () => {
 });
 
 test('no editor at all is a failure, not a warning', async () => {
-  const report = await diagnose({
+  const report = await run({
     brand: brand(),
     deps: deps(),
     ...machine({ cursor: false, vscode: false }),
@@ -81,7 +90,7 @@ test('no editor at all is a failure, not a warning', async () => {
 });
 
 test('one editor present is enough to pass', async () => {
-  const report = await diagnose({
+  const report = await run({
     brand: brand(),
     deps: deps(),
     ...machine({ cursor: false, vscode: true }),
@@ -92,14 +101,14 @@ test('one editor present is enough to pass', async () => {
 });
 
 test('a missing git is a warning, since the API path still works', async () => {
-  const report = await diagnose({ brand: brand(), deps: deps({ git: false }), ...machine() });
+  const report = await run({ brand: brand(), deps: deps({ git: false }), ...machine() });
   assert.equal(report.ok, true);
   assert.equal(find(report, 'git').status, 'warn');
   assert.match(find(report, 'git').hint ?? '', /rate limited/);
 });
 
 test('an invalid marketplace name is reported as a failure', async () => {
-  const report = await diagnose({
+  const report = await run({
     brand: brand(),
     deps: deps({ name: 'Context Plugins' }),
     ...machine(),
@@ -111,7 +120,7 @@ test('an invalid marketplace name is reported as a failure', async () => {
 });
 
 test('a configured proxy is surfaced, because Node ignores it', async () => {
-  const report = await diagnose({
+  const report = await run({
     brand: brand(),
     deps: deps({ env: { HTTPS_PROXY: 'http://proxy:8080' } }),
     ...machine(),
@@ -121,7 +130,7 @@ test('a configured proxy is surfaced, because Node ignores it', async () => {
 });
 
 test('an unreachable marketplace fails without throwing', async () => {
-  const report = await diagnose({
+  const report = await run({
     brand: brand(),
     deps: {
       env: {},
@@ -149,7 +158,7 @@ test('doctor reports rows installed.json holds that this build cannot read', asy
     }),
   );
 
-  const report = await diagnose({ brand: brand(), deps: deps(), ...m });
+  const report = await run({ brand: brand(), deps: deps(), ...m });
   const check = find(report, 'Installed');
   assert.equal(check.status, 'warn');
   assert.match(check.detail, /1 entry ignored/);
@@ -168,7 +177,7 @@ test('doctor reports a row it can only read in part, rather than calling it heal
     }),
   );
 
-  const report = await diagnose({ brand: brand(), deps: deps(), ...m });
+  const report = await run({ brand: brand(), deps: deps(), ...m });
   const check = find(report, 'Installed');
   assert.equal(check.status, 'warn');
   assert.match(check.detail, /1 plugin; 1 listed in part/);
@@ -179,11 +188,11 @@ test('doctor reports a row it can only read in part, rather than calling it heal
 });
 
 test('doctor names the telemetry switch in effect, and never counts it against the machine', async () => {
-  const on = await diagnose({ brand: brand(), deps: deps(), ...machine() });
+  const on = await run({ brand: brand(), deps: deps(), ...machine() });
   assert.equal(find(on, 'Telemetry').status, 'ok');
   assert.equal(find(on, 'Telemetry').detail, 'enabled');
 
-  const off = await diagnose({
+  const off = await run({
     brand: brand(),
     deps: deps({ env: { DO_NOT_TRACK: '1' } }),
     ...machine(),
