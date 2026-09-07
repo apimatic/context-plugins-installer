@@ -1,12 +1,13 @@
 import { resolveBrand } from './brand.js';
+import { InstalledCommand } from './commands/installed.js';
 import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
-import { resolveTargets } from './application/target-selection.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
 import { format as f } from './prompts/format.js';
+import { gapWarnings } from './prompts/gaps.js';
 import { printTelemetryLines } from './prompts/telemetry.js';
 import {
   COLLECTED,
@@ -19,10 +20,8 @@ import type { Flags, ParsedArgs } from './types/args.js';
 import { BIN, type Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
 import { NAMES, everyEditor, titlesOf } from './types/harness.js';
-import { RepoSlug } from './types/ids/repo-slug.js';
-import type { Manifest } from './types/installed-record.js';
 import type { Deps } from './types/ports.js';
-import { UserError, errorMessage, orThrow } from './util.js';
+import { UserError, errorMessage, throwFailure } from './util.js';
 
 const VALUE_FLAGS = ['repo', 'ref', 'marketplace', 'targets'] as const;
 const BOOL_FLAGS = ['force', 'yes', 'long', 'verbose', 'quiet', 'json', 'help', 'version'] as const;
@@ -35,33 +34,6 @@ const isBoolFlag = (key: string): key is BoolFlag => BOOL_FLAGS.some((f) => f ==
 
 // A plugin id longer than this is ignored when sizing the list grid.
 const OUTLIER_NAME = 36;
-
-/**
- * Every way the read view differs from the file: rows it dropped, and rows it
- * listed without a target name this build does not know. `scope` limits them to
- * one marketplace, whose repo is then implied and left out of the label.
- */
-export function gapWarnings({ ignored, elided }: Manifest, scope?: string): string[] {
-  const inScope = (repo?: string): boolean => !scope || !repo || RepoSlug.same(repo, scope);
-  const label = (plugin: string | null, repo?: string): string => {
-    const name = plugin ? `'${plugin}'` : 'an entry';
-    const where = !scope && repo ? ` (${repo})` : '';
-    return `${name}${where}`;
-  };
-  return [
-    ...ignored
-      .filter((skip) => inScope(skip.repo))
-      .map(
-        (skip) => `Ignoring ${label(skip.plugin, skip.repo)} in installed.json - ${skip.reason}.`,
-      ),
-    ...elided
-      .filter((row) => inScope(row.repo))
-      .map(
-        (row) =>
-          `Listing ${label(row.plugin, row.repo)} without unknown target(s): ${row.targets.join(', ')} - the entry on disk keeps them.`,
-      ),
-  ];
-}
 
 const camel = (s: string): string => s.replace(/-([a-z])/g, (_m, c: string) => c.toUpperCase());
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
@@ -396,41 +368,14 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         return report.ok ? 0 : 1;
       }
       case 'installed': {
-        const data = openManifest(paths.manifestPath()).read();
-        // `--targets` selects which plugins are listed, not what is said about
-        // them: each one still shows every editor it is recorded for. Filtering
-        // is unconditional because `resolveTargets` reads "nothing asked for" as
-        // every editor, and `read()` never yields a row with no known target.
-        const want = orThrow(resolveTargets(targets));
-        // Naming every editor adds nothing, so `--targets all` reads as no scope.
-        const scope = want.length < NAMES.length ? ` in ${titlesOf(want)}` : '';
-        const entries = data.plugins.filter((e) => e.targets.some((t) => want.includes(t)));
-        const warnGaps = (emit: (msg: string) => void) => {
-          for (const msg of gapWarnings(data)) emit(msg);
-        };
-        if (flags.json) {
-          // Schema stability: the payload stays the plain entry array, so what it
-          // cannot represent is reported on stderr instead.
-          warnGaps(log.warnStderr);
-          log.payload(JSON.stringify(entries, null, 2));
-          return 0;
-        }
-        if (!entries.length) {
-          warnGaps(log.warn);
-          log.info(scope ? `No plugins installed${scope}.` : 'No plugins installed yet.');
-          log.info(`Browse what is available with:  ${BIN} list`);
-          return 0;
-        }
-        log.banner(`${log.plural(entries.length, 'plugin')} installed${scope}`);
-        log.plain('');
-        const idWidth = Math.min(Math.max(...entries.map((e) => e.plugin.length), 4), 42);
-        for (const e of entries) {
-          log.plain(`    ${e.plugin.padEnd(idWidth)}  ${log.dim(titlesOf(e.targets))}`);
-          log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
-        }
-        warnGaps(log.warn);
-        log.plain('');
-        return 0;
+        const result = new InstalledCommand().run(
+          { targets, json: flags.json },
+          openManifest(paths.manifestPath()),
+        );
+        // Until Phase 6's router reads the result, a Failure is turned back into
+        // the throw this handler already renders.
+        if (result.failure) throwFailure(result.failure);
+        return result.exitCode();
       }
       case 'telemetry':
         return telemetryCommand(args[0], brand, BIN);
