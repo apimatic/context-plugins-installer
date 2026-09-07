@@ -62,7 +62,7 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   one POST to Mixpanel's `/track` at the end of `cli.run`
   (`ip=1`: Mixpanel adds city, region and country from the request address at ingestion
   and discards the address; the CLI never sends location itself), bounded by a timeout
-  and never allowed to fail or hold a run. The project token in `brand.ts` is a public
+  and never allowed to fail or hold a run. The project token in `types/brand.ts` is a public
   routing key, not a secret; the project is US-resident, so the host stays
   `api.mixpanel.com`. Properties are
   primitives only, and `COLLECTED` in `telemetry.ts` is the one prose inventory the
@@ -88,6 +88,17 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
 Every command flows `bin/cli.js` → `src/cli.ts` (arg parsing and rendering only) →
 `src/install.ts` (orchestration) → the harness that owns each editor. `src/types/`
 is the type model for the whole surface; keep it in sync when behavior changes.
+
+The codebase is part-way through the layering in `docs/layering-plan.md`, so read
+a directory as what it is allowed to reach rather than by where a file happens to
+sit: `src/application/` is pure decisions over `src/types/` and does no I/O;
+`src/infrastructure/` talks to the world, returns a `Result` and never prints;
+`src/prompts/` holds every user-visible string and the only `console` in the
+codebase. `eslint` enforces those three from `no-restricted-imports`, so a
+crossing import fails `npm run lint` rather than review. `src/cli.ts`,
+`src/install.ts`, `src/doctor.ts` and `src/catalog.ts` are the orchestration those
+layers were carved out of and still do the rest; Phase 5 splits them into
+`commands/` and `actions/`.
 
 - **Harnesses** (`src/harness/`): one module per editor implementing the `Harness`
   interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
@@ -120,8 +131,8 @@ is the type model for the whole surface; keep it in sync when behavior changes.
   possibly ours. That is the invariant to hold on to: an unrecognised _anything_
   from Claude — a row with no `id`, a marketplace it cannot name, a new scope
   word — counts as unanswered, never as proof of absence. That is why the plugin
-  listing must be read **whole**: `installedPlugins` returns null unless every
-  row parsed, because absence is the only conclusion it is ever read for, and a
+  listing must be read **whole**: `listPlugins` in `infrastructure/claude-cli.ts`
+  returns null unless every row parsed, because absence is the only conclusion it is ever read for, and a
   listing whose rows this build cannot parse (plain strings, an `id` renamed on
   some rows) would otherwise look exactly like "nothing is installed".
   `listMarketplaces` is the opposite — it filters junk rows, because one
@@ -140,8 +151,10 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   exit from `claude` is evidence, not a failure to report, and which of "stale
   local copy" or "no such plugin" it means is the harness's call from the exit code
   and the output.
-  `harness/index.ts` is the registry, and `byName` is total over
-  `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
+  `harness/index.ts` maps a name to a module and holds nothing else; the names
+  and titles are static knowledge in `types/harness.ts`, so a pure decision can
+  say "Cursor" without importing the code that installs into it. `byName` is
+  total over `HarnessName` - narrow a string with `isHarnessName` first. Claude Code installs
   through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
   and VS Code copy files and need the fetched source. To add an editor, use the
   `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
@@ -175,9 +188,19 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
 - **`src/infrastructure/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
   `path.posix` chosen by the `platform` override, not the host), so Windows paths are
   exactly assertable from Linux CI.
-- **State** is one file, `~/.context-plugins/installed.json` (`src/manifest.ts`),
-  entries keyed repo+plugin because the same plugin id can exist in two marketplaces.
-  `read()` returns the sanitized entries plus what it could not show: `ignored`
+- **State** is one file, `~/.context-plugins/installed.json`, in three layers:
+  `infrastructure/manifest-store.ts` is the bytes (read whole, written through a
+  rename), `types/installed-record.ts` is every rule about a row, and
+  `types/manifest-context.ts` is the file as a domain object over a
+  `ManifestStore` port - the read view, the lookups, and the only two writes this
+  program makes. Entries are keyed repo+plugin because the same plugin id can
+  exist in two marketplaces, and the repo half of that key is compared
+  case-insensitively through `RepoSlug.same`, the way GitHub reads a slug and the
+  way the Claude harness always has: the marketplace conflict check, `list`'s
+  installed marks and its gap-warning scope use the same comparison, because a
+  run whose halves disagree about `Acme/M` and `acme/m` writes a second row for a
+  plugin that is already installed and then cannot uninstall either by the
+  other's spelling. `read()` returns the sanitized entries plus what it could not show: `ignored`
   (rows it dropped, with reasons) and `elided` (rows it listed without a target name
   this build does not know); `upsert`/`remove` work on the raw file and carry every other row
   through verbatim. An entry with zero known targets must be _dropped_ from the read
@@ -213,24 +236,30 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   failed, and no row survived to explain itself. The `--force` hint names the
   stuck targets themselves rather than echoing the run's `--targets`, so it can
   never widen what the user asked for. Both the record write and every line of
-  that summary come from one pure `decideUninstall` over `UninstallFacts`, and
-  `test/uninstall-decision.test.ts` walks the whole space it is defined over -
+  that summary come from one pure `decideUninstall` over `UninstallFacts` in
+  `application/uninstall-decision.ts`, and
+  `test/application/uninstall-decision.test.ts` walks the whole space it is defined over -
   every row shape x every outcome for every editor (including "not asked") x
   `--force` - asserting the invariants rather than a handful of cases. That test
   is the reason this stopped being a bug a review round rediscovers in a new
   shape: add an outcome or a row shape and it will tell you which invariant the
   new combination breaks. Keep new reporting logic inside `uninstallLines` so it
   stays covered. Editor names in prose come from `everyEditor()`, never a
-  literal. `titlesOf` and `everyEditor` live in `harness/index.ts`, next to
-  `NAMES` and `byName`, and `install.ts`, `cli.ts` and `doctor.ts` all use them,
-  so adding a harness leaves only `CLAUDE.md` and `package.json` to edit by hand.
+  literal. `titlesOf` and `everyEditor` live in `types/harness.ts`, derived from
+  `TITLES` - a `Record<HarnessName, string>`, so a name added without a title does
+  not compile - and `install.ts`, `cli.ts`, `doctor.ts` and the uninstall decision
+  all use them, so adding a harness leaves only `CLAUDE.md` and `package.json` to
+  edit by hand.
   Resolving a marketplace name never blocks correcting a record: `uninstall`
   degrades a failed lookup to a warning when there _is_ a row (so `--force`
   works offline, and after an upstream rename), and still throws when there is
   not, because then the resolution error and its suggestion are the useful
-  answer. The same rule holds _within_ a row: writers rebuild from the raw record
-  (`findRaw` + `foreignTargets`), so a target name or field belonging to a newer CLI
-  survives a rewrite. Never write a row back from the sanitized view. Every command that
+  answer. The same rule holds _within_ a row: `recordInstall` and
+  `applyUninstall` rebuild from the raw record (`findRaw` + `foreignTargets`), so
+  a target name or field belonging to a newer CLI survives a rewrite. Never write
+  a row back from the sanitized view — which is now hard to get wrong rather than
+  merely documented, because reading the raw row and rebuilding it happen inside
+  the two methods that own the write. Every command that
   renders that view says what it left out: `installed` and `list` share
   `gapWarnings` in `cli.ts`, `update` prints its own grid line, `doctor` counts them
   as a check — on stderr under `--json` so the payload stays parseable, and
@@ -248,11 +277,18 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   green install of a plugin VS Code never loads, and splicing a second entry in
   would just leave a duplicate key.
 - **Configuration** resolves flag → `CP_*` env → `.contextpluginsrc` (cwd, then home)
-  → defaults (`src/brand.ts`). `DEFAULTS` holds the marketplace, ref, display name and
-  the Mixpanel token and host; `BIN` is the published command name, which every message
+  → defaults. `application/brand-resolution.ts` does the deciding, purely, over rc
+  files `infrastructure/rc-file.ts` has already read; `src/brand.ts` is only the
+  seam that joins them. Both files are merged field by field rather than one
+  winning whole, or a project rc that sets only `telemetry` silently moves every
+  install in that directory to the built-in marketplace. `DEFAULTS` in
+  `types/brand.ts` holds the marketplace, ref, display name and the Mixpanel token
+  and host; `BIN`, beside it, is the published command name, which every message
   that suggests a command interpolates rather than spelling out. There is no brand
-  profile and no way to embed this CLI: it is a command, not a library, so the token in
-  `DEFAULTS` is always this project's.
+  profile and no way to embed this CLI: it is a command, not a library, so the
+  token in `DEFAULTS` is always this project's and `BrandTelemetry.token` is a
+  plain `string` — "telemetry is not configured" is a state nothing can reach, so
+  there is no branch for it.
 - **Telemetry** (`src/infrastructure/telemetry-service.ts`, over `telemetry-state.ts` for
   the id file and `mixpanel-client.ts` for the POST): `createTelemetry` queues, `flush`
   sends once and returns the lines it would have printed, which `prompts/telemetry.ts`

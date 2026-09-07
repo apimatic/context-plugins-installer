@@ -703,40 +703,79 @@ against a temp directory or a fake runner, none against the developer's home. Sh
 ### Phase 3 · Application layer and the manifest context (1 PR, medium)
 
 - Move `decideUninstall`, `uninstallLines` and their test to `application/` unchanged.
+  Two corrections. First, `uninstallLines` names editors in prose, so it needs
+  `titlesOf` and `everyEditor`, which were in `harness/index.ts` - the module that holds
+  the harness instances. Application may import `types/` only, so Phase 4's move of
+  `NAMES`, `TITLES`, `titlesOf` and `everyEditor` into `types/harness.ts` arrives here
+  instead, one phase early. `TITLES` is a `Record<HarnessName, string>` and `NAMES` is
+  derived from its keys, so there is one list and the compiler keeps it complete.
+  Second, `UninstallFacts`, `UninstallDecision` and `SummaryLine` do **not** live with
+  the functions: `types/manifest-context.ts` applies a decision, and `types/` cannot
+  import `application/`. They are `types/uninstall.ts`, which is where a DTO belongs
+  anyway - the algorithm is the part that is application.
 - `application/plugin-resolution.ts` takes a `Catalog | null` and returns
   `Result<ResolvedPlugin>`; the session's `resolve()` fetches then calls it. `suggest`
-  moves with it.
+  moves with it. Correction: the session cannot call it. `session.ts` is infrastructure
+  and the boundary lint refuses an infrastructure module importing application -
+  correctly, since a pure decision living inside a memoising cache is close to how the
+  Phase 2b regression happened. The caller reads the catalog through the session and
+  resolves it itself, which is one line either way.
 - `application/target-selection.ts`: `resolveTargets` and the pure half of
   `chooseHarnesses`: given available, explicit, assumeYes, interactive, answer
-  `'take-all' | 'ask'`.
-- `application/brand-resolution.ts` over already-read rc files.
+  `'take-all' | 'ask'`. Correction: three answers, not two. Taking every detected editor
+  because there was nobody to ask has to be distinguishable from being told to take them
+  (`--targets`, `--yes`), or the run chooses editors on the user's behalf in silence - so
+  `cannot-ask` is its own answer and carries the line that explains it. `resolveTargets`
+  returns a `Result` rather than throwing, like everything else this refactor converts.
+- `application/brand-resolution.ts` over already-read rc files. `assertRepo` and
+  `assertRef` in `util.ts` go with it: brand resolution was their only caller, and a
+  wrapper kept alive by its own test is not covered code. `assertPlugin` stays until
+  Phase 5, where install and uninstall stop throwing.
 - `types/installed-record.ts`: `rowShape`, `sanitizeEntry`, `describeIgnored`,
   `foreignTargets`, the rebuild rule. `types/manifest-context.ts`: `read()`, `find()`,
   `findRaw()`, `conflictFor()`, `recordInstall()`, `applyUninstall(decision)`, over the
-  `ManifestStore` port.
+  `ManifestStore` port. One deliberate non-verbatim change, and the phase's only one:
+  both writers read the raw row themselves rather than being handed one the caller read
+  earlier. That is what turns "never write a row back from the sanitized view" from a
+  comment asking callers to pair two calls correctly into the only way through. Within a
+  run the row cannot change between those two points - no harness touches
+  installed.json, and `upsert` re-reads the file at write time anyway - so nothing
+  widens; under a concurrent writer it narrows.
 - Settle three things Phase 0 left behind when it removed brand profiles, all of them
-  defences for a caller that no longer exists. `BrandTelemetry.token` is now never null
-  in a real run, so the `no-token` opt-out and its `not configured` line in `doctor` are
-  reachable from tests alone: either narrow the field to `string` and delete the branch,
-  or keep both and say in the type why. The optional chaining in
-  `brand.telemetry?.token` and in `marketplaceLabel`, with the test named for a Brand
-  from an older caller, guards against a malformed Brand that only a cast could build.
-  And `BIN` moves from `brand.ts` to `types/brand.ts`, which removes the import edge
-  Phase 0 had to add from `telemetry.ts` to `brand.ts`.
+  defences for a caller that no longer exists. Settled by deletion, all three.
+  `BrandTelemetry.token` is narrowed to `string`, and the `no-token` opt-out, its
+  `not configured` line, its member in `TelemetryOptOut` and the optional chaining in
+  `marketplaceLabel` and the sender go with it: `resolveBrand` is the only builder of a
+  Brand and it fills the token in from a constant, so nothing user-visible changes. The
+  three tests that covered them built their Brand with `as unknown as Brand`, which is
+  the tell - keeping a branch alive by its own test is how dead code comes to look like
+  covered code. And `BIN` moves from `brand.ts` to `types/brand.ts`, which removes the
+  import edge Phase 0 had to add from `telemetry.ts` to `brand.ts` - and with `paths.ts`
+  already moved, leaves `util.ts` as the single remaining import from
+  `src/infrastructure` into a root module.
 - Settle one more thing when the manifest row becomes typed: a repo is compared
   case-insensitively by `RepoSlug.matches`, because that is how GitHub treats it, but
   case-sensitively with `===` by the manifest key, the marketplace conflict check and the
   `list` scope. The two halves of one run therefore disagree about whether two spellings
   name the same repository. It predates the refactor; typing the row is what makes it
-  fixable in one place.
+  fixable in one place. Fixed as `RepoSlug.same(a, b)`, on the type that owns the rule
+  and taking untrusted values, since none of these callers holds a `RepoSlug` yet. It is
+  the one `fix:` in the phase, and it is a real one: with a row from
+  `context-plugins/plugin-marketplace`, a run naming `Context-Plugins/Plugin-Marketplace`
+  refused with "already installed from a different marketplace" - pointing at the
+  plugin's own marketplace - and forcing past that wrote a second row for the same
+  plugin from the same repository, which neither spelling could then uninstall.
 
 **Exit:** `grep -rn 'node:' src/application` is empty. `install.ts` no longer touches
-`manifest.upsert` directly. No new shim.
+`manifest.upsert` directly. No new shim. All met: `src/application` imports `types/` and
+`util.ts` and nothing else, `src/manifest.ts` is gone, and the suite is 397 tests, up
+from 372 at the end of Phase 2.
 
 ### Phase 4 · Harnesses go silent (1 PR, medium)
 
 - `types/harness.ts`: the `Harness` port, `HarnessEvent`, `HarnessListener`,
-  `HarnessContext` with a `listener`, `NAMES`, `TITLES`, `titlesOf`, `everyEditor`.
+  `HarnessContext` with a `listener`. `NAMES`, `TITLES`, `titlesOf` and `everyEditor`
+  are already there - Phase 3 needed them for the uninstall summary.
 - `harnesses/claude.ts`, `cursor.ts`, `vscode.ts` as classes taking their services. Every
   `log.*` becomes `ctx.listener({ kind, ... })`. `harnesses/index.ts` becomes
   `HarnessRegistry`.
