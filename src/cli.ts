@@ -1,18 +1,16 @@
 import { resolveBrand } from './brand.js';
 import { InstalledCommand } from './commands/installed.js';
+import { TelemetryCommand } from './commands/telemetry.js';
 import { diagnose } from './doctor.js';
 import { packageVersion } from './infrastructure/environment.js';
 import { installPlugin, uninstallPlugin, updateAll, listPlugins } from './install.js';
 import { log } from './log.js';
 import { openManifest } from './infrastructure/manifest-store.js';
 import * as paths from './infrastructure/paths.js';
-import { format as f } from './prompts/format.js';
 import { gapWarnings } from './prompts/gaps.js';
 import { printTelemetryLines } from './prompts/telemetry.js';
 import {
-  COLLECTED,
   createTelemetry,
-  describeTelemetry,
   setTelemetryEnabled,
   telemetryStatus,
 } from './infrastructure/telemetry-service.js';
@@ -20,7 +18,7 @@ import type { Flags, ParsedArgs } from './types/args.js';
 import { BIN, type Brand } from './types/brand.js';
 import type { DoctorStatus } from './types/doctor.js';
 import { NAMES, everyEditor, titlesOf } from './types/harness.js';
-import type { Deps } from './types/ports.js';
+import type { Deps, TelemetrySettings } from './types/ports.js';
 import { UserError, errorMessage, throwFailure } from './util.js';
 
 const VALUE_FLAGS = ['repo', 'ref', 'marketplace', 'targets'] as const;
@@ -160,45 +158,12 @@ function report(err: unknown): void {
 /** Commands that read `--targets`; anywhere else it is a no-op worth saying so. */
 const TARGET_AWARE = new Set(['install', 'uninstall', 'remove', 'installed']);
 
-const TELEMETRY_ACTIONS = ['status', 'enable', 'disable'];
-
-function telemetryCommand(action: string | undefined, brand: Brand, bin: string): number {
-  const verb = action ?? 'status';
-  if (!TELEMETRY_ACTIONS.includes(verb)) {
-    throw new UserError(`Unknown telemetry action: ${verb}`, {
-      hint: `Usage: ${bin} telemetry [status|enable|disable]`,
-    });
-  }
-  if (verb !== 'status') {
-    const enabled = verb === 'enable';
-    const written = setTelemetryEnabled(enabled);
-    if (!written.ok) {
-      // The service names the file and the reason; this says what to do about it.
-      log.debug(written.error.message);
-      throw new UserError(`Could not write ${f.path(paths.telemetryPath())}.`, {
-        hint: enabled
-          ? 'Check the permissions on the state directory, or point CP_STATE_DIR somewhere writable.'
-          : 'CP_TELEMETRY=off in the environment needs no file.',
-      });
-    }
-    log.ok(`Telemetry ${enabled ? 'enabled' : 'disabled'}.`);
-  }
-
-  const status = telemetryStatus({ brand });
-  const effective = describeTelemetry(status, bin);
-  if (verb === 'status') {
-    log.plain(`Telemetry is ${effective}.`);
-  } else if (status.mode !== (verb === 'enable' ? 'on' : 'off')) {
-    // The choice is saved, but a broader switch still decides what happens.
-    log.info(`Right now it is ${effective}; that setting takes precedence.`);
-  }
-  if (status.id) log.info(`Anonymous machine id: ${status.id} (${f.path(status.file)})`);
-  log.info(`Collected: ${COLLECTED}.`);
-  log.info(
-    `Change it with '${bin} telemetry enable|disable', CP_TELEMETRY=off, or DO_NOT_TRACK=1.`,
-  );
-  return 0;
-}
+/** The telemetry file as one value, for the command that reads and writes it. */
+const telemetrySettings = (brand: Brand): TelemetrySettings => ({
+  file: paths.telemetryPath(),
+  status: () => telemetryStatus({ brand }),
+  setEnabled: (enabled) => setTelemetryEnabled(enabled),
+});
 
 const DOCTOR_SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
 
@@ -377,8 +342,11 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
         if (result.failure) throwFailure(result.failure);
         return result.exitCode();
       }
-      case 'telemetry':
-        return telemetryCommand(args[0], brand, BIN);
+      case 'telemetry': {
+        const result = new TelemetryCommand().run({ action: args[0] }, telemetrySettings(brand));
+        if (result.failure) throwFailure(result.failure);
+        return result.exitCode();
+      }
       default:
         throw new UserError(`Unknown command: ${command}`, {
           hint: `Run \`${BIN} --help\` for usage.`,

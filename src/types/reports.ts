@@ -1,4 +1,6 @@
+import type { Failure } from './failure.js';
 import type { HarnessName } from './harness.js';
+import type { TelemetryStatus, TelemetryVerb } from './telemetry.js';
 import type { Manifest, ManifestEntry } from './installed-record.js';
 
 // What a command did, as facts rather than prose. A prompts class renders these;
@@ -39,6 +41,19 @@ export interface InstalledReport {
   scoped: boolean;
   /** What the read view could not show, for the caller to warn about. */
   gaps: Manifest;
+}
+
+/**
+ * What `telemetry` did. `verb` and `status` are both null when the command line
+ * was refused before anything was read - the only case where nothing ran.
+ */
+export interface TelemetryReport {
+  verb: TelemetryVerb | null;
+  status: TelemetryStatus | null;
+  /** The choice was saved, but a broader switch still decides what happens. */
+  overridden: boolean;
+  /** Why the file could not be written, for `--verbose`. */
+  writeError: Failure | null;
 }
 
 export interface ListedPlugin {

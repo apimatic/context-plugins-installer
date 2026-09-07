@@ -8,13 +8,14 @@ import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { FilePath } from '../types/file/paths.js';
 import type { Deps, FetchLike } from '../types/ports.js';
 import type { Result } from '../types/result.js';
-import type {
-  TelemetryEvent,
-  TelemetryLine,
-  TelemetryOptOut,
-  TelemetryStatus,
-  TelemetryValue,
-  TrackFn,
+import {
+  COLLECTED,
+  type TelemetryEvent,
+  type TelemetryLine,
+  type TelemetryOptOut,
+  type TelemetryStatus,
+  type TelemetryValue,
+  type TrackFn,
 } from '../types/telemetry.js';
 import { ENV_OFF, envFlag, errorMessage } from '../util.js';
 import { isCi, isInteractive } from './environment.js';
@@ -43,12 +44,6 @@ export const FLUSH_TIMEOUT_MS = 1500;
  * What an event may carry, in the words the notice and `telemetry status` use.
  * Keep it in step with `common` below and the properties install.ts sends.
  */
-export const COLLECTED =
-  'the plugin id, the editor it went into, the marketplace when it is the built-in one, ' +
-  'the command, OS, CPU architecture, Node and CLI version, whether the run was interactive ' +
-  'or in CI, how long it took, a random id for this machine, and an approximate location ' +
-  '(city, region, country) that Mixpanel derives from the request address and then discards';
-
 function optOutOf(brand: Brand, env: Env, read: StateRead): TelemetryOptOut | null {
   if (envFlag(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK';
   if (ENV_OFF.has((env.CP_TELEMETRY || '').toLowerCase())) return 'CP_TELEMETRY';
@@ -92,21 +87,6 @@ export const telemetryStatus = ({
 }: StatusOptions): TelemetryStatus => resolve(brand, env, pathOpts).status;
 
 /** One phrase for `doctor` and `telemetry status`, naming the switch that is in effect. */
-export function describeTelemetry(status: TelemetryStatus, bin: string): string {
-  if (status.mode === 'on') return 'enabled';
-  if (status.mode === 'log') return 'log only (CP_TELEMETRY=log)';
-  switch (status.optOut) {
-    case 'rc':
-      return 'disabled (.contextpluginsrc)';
-    case 'state':
-      return 'disabled (telemetry.json could not be read)';
-    case 'user':
-      return `disabled (${bin} telemetry disable)`;
-    default:
-      return `disabled (${status.optOut ?? 'unknown'})`;
-  }
-}
-
 /** `telemetry enable|disable`; the Failure names the file that could not be written. */
 export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Result<void, Failure> {
   const file = paths.telemetryPath(pathOpts);

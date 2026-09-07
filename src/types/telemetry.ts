@@ -21,6 +21,26 @@ export type TelemetryMode = 'on' | 'off' | 'log';
  */
 export type TelemetryOptOut = 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'state' | 'user';
 
+/**
+ * The one prose inventory of what leaves this machine. Printed by the one-time
+ * notice and by `telemetry status`, so it lives where both can reach it - and
+ * it has to stay in step with `common` in the service and the per-event
+ * properties in install.ts.
+ */
+export const COLLECTED =
+  'the plugin id, the editor it went into, the marketplace when it is the built-in one, ' +
+  'the command, OS, CPU architecture, Node and CLI version, whether the run was interactive ' +
+  'or in CI, how long it took, a random id for this machine, and an approximate location ' +
+  '(city, region, country) that Mixpanel derives from the request address and then discards';
+
+/** What `telemetry` was asked to do; nothing named reads as `status`. */
+export type TelemetryVerb = 'status' | 'enable' | 'disable';
+
+export const asTelemetryVerb = (value: string | undefined): TelemetryVerb | null =>
+  value === undefined || value === 'status' || value === 'enable' || value === 'disable'
+    ? ((value ?? 'status') as TelemetryVerb)
+    : null;
+
 export interface TelemetryStatus {
   mode: TelemetryMode;
   optOut: TelemetryOptOut | null;

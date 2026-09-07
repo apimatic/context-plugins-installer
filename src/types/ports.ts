@@ -1,7 +1,9 @@
 import type { Env } from './env.js';
-import type { DirectoryPath } from './file/paths.js';
+import type { DirectoryPath, FilePath } from './file/paths.js';
+import type { Failure } from './failure.js';
+import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
-import type { TrackFn } from './telemetry.js';
+import type { TelemetryStatus, TrackFn } from './telemetry.js';
 
 // The interfaces through which this program reaches anything outside itself: a
 // process, the network, a person at a terminal. Every one of them is the seam a
@@ -75,6 +77,18 @@ export interface ManifestStore {
   findAllRaw(key: EntryKey): Record<string, unknown>[];
   upsert(entry: Record<string, unknown>): RawManifest;
   remove(key: EntryKey): number;
+}
+
+/**
+ * The telemetry choice as `telemetry status|enable|disable` sees it. Reading and
+ * writing the file are infrastructure; whether a broader switch overrides what
+ * was written is the action's to notice.
+ */
+export interface TelemetrySettings {
+  /** Where the choice is stored, for the message when it cannot be written. */
+  readonly file: FilePath;
+  status(): TelemetryStatus;
+  setEnabled(enabled: boolean): Result<void, Failure>;
 }
 
 export interface Prompter {
