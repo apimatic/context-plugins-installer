@@ -70,7 +70,7 @@ function resolve(
   const id = read && read !== 'unreadable' ? read.id : null;
   // `status.file` is a reported string; `stateFile` is the path the writes use.
   const status = (mode: TelemetryStatus['mode'], optOut: TelemetryOptOut | null) => ({
-    status: { mode, optOut, id, file: stateFile.toString() },
+    status: { mode, optOut, id, file: stateFile },
     read,
     stateFile,
   });

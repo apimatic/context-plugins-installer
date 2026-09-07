@@ -18,6 +18,7 @@ import { openManifest } from './infrastructure/manifest-store.js';
 import { createSession } from './infrastructure/session.js';
 import { EVENTS, marketplaceLabel } from './infrastructure/telemetry-service.js';
 import { BIN, type Brand } from './types/brand.js';
+import type { DirectoryPath } from './types/file/paths.js';
 import {
   NAMES,
   TITLES,
@@ -286,7 +287,7 @@ async function runInstall({
   const untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
 
   const needsSource = want.some((name) => harnesses.byName(name).needsSource);
-  let srcDir: string | null = null;
+  let srcDir: DirectoryPath | null = null;
   if (needsSource) {
     progress.stage = 'fetch';
     log.step('[Fetch]');

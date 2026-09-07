@@ -1,3 +1,5 @@
+import type { FilePath } from './file/paths.js';
+
 // What an event may carry and which switch decided whether it goes.
 
 /** Flat by design: a property is a fact about the run, never a structure that could carry more. */
@@ -24,7 +26,8 @@ export interface TelemetryStatus {
   optOut: TelemetryOptOut | null;
   /** The anonymous machine id, once one has been minted. */
   id: string | null;
-  file: string;
+  /** The id file. A path, not its string: the caller shortens it for display. */
+  file: FilePath;
 }
 
 /**

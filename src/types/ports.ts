@@ -1,4 +1,5 @@
 import type { Env } from './env.js';
+import type { DirectoryPath } from './file/paths.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
 import type { TrackFn } from './telemetry.js';
 
@@ -36,7 +37,7 @@ export type FetchLike = (
 ) => Promise<FetchResponseLike>;
 
 export interface MaterializedSource {
-  dir: string;
+  dir: DirectoryPath;
   cleanup: () => void;
   via: 'git' | 'api' | string;
 }

@@ -13,6 +13,7 @@ import {
   chooseHarnesses,
 } from '../src/install.js';
 import { openManifest, upsert } from '../src/infrastructure/manifest-store.js';
+import { DirectoryPath } from '../src/types/file/paths.js';
 import { foreignTargets } from '../src/types/installed-record.js';
 import * as paths from '../src/infrastructure/paths.js';
 import type { HarnessName } from '../src/types/harness.js';
@@ -65,7 +66,7 @@ function deps({ repo, marketplace = 'apimatic', plugin = 'my-sdk', srcDir }: Dep
       },
     }),
     env: {},
-    materialize: async () => ({ dir: srcDir, cleanup: () => {}, via: 'stub' }),
+    materialize: async () => ({ dir: new DirectoryPath(srcDir), cleanup: () => {}, via: 'stub' }),
   };
 }
 
@@ -1347,7 +1348,7 @@ test('update reads the registry once for the whole run, not once per plugin', as
     fetchImpl,
     env: {},
     materialize: async ({ sourcePath }) => ({
-      dir: pluginSource(sourcePath.split('/').pop()),
+      dir: new DirectoryPath(pluginSource(sourcePath.split('/').pop())),
       cleanup: () => {},
       via: 'stub',
     }),

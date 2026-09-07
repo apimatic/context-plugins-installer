@@ -149,9 +149,13 @@ test('one repo handle fetches the API tree once and serves every plugin from it'
     const beta = await handle.checkout('plugins/beta');
 
     assert.ok(alpha.ok && beta.ok);
-    assert.ok(fs.existsSync(path.join(alpha.value, 'plugin.json')), 'alpha was written');
-    assert.ok(fs.existsSync(path.join(beta.value, 'plugin.json')), 'beta was written');
-    assert.notEqual(alpha.value, beta.value, 'each plugin gets its own directory');
+    assert.ok(fs.existsSync(alpha.value.file('plugin.json').toString()), 'alpha was written');
+    assert.ok(fs.existsSync(beta.value.file('plugin.json').toString()), 'beta was written');
+    assert.notEqual(
+      alpha.value.toString(),
+      beta.value.toString(),
+      'each plugin gets its own directory',
+    );
 
     const trees = fetchImpl.calls.filter((u) => u === TREE_URL).length;
     assert.equal(trees, 1, `expected the tree to be fetched once, got ${trees}`);
@@ -195,7 +199,7 @@ test('materialize honours an injected env when probing for git', async () => {
   assert.ok(result.ok);
   try {
     assert.equal(result.value.via, 'api', 'an empty PATH must force the API route');
-    assert.ok(fs.existsSync(path.join(result.value.dir, 'plugin.json')));
+    assert.ok(fs.existsSync(result.value.dir.file('plugin.json').toString()));
   } finally {
     result.value.cleanup();
   }

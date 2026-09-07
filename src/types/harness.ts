@@ -142,7 +142,8 @@ export interface HarnessContext {
   plugin: string;
   marketplace: string | null;
   repo: string;
-  srcDir?: string | null;
+  /** Where the plugin's files are, for a harness whose install is a copy. */
+  srcDir?: DirectoryPath | null;
   session?: Session;
   /** Where the harness says what it did. Required: a dropped line is a bug. */
   listener: HarnessListener;

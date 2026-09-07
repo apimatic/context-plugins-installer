@@ -1,5 +1,6 @@
 import type { Catalog } from '../types/catalog.js';
 import type { Failure } from '../types/failure.js';
+import type { DirectoryPath } from '../types/file/paths.js';
 import type { Deps } from '../types/ports.js';
 import { ok, type Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle, Session } from '../types/session.js';
@@ -37,7 +38,7 @@ export function createSession({
       return pending;
     },
 
-    async source({ repo, ref, sourcePath }): Promise<Result<string | null, Failure>> {
+    async source({ repo, ref, sourcePath }): Promise<Result<DirectoryPath | null, Failure>> {
       // An injected fetch is the test seam and stays per-plugin. It is the one
       // path that can still throw: a fake that blows up is a test asserting a
       // bug, not a failure this program knows how to describe.

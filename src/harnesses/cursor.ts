@@ -1,5 +1,3 @@
-import * as path from 'node:path';
-
 import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 import * as paths from '../infrastructure/paths.js';
 import type { DirectoryPath } from '../types/file/paths.js';
@@ -49,7 +47,7 @@ export class CursorHarness implements Harness {
       this.say(ctx, { harness: 'cursor', kind: 'no-source' });
       return false;
     }
-    if (!exists(path.join(srcDir, '.cursor-plugin', 'plugin.json'))) {
+    if (!exists(srcDir.file('.cursor-plugin', 'plugin.json'))) {
       this.say(ctx, { harness: 'cursor', kind: 'no-plugin-json' });
     }
 

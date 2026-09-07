@@ -5,6 +5,7 @@ import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
+import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
 import { cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
@@ -139,7 +140,7 @@ test('session cleanup disposes what an injected fetch handed back', async () => 
   const session = createSession({
     deps: {
       materialize: async () => ({
-        dir: '/tmp/whatever',
+        dir: new DirectoryPath('/tmp/whatever'),
         cleanup: () => {
           disposed += 1;
         },

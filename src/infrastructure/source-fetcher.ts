@@ -85,7 +85,7 @@ export async function materialize({
       cleanup();
       return err(dir.error);
     }
-    return ok({ dir: dir.value, cleanup, via: git ? 'git' : 'api' });
+    return ok({ dir: new DirectoryPath(dir.value), cleanup, via: git ? 'git' : 'api' });
   } catch (e) {
     cleanup();
     throw e;
@@ -345,7 +345,7 @@ export async function openRepo({
 }): Promise<RepoHandle> {
   const { work, cleanup } = tempWorkspace();
 
-  const done = new Map<string, string>();
+  const done = new Map<string, DirectoryPath>();
   const git = which('git', deps.env || process.env);
 
   if (git) {
@@ -368,8 +368,10 @@ export async function openRepo({
           sourcePath,
           notify,
         });
-        if (dir.ok) done.set(sourcePath, dir.value);
-        return dir;
+        if (!dir.ok) return err(dir.error);
+        const at = new DirectoryPath(dir.value);
+        done.set(sourcePath, at);
+        return ok(at);
       },
     };
   }
@@ -394,8 +396,10 @@ export async function openRepo({
         deps,
         notify,
       });
-      if (dir.ok) done.set(sourcePath, dir.value);
-      return dir;
+      if (!dir.ok) return err(dir.error);
+      const at = new DirectoryPath(dir.value);
+      done.set(sourcePath, at);
+      return ok(at);
     },
   };
 }

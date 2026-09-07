@@ -40,10 +40,21 @@ export const HOST: PathRules = extract(nodePath);
 export const rulesFor = (platform: string): PathRules => (platform === 'win32' ? WIN32 : POSIX);
 
 /**
- * A path, or a plain string still on its way to being one. The string arm is
- * transitional: it lets a boundary take a path from a caller that has not been
- * converted yet, and Phase 2's file-system service drops it. The two aliases are
- * separate so a helper that needs a directory cannot silently be handed a file.
+ * A path, or a plain string that is one. The two aliases are separate so a
+ * helper that needs a directory cannot silently be handed a file.
+ *
+ * The string arm was meant to be transitional and is not: measured by narrowing
+ * both aliases and compiling, it is load-bearing in two places and nowhere else.
+ * An fs module hands itself a host string - `ensureDirFor` passing `dirname` to
+ * `ensureDir`, `copyDir` and `countFiles` recursing, the fetcher's temp
+ * workspace - and an fs boundary is exactly where a path becomes a string.
+ * `f.path` takes whatever is about to be shown, which includes strings that were
+ * never paths at all: `which('git')`'s answer, and a harness `location()` that
+ * describes `$PATH` rather than naming a directory.
+ *
+ * What it is *not* for is carrying a path between layers, which is how the
+ * plugin source used to reach a harness as a bare string. Nothing in `types/`
+ * spells a machine path as a string now, so the arm has no way to spread.
  */
 export type DirArg = DirectoryPath | string;
 export type FileArg = FilePath | string;

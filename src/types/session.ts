@@ -1,5 +1,6 @@
 import type { Catalog } from './catalog.js';
 import type { Failure } from './failure.js';
+import type { DirectoryPath } from './file/paths.js';
 import type { Result } from './result.js';
 
 // Work shared by every plugin in one run: the registry read, the clone, the
@@ -29,7 +30,7 @@ export type MarketplaceListener = (event: MarketplaceEvent) => void;
 export interface RepoHandle {
   via: 'git' | 'api';
   cleanup(): void;
-  checkout(sourcePath: string): Promise<Result<string, Failure>>;
+  checkout(sourcePath: string): Promise<Result<DirectoryPath, Failure>>;
 }
 
 export interface Session {
@@ -39,6 +40,6 @@ export interface Session {
     repo: string;
     ref: string;
     sourcePath: string;
-  }): Promise<Result<string | null, Failure>>;
+  }): Promise<Result<DirectoryPath | null, Failure>>;
   cleanup(): Promise<void>;
 }
