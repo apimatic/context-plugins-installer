@@ -7,10 +7,9 @@ import { parseArgs, parseTargets } from '../../src/commands/args.js';
 import { helpText } from '../../src/commands/help.js';
 import { run } from '../../src/main.js';
 import { runCli } from '../cli-harness.js';
-import { silenceConsole, tmpDir, cleanupAll, stubFetch } from '../helpers.js';
+import { cleanupAll, orThrow, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
 import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import type { FetchLike } from '../../src/types/ports.js';
-import { orThrow } from '../../src/util.js';
 
 // The router, through the real entry point: which exit code a command line
 // answers with, and which of them never reaches a command at all. `orThrow`

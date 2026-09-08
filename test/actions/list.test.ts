@@ -4,12 +4,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { ListAction } from '../../src/actions/list.js';
-import { resolveBrand } from '../../src/brand.js';
+
 import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import { upsert } from '../../src/infrastructure/manifest-store.js';
 import * as paths from '../../src/infrastructure/paths.js';
 import type { HarnessName } from '../../src/types/harness.js';
-import { cleanupAll, stubFetch, tmpDir } from '../helpers.js';
+import { cleanupAll, resolveBrand, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 

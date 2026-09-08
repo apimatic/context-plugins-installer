@@ -3,10 +3,10 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
+import type { ResolveBrandOptions } from '../src/brand.js';
 import { DEFAULTS } from '../src/types/brand.js';
-import { UserError } from '../src/util.js';
-import { tmpDir, cleanupAll } from './helpers.js';
+
+import { FailureError, cleanupAll, resolveBrand, tmpDir } from './helpers.js';
 
 test.after(cleanupAll);
 
@@ -41,18 +41,18 @@ test('with no files anywhere, the built-in defaults apply', () => {
   assert.equal(resolveBrand(clean()).repo, DEFAULTS.repo);
 });
 
-test('an unusable rc file reports the file, and does so as a UserError', () => {
+test('an unusable rc file reports the file, and does so as a failure', () => {
   const cwd = tmpDir('cp-cwd-');
   fs.writeFileSync(path.join(cwd, '.contextpluginsrc'), '{ broken', 'utf8');
   assert.throws(
     () => resolveBrand(clean({ cwd })),
-    (err) => err instanceof UserError && /is not valid JSON/.test(err.message),
+    (err) => err instanceof FailureError && /is not valid JSON/.test(err.message),
   );
 });
 
-test('a value the resolver rejects arrives as a UserError too', () => {
+test('a value the resolver rejects arrives the same way', () => {
   assert.throws(
     () => resolveBrand(clean({ env: { CP_REPO: 'not-a-repo' } })),
-    (err) => err instanceof UserError && /Invalid repo/.test(err.message),
+    (err) => err instanceof FailureError && /Invalid repo/.test(err.message),
   );
 });

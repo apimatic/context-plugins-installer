@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { PassThrough, Writable } from 'node:stream';
 
-import { glyphs, parseAnswer, createPrompter } from '../src/prompt.js';
+import { glyphs, parseAnswer, createPrompter } from '../../src/prompts/prompter.js';
 
 const ESC = String.fromCharCode(27);
 const UP_AND_CLEAR = `${ESC}[1A${ESC}[2K\r`;
@@ -25,7 +25,7 @@ function fakeTty({ isTTY = true, columns = 80 } = {}): FakeTty {
 async function askOnce(
   keys: string,
   { out, question = 'Install into VS Code?' }: { out: FakeTty; question?: string },
-): Promise<[boolean, string]> {
+): Promise<[boolean | 'cancelled', string]> {
   const input = new PassThrough();
   const prompter = createPrompter({ input, out, unicode: true });
   const pending = prompter.confirm(question, true);
@@ -104,4 +104,33 @@ test('no cursor tricks when the row could have wrapped, or off a TTY', async () 
   const [, plain] = await askOnce('n', { out: piped });
   assert.ok(!plain.includes(UP_AND_CLEAR), 'nothing to redraw when there is no terminal');
   assert.match(plain, /\n.*No\n/, 'the answer still lands on its own row');
+});
+
+/**
+ * Ctrl-C. The prompter used to answer this with `process.exit(130)`, which took
+ * the run's own cleanup with it - no temp directory removed, no telemetry
+ * flushed. It is an answer now, and the exit code is the router's to give.
+ */
+test('an interrupt is answered, not acted on: cancelled, and the line says so', async () => {
+  const out = fakeTty();
+  const [answer, text] = await askOnce(String.fromCharCode(3), { out });
+
+  assert.equal(answer, 'cancelled');
+  assert.match(text, /Cancelled\./);
+});
+
+// Once interrupted, the flow is over: asking again would put a question under
+// a line that already said the run stopped.
+test('every later question is cancelled too, without asking', async () => {
+  const out = fakeTty();
+  const input = new PassThrough();
+  const prompter = createPrompter({ input, out, unicode: true });
+  const pending = prompter.confirm('Install into Cursor?', true);
+  input.write(String.fromCharCode(3));
+  assert.equal(await pending, 'cancelled');
+
+  assert.equal(await prompter.confirm('Install into VS Code?', true), 'cancelled');
+  prompter.close();
+  input.end();
+  assert.equal((out.text().match(/Install into VS Code/g) || []).length, 0, 'it was never asked');
 });

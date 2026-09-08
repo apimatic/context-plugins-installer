@@ -7,8 +7,7 @@ import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import type { Env } from '../../src/types/env.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
-import { UserError } from '../../src/util.js';
-import { tmpDir, cleanupAll } from '../helpers.js';
+import { tmpDir, cleanupAll, outcome } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -72,7 +71,7 @@ test('an already-registered marketplace is updated, not re-added', async () => {
     'plugin marketplace list': listing([{ name: 'context-plugins', repo: REPO }]),
   });
 
-  assert.equal(await claude.install(CTX, opts(run)), true);
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
 
   assert.ok(
     run.calls.includes('plugin marketplace update context-plugins'),
@@ -163,7 +162,7 @@ test('a stale local copy is refreshed and the install retried', async () => {
     { calls: run.calls },
   );
 
-  assert.equal(await claude.install(CTX, opts(wrapped)), true);
+  assert.equal(outcome(await claude.install(CTX, opts(wrapped))), 'installed');
 
   assert.equal(attempt, 2, 'the install should be retried once');
   assert.ok(run.calls.includes('plugin marketplace update context-plugins'));
@@ -187,11 +186,11 @@ test('a different marketplace under the same name is reported, not installed int
     'plugin marketplace list': listing([{ name: 'context-plugins', repo: 'someone/else' }]),
   });
 
-  await assert.rejects(
-    () => claude.install(CTX, opts(run)),
-    (err) =>
-      err instanceof UserError &&
-      /marketplace named 'context-plugins', from someone\/else/.test(err.message),
+  const result = await claude.install(CTX, opts(run));
+  assert.equal(result.ok, false, 'a marketplace that is not ours is a failure, not a skip');
+  assert.match(
+    result.ok ? '' : result.error.message,
+    /marketplace named 'context-plugins', from someone\/else/,
   );
   assert.ok(!run.calls.some((c) => c.startsWith('plugin install')));
 });
@@ -204,7 +203,7 @@ test('a same-named entry with no visible source is refreshed, not refused', asyn
     ]),
   });
 
-  assert.equal(await claude.install(CTX, opts(run)), true);
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
   assert.ok(run.calls.includes('plugin marketplace update context-plugins'));
   assert.ok(!run.calls.some((c) => c.startsWith('plugin marketplace add')));
 });
@@ -231,7 +230,7 @@ test('an update failure does not stop the install', async () => {
     'plugin marketplace update': { code: 1, stderr: 'network unreachable' },
   });
 
-  assert.equal(await claude.install(CTX, opts(run)), true);
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
 });
 
@@ -244,11 +243,9 @@ test('a genuinely missing plugin still fails, with the marketplace named', async
     },
   });
 
-  await assert.rejects(
-    () => claude.install({ ...CTX, plugin: 'nope' }, opts(run)),
-    (err) =>
-      err instanceof UserError && /not in marketplace 'context-plugins'/.test(err.hint || ''),
-  );
+  const result = await claude.install({ ...CTX, plugin: 'nope' }, opts(run));
+  assert.equal(result.ok, false);
+  assert.match(result.ok ? '' : result.error.hint || '', /not in marketplace 'context-plugins'/);
 });
 
 test('uninstall targets the name Claude knows the marketplace by', async () => {
@@ -428,7 +425,7 @@ test('a real uninstall failure is a failure, not a skip', async () => {
 
 test('no claude on PATH is a skip, not a failure', async () => {
   const run = fakeCli({});
-  assert.equal(await claude.install(CTX, { env: { PATH: '' }, run }), false);
+  assert.equal(outcome(await claude.install(CTX, { env: { PATH: '' }, run })), 'skipped');
   assert.equal(run.calls.length, 0);
 });
 
@@ -437,7 +434,7 @@ test('junk entries in the marketplace listing are ignored, not crashed on', asyn
     'plugin marketplace list': listing([null, 'junk', 42, { name: 'context-plugins', repo: REPO }]),
   });
 
-  assert.equal(await claude.install(CTX, opts(run)), true);
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
 
   assert.ok(
     run.calls.includes('plugin marketplace update context-plugins'),
@@ -453,7 +450,7 @@ test('a fresh registration reports the add, the install and how to load it', asy
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
   const { ctx, kinds, events } = recording();
 
-  assert.equal(await claude.install(ctx, opts(run)), true);
+  assert.equal(outcome(await claude.install(ctx, opts(run))), 'installed');
 
   assert.deepEqual(kinds(), ['marketplace-added', 'plugin-installed', 'reload']);
   assert.deepEqual(events[1], {
@@ -497,7 +494,10 @@ test('a stale local copy is announced before the refresh that explains the wait'
   };
   const { ctx, kinds } = recording();
 
-  assert.equal(await claude.install(ctx, { env: withClaude(), run: wrapped }), true);
+  assert.equal(
+    outcome(await claude.install(ctx, { env: withClaude(), run: wrapped })),
+    'installed',
+  );
 
   assert.deepEqual(kinds(), [
     'marketplace-added',
@@ -515,7 +515,7 @@ test('a refresh that fails reports the exit code and what it said', async () => 
   });
   const { ctx, events } = recording();
 
-  assert.equal(await claude.install(ctx, opts(run)), true);
+  assert.equal(outcome(await claude.install(ctx, opts(run))), 'installed');
 
   assert.deepEqual(events[1], {
     harness: 'claude',
@@ -565,7 +565,7 @@ test('no claude on PATH is said once, for either verb', async () => {
   const off: HarnessOpts = { env: { PATH: '' }, run };
 
   const installing = recording();
-  assert.equal(await claude.install(installing.ctx, off), false);
+  assert.equal(outcome(await claude.install(installing.ctx, off)), 'skipped');
   assert.deepEqual(installing.kinds(), ['cli-missing']);
 
   const uninstalling = recording();
@@ -577,7 +577,7 @@ test('with no marketplace name each verb says which one it could not do', async 
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
 
   const installing = recording({ marketplace: null });
-  assert.equal(await claude.install(installing.ctx, opts(run)), false);
+  assert.equal(outcome(await claude.install(installing.ctx, opts(run))), 'skipped');
   assert.deepEqual(installing.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'install' },
   ]);

@@ -1,17 +1,8 @@
-import type { Failure } from './types/failure.js';
-import { PluginId } from './types/ids/plugin-id.js';
-import type { Result } from './types/result.js';
-
-/** A problem the user can fix; the CLI prints it as one line with no stack trace. */
-export class UserError extends Error {
-  hint: string | undefined;
-
-  constructor(message: string, { hint }: { hint?: string } = {}) {
-    super(message);
-    this.name = 'UserError';
-    this.hint = hint;
-  }
-}
+// The pure helpers, and nothing else. There is no error class here any more and
+// no bridge that makes one: a problem the user can fix is a `Failure` on the
+// failed arm of an `ActionResult`, which the router prints and telemetry counts
+// as `user`. A throw that reaches the top is a bug, reported as `unexpected`,
+// and the only thing that prints a stack.
 
 export const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -23,29 +14,6 @@ export const ENV_OFF: ReadonlySet<string> = new Set(['0', 'off', 'false', 'no'])
 /** Set to anything but an explicit "no": `CI=1`, `CI=true` and `DO_NOT_TRACK=1` all count. */
 export const envFlag = (value: string | undefined): boolean =>
   value !== undefined && value !== '' && !ENV_OFF.has(value.toLowerCase());
-
-/**
- * The bridge between a Result and the throw its callers still expect. Every
- * conversion of a module to Results leaves one of these at its caller until the
- * caller is converted too, and then it goes. Phase 5 removes the last one, so
- * the conversion is spelled here and only here - `grep 'new UserError'` finding
- * two sites is how a phase comes to miss one.
- */
-export function throwFailure(failure: Failure): never {
-  throw new UserError(failure.message, { hint: failure.hint });
-}
-
-export function orThrow<T>(parsed: Result<T, Failure>): T {
-  if (!parsed.ok) throwFailure(parsed.error);
-  return parsed.value;
-}
-
-// Each identifier's rule lives with its type. This is the throwing edge the
-// install and uninstall flows still expect: a plugin id is interpolated into
-// argv, so it is refused where it enters rather than trusted from a flag or an
-// env var. The repo and ref wrappers went when brand resolution started reading
-// the Result itself; this one goes with `orThrow`.
-export const assertPlugin = (id: unknown): string => orThrow(PluginId.parse(id)).toString();
 
 export const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : String(err);

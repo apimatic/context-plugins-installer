@@ -5,8 +5,7 @@ import * as path from 'node:path';
 
 import { openManifest } from '../src/infrastructure/manifest-store.js';
 import * as paths from '../src/infrastructure/paths.js';
-import type { Deps } from '../src/types/ports.js';
-import { UserError } from '../src/util.js';
+
 import {
   TARGETS,
   brandFor,
@@ -17,13 +16,13 @@ import {
   pluginSource,
   quietly,
   scriptedConfirm,
-  tracking,
+  sinkInto,
   uninstallPlugin,
   updateAll,
   withClaude,
   type Tracked,
 } from './install-fixture.js';
-import { cleanupAll, parseJsonc, silenceConsole, stubFetch } from './helpers.js';
+import { FailureError, cleanupAll, parseJsonc, silenceConsole, stubFetch } from './helpers.js';
 
 test.after(cleanupAll);
 
@@ -135,7 +134,7 @@ test('the same plugin id from a second marketplace is refused without --force', 
         pathOpts: m.pathOpts,
       }),
     ),
-    (err) => err instanceof UserError && /different marketplace/.test(err.message),
+    (err) => err instanceof FailureError && /different marketplace/.test(err.message),
   );
 });
 
@@ -862,7 +861,7 @@ test('asking for an editor that is not installed fails, naming it', async () => 
       }),
     ),
     (err) =>
-      err instanceof UserError &&
+      err instanceof FailureError &&
       /Cursor is not installed/.test(err.message) &&
       /--targets/.test(err.hint ?? ''),
   );
@@ -884,7 +883,7 @@ test('no editor at all fails rather than silently doing nothing', async () => {
         pathOpts: m.pathOpts,
       }),
     ),
-    (err) => err instanceof UserError && /not installed on this machine/.test(err.message),
+    (err) => err instanceof FailureError && /not installed on this machine/.test(err.message),
   );
 });
 
@@ -1202,7 +1201,8 @@ test('install reports one event per editor through the track seam, flat and with
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: tracking({ repo, srcDir: pluginSource() }, events),
+      deps: deps({ repo, srcDir: pluginSource() }),
+      sink: sinkInto(events),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1239,7 +1239,8 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
       brand: brandFor(repo),
       plugin: 'acme-sdk',
       targets: TARGETS,
-      deps: tracking(spec, events),
+      deps: deps(spec),
+      sink: sinkInto(events),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1252,11 +1253,12 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
         brand: brandFor(repo),
         plugin: 'missing-sdk',
         targets: TARGETS,
-        deps: tracking(spec, events),
+        deps: deps(spec),
+        sink: sinkInto(events),
         pathOpts: m.pathOpts,
       }),
     ),
-    UserError,
+    FailureError,
   );
   assert.deepEqual(
     events.map((e) => e.name),
@@ -1275,11 +1277,12 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
         brand: brandFor(repo),
         plugin: '../etc',
         targets: TARGETS,
-        deps: tracking(spec, events),
+        deps: deps(spec),
+        sink: sinkInto(events),
         pathOpts: m.pathOpts,
       }),
     ),
-    UserError,
+    FailureError,
   );
   assert.equal(events[0]?.properties.plugin, null);
 });
@@ -1288,13 +1291,15 @@ test('uninstall reports one event per editor it removed', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const events: Tracked[] = [];
-  const d = tracking({ repo, srcDir: pluginSource() }, events);
+  const d = deps({ repo, srcDir: pluginSource() });
+  const sink = sinkInto(events);
   await quietly(() =>
     installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
       deps: d,
+      sink,
       pathOpts: m.pathOpts,
     }),
   );
@@ -1306,6 +1311,7 @@ test('uninstall reports one event per editor it removed', async () => {
       plugin: 'my-sdk',
       targets: TARGETS,
       deps: d,
+      sink,
       pathOpts: m.pathOpts,
     }),
   );
@@ -1322,18 +1328,15 @@ test('a throwing track sink never fails an install', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const spec = { repo, srcDir: pluginSource() };
-  const throwing: Deps = {
-    ...deps(spec),
-    track: () => {
-      throw new Error('sink is down');
-    },
-  };
   const result = await quietly(() =>
     installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: throwing,
+      deps: deps(spec),
+      sink: () => {
+        throw new Error('sink is down');
+      },
       pathOpts: m.pathOpts,
     }),
   );

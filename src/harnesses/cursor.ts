@@ -1,6 +1,8 @@
 import { exists, replaceDir, rmrf } from '../infrastructure/file-system.js';
 import * as paths from '../infrastructure/paths.js';
+import type { Failure } from '../types/failure.js';
 import type { DirectoryPath } from '../types/file/paths.js';
+import { ok, type Result } from '../types/result.js';
 import {
   TITLES,
   type CursorEvent,
@@ -8,6 +10,7 @@ import {
   type HarnessContext,
   type HarnessName,
   type HarnessOpts,
+  type InstallOutcome,
   type UninstallOutcome,
 } from '../types/harness.js';
 
@@ -37,15 +40,15 @@ export class CursorHarness implements Harness {
     ctx.listener(event);
   }
 
-  async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean> {
+  async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>> {
     const { plugin, srcDir } = ctx;
     if (!this.detect(opts)) {
       this.say(ctx, { harness: 'cursor', kind: 'not-installed', root: this.location(opts) });
-      return false;
+      return ok('skipped');
     }
     if (!srcDir) {
       this.say(ctx, { harness: 'cursor', kind: 'no-source' });
-      return false;
+      return ok('skipped');
     }
     if (!exists(srcDir.file('.cursor-plugin', 'plugin.json'))) {
       this.say(ctx, { harness: 'cursor', kind: 'no-plugin-json' });
@@ -56,7 +59,7 @@ export class CursorHarness implements Harness {
 
     this.say(ctx, { harness: 'cursor', kind: 'copied', dest });
     this.say(ctx, { harness: 'cursor', kind: 'reload', after: 'install' });
-    return true;
+    return ok('installed');
   }
 
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {

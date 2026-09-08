@@ -34,7 +34,12 @@ export interface RepoHandle {
 }
 
 export interface Session {
-  marketplaces: Map<string, Promise<{ known: string; updated: boolean }>>;
+  /**
+   * Which marketplace name Claude Code filed a repository under, per session.
+   * A `Result`, because a registration that cannot be made is the user's to fix
+   * and every plugin from that marketplace shares the one answer.
+   */
+  marketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
   catalog(args: { repo: string; ref: string }): Promise<Result<Catalog | null, Failure>>;
   source(args: {
     repo: string;

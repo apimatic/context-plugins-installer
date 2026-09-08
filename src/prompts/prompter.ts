@@ -1,8 +1,8 @@
 import * as readline from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
-import { log } from './log.js';
-import type { Prompter } from './types/ports.js';
+import type { Prompter } from '../types/ports.js';
+import { log } from './terminal.js';
 
 const YES = new Set(['y', 'yes']);
 const NO = new Set(['n', 'no']);
@@ -43,10 +43,22 @@ export function createPrompter({
 }: PrompterOptions = {}): Prompter {
   const g = glyphs(unicode);
   const rl = readline.createInterface({ input, output: out });
+
+  // Ctrl-C used to end the process from here, with code 130, which took the
+  // run's own cleanup with it: no temp directory removed, no telemetry flushed. It
+  // resolves the pending question with `cancelled` instead, and that answer
+  // travels back up as one - the action stops, the router exits 130, and
+  // everything in between still gets to finish.
+  let cancelled = false;
+  let interrupt = (): void => {};
+  const interrupted = new Promise<'cancelled'>((resolve) => {
+    interrupt = () => resolve('cancelled');
+  });
   rl.on('SIGINT', () => {
-    rl.close();
+    cancelled = true;
     out.write(`\n${g.bar}  Cancelled.\n`);
-    process.exit(130);
+    interrupt();
+    rl.close();
   });
 
   // Past the terminal width the row may have wrapped, and the cursor arithmetic
@@ -56,15 +68,15 @@ export function createPrompter({
 
   return {
     async confirm(question, defaultYes = true) {
+      if (cancelled) return 'cancelled';
       const hint = defaultYes ? '(Y/n)' : '(y/N)';
       const asked = `${g.step}  ${question} ${hint} `;
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        let answer: string;
-        try {
-          answer = await rl.question(asked);
-        } catch {
-          return defaultYes; // stdin closed mid-question
-        }
+        // The question's own rejection is caught inside the race: a rejected
+        // promise nobody is left waiting on is how a race takes a process down.
+        const answer = await Promise.race([rl.question(asked).catch(() => null), interrupted]);
+        if (answer === 'cancelled') return 'cancelled';
+        if (answer === null) return defaultYes; // stdin closed mid-question
         const parsed = parseAnswer(answer, defaultYes);
         if (parsed === null) {
           out.write(`${log.dim(g.bar)}  Please answer yes or no.\n`);
@@ -84,7 +96,8 @@ export function createPrompter({
       return defaultYes;
     },
     close() {
-      out.write(`${log.dim(g.bar)}\n`);
+      // Nothing after "Cancelled.": that line closed the flow itself.
+      if (!cancelled) out.write(`${log.dim(g.bar)}\n`);
       rl.close();
     },
   };

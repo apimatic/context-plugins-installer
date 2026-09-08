@@ -8,9 +8,12 @@ import {
   type HarnessContext,
   type HarnessName,
   type HarnessOpts,
+  type InstallOutcome,
   type UninstallOutcome,
   type VscodeEvent,
 } from '../types/harness.js';
+import { ok, type Result } from '../types/result.js';
+import type { Failure } from '../types/failure.js';
 import type { AddLocationResult, RemoveLocationResult } from '../types/vscode-settings.js';
 
 /**
@@ -47,15 +50,15 @@ export class VscodeHarness implements Harness {
     }
   }
 
-  async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean> {
+  async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>> {
     const { plugin, srcDir } = ctx;
     if (!this.detect(opts)) {
       this.say(ctx, { harness: 'vscode', kind: 'not-installed', root: this.location(opts) });
-      return false;
+      return ok('skipped');
     }
     if (!srcDir) {
       this.say(ctx, { harness: 'vscode', kind: 'no-source' });
-      return false;
+      return ok('skipped');
     }
 
     const dest = this.destFor(plugin, opts);
@@ -78,7 +81,7 @@ export class VscodeHarness implements Harness {
     }
     this.sayBackup(ctx, result);
     this.say(ctx, { harness: 'vscode', kind: 'reload', after: 'install' });
-    return true;
+    return ok('installed');
   }
 
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {

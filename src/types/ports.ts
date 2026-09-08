@@ -3,7 +3,6 @@ import type { DirectoryPath, FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
-import type { EventSink } from './events/domain-event.js';
 import type { TelemetryStatus } from './telemetry.js';
 
 // The interfaces through which this program reaches anything outside itself: a
@@ -55,11 +54,13 @@ export interface Deps {
     sourcePath: string;
     deps?: Deps;
   }) => Promise<MaterializedSource>;
-  confirm?: (question: string, defaultYes: boolean) => boolean | Promise<boolean>;
+  /** `'cancelled'` for the interrupt, so a test can drive that path too. */
+  confirm?: (
+    question: string,
+    defaultYes: boolean,
+  ) => boolean | 'cancelled' | Promise<boolean | 'cancelled'>;
   which?: (cmd: string, env?: Env) => string | null;
   run?: RunCommand;
-  /** Where install/uninstall report what they did; absent means nobody is listening. */
-  track?: EventSink;
 }
 
 /**
@@ -93,6 +94,12 @@ export interface TelemetrySettings {
 }
 
 export interface Prompter {
-  confirm(question: string, defaultYes?: boolean): Promise<boolean>;
+  /**
+   * `'cancelled'` when the user interrupted the flow. An answer rather than an
+   * exit or a throw, so the run it belongs to gets to stop by itself: the
+   * action returns a cancelled result, the router exits 130, and the session
+   * still cleans up on the way out.
+   */
+  confirm(question: string, defaultYes?: boolean): Promise<boolean | 'cancelled'>;
   close(): void;
 }

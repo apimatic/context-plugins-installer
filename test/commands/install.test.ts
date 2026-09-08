@@ -11,12 +11,14 @@ import { cleanupAll } from '../helpers.js';
 import {
   TARGETS,
   brandFor,
+  cancellingConfirm,
   deps,
   machine,
   pluginSource,
   quietly,
   sinkInto,
   throwsOnInstall,
+  withClaude,
   withHarness,
   type Machine,
   type Tracked,
@@ -139,6 +141,52 @@ test('a throw out of the action is unexpected, and still leaves the run', async 
   assert.equal(events[0]?.properties.stage, 'install');
   assert.equal(events[0]?.properties.plugin, 'my-sdk', 'the id it was working on survives');
   assert.ok(!JSON.stringify(events[0]).includes('disk on fire'));
+});
+
+/**
+ * An editor that looked and could not is the user's to fix, so it is a
+ * `Failure` the action returns and not a throw a harness makes - which is what
+ * keeps it `user` rather than `unexpected`. The Claude path is the only one
+ * that can produce one: `claude plugin install` failing is a real answer, not
+ * a bug in this program.
+ */
+test('an editor that fails the install is the user, not a bug', async () => {
+  const events: Tracked[] = [];
+  const m = withClaude(machine());
+  const result = await install(
+    m,
+    deps({ repo: REPO, srcDir: pluginSource() }),
+    {
+      targets: ['claude'],
+    },
+    events,
+  );
+
+  assert.equal(result.isFailed(), true);
+  assert.match(result.failure?.message ?? '', /claude plugin install my-sdk@apimatic failed/);
+  assert.deepEqual(
+    events.map((e) => [e.name, e.properties.error_kind]),
+    [['Context Plugin Install Failed', 'user']],
+  );
+  assert.equal(events[0]?.properties.stage, 'install');
+});
+
+/**
+ * Ctrl-C at the prompt. Nothing happened, so nothing is reported - and the exit
+ * code is 130, the shell's convention for an interrupted process, which the old
+ * `process.exit(130)` inside the prompter answered by killing the run outright:
+ * no session cleanup, no flush.
+ */
+test('an interrupted prompt cancels the run, reports nothing, and exits 130', async () => {
+  const events: Tracked[] = [];
+  const confirm = cancellingConfirm();
+  const d = { ...deps({ repo: REPO, srcDir: pluginSource() }), confirm };
+  const result = await install(machine(), d, { targets: null }, events);
+
+  assert.equal(result.isCancelled(), true);
+  assert.equal(result.exitCode(), 130);
+  assert.deepEqual(events, [], 'nothing happened, so nothing is reported');
+  assert.deepEqual(confirm.asked.length, 1, 'and it stopped asking');
 });
 
 // A run that installed nothing reports no install; the failure is the whole of

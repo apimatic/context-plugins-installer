@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { CursorHarness } from '../../src/harnesses/cursor.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
-import { cleanupAll, plainly, tmpDir } from '../helpers.js';
+import { cleanupAll, outcome, plainly, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -55,7 +55,7 @@ function machine({ installed = true, hasPluginJson = true, copied = false } = {}
 test('an install copies the plugin in and says where, then how to reload', async () => {
   const m = machine();
 
-  assert.equal(await cursor.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await cursor.install(m.ctx, m.opts)), 'installed');
 
   assert.ok(fs.existsSync(path.join(m.dest, 'plugin.json')), 'the files are in place');
   assert.deepEqual(m.kinds(), ['copied', 'reload']);
@@ -69,7 +69,7 @@ test('an install copies the plugin in and says where, then how to reload', async
 test('an install replaces an older copy rather than merging into it', async () => {
   const m = machine({ copied: true });
 
-  assert.equal(await cursor.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await cursor.install(m.ctx, m.opts)), 'installed');
 
   const written = JSON.parse(fs.readFileSync(path.join(m.dest, 'plugin.json'), 'utf8'));
   assert.equal(written.name, PLUGIN, 'the stale copy is gone, not written over in part');
@@ -80,7 +80,7 @@ test('an install replaces an older copy rather than merging into it', async () =
 test('a source with no .cursor-plugin manifest is installed anyway, with a word about it', async () => {
   const m = machine({ hasPluginJson: false });
 
-  assert.equal(await cursor.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await cursor.install(m.ctx, m.opts)), 'installed');
 
   assert.deepEqual(m.kinds(), ['no-plugin-json', 'copied', 'reload']);
 });
@@ -88,7 +88,7 @@ test('a source with no .cursor-plugin manifest is installed anyway, with a word 
 test('with Cursor not installed nothing is copied and the root is named', async () => {
   const m = machine({ installed: false });
 
-  assert.equal(await cursor.install(m.ctx, m.opts), false);
+  assert.equal(outcome(await cursor.install(m.ctx, m.opts)), 'skipped');
 
   assert.equal(fs.existsSync(m.dest), false);
   assert.deepEqual(plainly(m.events), [
@@ -99,7 +99,7 @@ test('with Cursor not installed nothing is copied and the root is named', async 
 test('with no source fetched the install skips rather than emptying the copy', async () => {
   const m = machine({ copied: true });
 
-  assert.equal(await cursor.install({ ...m.ctx, srcDir: null }, m.opts), false);
+  assert.equal(outcome(await cursor.install({ ...m.ctx, srcDir: null }, m.opts)), 'skipped');
 
   assert.ok(fs.existsSync(m.dest), 'the existing copy is left alone');
   assert.deepEqual(m.kinds(), ['no-source']);

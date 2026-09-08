@@ -7,7 +7,6 @@ import type { Brand } from './types/brand.js';
 import type { Env } from './types/env.js';
 import type { Failure } from './types/failure.js';
 import type { Result } from './types/result.js';
-import { orThrow } from './util.js';
 
 export interface ResolveBrandOptions {
   flags?: Flags;
@@ -35,7 +34,3 @@ export function readBrand({
   if (!homeRc.ok) return homeRc;
   return decideBrand({ flags, env, cwdRc: cwdRc.value, homeRc: homeRc.value });
 }
-
-/** The same, throwing, for the tests that want one brand and no ceremony. */
-export const resolveBrand = (options: ResolveBrandOptions = {}): Brand =>
-  orThrow(readBrand(options));

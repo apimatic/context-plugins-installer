@@ -1,4 +1,6 @@
 import type { PathOpts } from './env.js';
+import type { Failure } from './failure.js';
+import type { Result } from './result.js';
 import type { DirectoryPath, FilePath } from './file/paths.js';
 import type { RunCommand } from './ports.js';
 import type { Session } from './session.js';
@@ -166,6 +168,16 @@ export interface HarnessContext {
  */
 export type UninstallOutcome = 'removed' | 'absent' | 'skipped' | 'failed';
 
+/**
+ * What an install did. Named rather than a boolean for the same reason the
+ * uninstall outcomes are: `false` invited being read as failure, when it means
+ * the editor was not there to install into. A real failure is the `Failure` arm
+ * of the `Result` - an editor that looked and could not, which is the user's to
+ * fix and the run's to report as such. A harness does not throw for that: a
+ * throw out of one is a bug, and telemetry counts the two apart.
+ */
+export type InstallOutcome = 'installed' | 'skipped';
+
 export interface Harness {
   name: HarnessName;
   title: string;
@@ -178,8 +190,7 @@ export interface Harness {
    * renders it, because a harness cannot reach the formatter.
    */
   location(opts?: HarnessOpts): DirectoryPath | string;
-  /** false means "skipped", not failed. */
-  install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean>;
+  install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>>;
   uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome>;
 }
 

@@ -3,6 +3,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
+import type { Failure } from '../src/types/failure.js';
+import type { Result } from '../src/types/result.js';
+import { readBrand, type ResolveBrandOptions } from '../src/brand.js';
+import type { Brand } from '../src/types/brand.js';
 
 const dirs: string[] = [];
 
@@ -153,3 +157,42 @@ export function silenceConsole(): {
  * carrying a path is compared through the JSON form both sides agree on.
  */
 export const plainly = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+
+/**
+ * An install outcome as one word - `installed`, `skipped`, or the failure's
+ * message - so a harness test asserts it in one line and a failure says why
+ * rather than just "not what I expected".
+ */
+export const outcome = <T>(result: Result<T, Failure>): T | string =>
+  result.ok ? result.value : `failed: ${result.error.message}`;
+
+/**
+ * A `Failure`, thrown. Nothing in `src` throws for a problem the user can fix
+ * any more - a command answers with an `ActionResult` and the router reads it -
+ * but a few hundred assertions here are written as `assert.rejects`, and this
+ * is what they catch.
+ */
+export class FailureError extends Error {
+  constructor(readonly failure: Failure) {
+    super(failure.message);
+    this.name = 'FailureError';
+  }
+
+  get hint(): string | undefined {
+    return this.failure.hint;
+  }
+}
+
+export const throwFailure = (failure: Failure): never => {
+  throw new FailureError(failure);
+};
+
+/** A `Result`, unwrapped or thrown, for a test that only cares about the value. */
+export function orThrow<T>(result: Result<T, Failure>): T {
+  if (!result.ok) throw new FailureError(result.error);
+  return result.value;
+}
+
+/** One brand and no ceremony: `readBrand` is the Result-returning seam in src. */
+export const resolveBrand = (options: ResolveBrandOptions = {}): Brand =>
+  orThrow(readBrand(options));

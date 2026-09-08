@@ -1,4 +1,4 @@
-import { createPrompter } from '../prompt.js';
+import { createPrompter } from './prompter.js';
 import type { Brand } from '../types/brand.js';
 import {
   NAMES,
@@ -16,8 +16,15 @@ import { harnessListener } from './harness/index.js';
 import { announceMarketplace } from './marketplace.js';
 import { log } from './terminal.js';
 
-/** Whoever answers "install into X?" - an injected confirm, or a real prompter. */
-export type Ask = (question: string, defaultYes: boolean) => boolean | Promise<boolean>;
+/**
+ * Whoever answers "install into X?" - an injected confirm, or a real prompter.
+ * `'cancelled'` is the interrupt travelling back as an answer, which only the
+ * real prompter produces; a test's confirm answers yes or no.
+ */
+export type Ask = (
+  question: string,
+  defaultYes: boolean,
+) => boolean | 'cancelled' | Promise<boolean | 'cancelled'>;
 
 export class InstallPrompts {
   /**
@@ -65,7 +72,7 @@ export class InstallPrompts {
   }
 
   /** One question per detected editor, through whoever is answering. */
-  async askHarnesses(available: readonly HarnessName[]): Promise<HarnessName[]> {
+  async askHarnesses(available: readonly HarnessName[]): Promise<HarnessName[] | 'cancelled'> {
     if (this.confirm) return this.each(available, this.confirm);
     this.drewFlow = true;
     const prompter = createPrompter();
@@ -76,10 +83,16 @@ export class InstallPrompts {
     }
   }
 
-  private async each(available: readonly HarnessName[], ask: Ask): Promise<HarnessName[]> {
+  private async each(
+    available: readonly HarnessName[],
+    ask: Ask,
+  ): Promise<HarnessName[] | 'cancelled'> {
     const chosen: HarnessName[] = [];
     for (const name of available) {
-      if (await ask(`Install into ${TITLES[name]}?`, true)) chosen.push(name);
+      const answer = await ask(`Install into ${TITLES[name]}?`, true);
+      // Never tested for truth: `'cancelled'` is a string, and a truthy one.
+      if (answer === 'cancelled') return 'cancelled';
+      if (answer) chosen.push(name);
     }
     return chosen;
   }

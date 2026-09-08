@@ -7,7 +7,7 @@ import { VscodeHarness } from '../../src/harnesses/vscode.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
 import { toKey } from '../../src/types/vscode-settings.js';
-import { cleanupAll, parseJsonc, plainly, tmpDir } from '../helpers.js';
+import { cleanupAll, outcome, parseJsonc, plainly, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -85,7 +85,7 @@ const HAND_EDITED = '{\n  "chat.pluginLocations": { "<DEST>": false }\n}\n';
 test('a first install creates settings.json and registers the copy', async () => {
   const m = machine();
 
-  assert.equal(await vscode.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await vscode.install(m.ctx, m.opts)), 'installed');
 
   assert.equal(m.entry(), true);
   assert.deepEqual(m.kinds(), ['copied', 'settings-registered', 'reload']);
@@ -94,7 +94,7 @@ test('a first install creates settings.json and registers the copy', async () =>
 test('an install into a settings file with other keys backs it up first', async () => {
   const m = machine({ settings: '{\n  "editor.fontSize": 12\n}\n' });
 
-  assert.equal(await vscode.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await vscode.install(m.ctx, m.opts)), 'installed');
 
   assert.equal(m.entry(), true);
   assert.equal(parseJsonc(fs.readFileSync(m.file, 'utf8'))['editor.fontSize'], 12, 'kept');
@@ -107,7 +107,7 @@ test('an install that is already registered says so and touches nothing', async 
   const m = machine({ settings: REGISTERED, copied: true });
   const before = fs.readFileSync(m.file, 'utf8');
 
-  assert.equal(await vscode.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await vscode.install(m.ctx, m.opts)), 'installed');
 
   assert.equal(fs.readFileSync(m.file, 'utf8'), before, 'no rewrite for an entry already there');
   assert.deepEqual(m.kinds(), ['copied', 'settings-already', 'reload']);
@@ -121,7 +121,7 @@ test('an install that is already registered says so and touches nothing', async 
 test('a hand-edited entry is a conflict, and the install still succeeds', async () => {
   const m = machine({ settings: HAND_EDITED });
 
-  assert.equal(await vscode.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await vscode.install(m.ctx, m.opts)), 'installed');
 
   assert.ok(fs.existsSync(path.join(m.dest, 'plugin.json')), 'the files are in place either way');
   assert.equal(m.entry(), false, 'their entry is left as they wrote it');
@@ -133,7 +133,7 @@ test('a hand-edited entry is a conflict, and the install still succeeds', async 
 test('a settings file with nothing to splice into is reported, not skipped', async () => {
   const m = machine({ settings: '// a file of nothing but comments\n' });
 
-  assert.equal(await vscode.install(m.ctx, m.opts), true);
+  assert.equal(outcome(await vscode.install(m.ctx, m.opts)), 'installed');
 
   assert.ok(fs.existsSync(path.join(m.dest, 'plugin.json')));
   assert.deepEqual(m.kinds(), ['copied', 'settings-failed', 'reload']);
@@ -148,7 +148,7 @@ test('a settings file with nothing to splice into is reported, not skipped', asy
 test('with VS Code not installed nothing is copied and the user dir is named', async () => {
   const m = machine({ installed: false });
 
-  assert.equal(await vscode.install(m.ctx, m.opts), false);
+  assert.equal(outcome(await vscode.install(m.ctx, m.opts)), 'skipped');
 
   assert.equal(fs.existsSync(m.dest), false);
   assert.deepEqual(plainly(m.events), [
@@ -159,7 +159,7 @@ test('with VS Code not installed nothing is copied and the user dir is named', a
 test('with no source fetched the install skips rather than emptying the copy', async () => {
   const m = machine({ settings: REGISTERED, copied: true });
 
-  assert.equal(await vscode.install({ ...m.ctx, srcDir: null }, m.opts), false);
+  assert.equal(outcome(await vscode.install({ ...m.ctx, srcDir: null }, m.opts)), 'skipped');
 
   assert.ok(fs.existsSync(m.dest), 'the existing copy is left alone');
   assert.deepEqual(m.kinds(), ['no-source']);

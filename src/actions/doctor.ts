@@ -1,14 +1,14 @@
 import * as fs from 'node:fs';
 
-import { loadCatalog } from '../catalog.js';
 import { harnesses } from '../harnesses/index.js';
 import { ensureDir, rmrf } from '../infrastructure/file-system.js';
-import { ghHeaders, rawUrl } from '../infrastructure/github-registry-client.js';
+import { ghHeaders, rawUrl, readRegistry } from '../infrastructure/github-registry-client.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import { run, which } from '../infrastructure/process-runner.js';
 import { telemetryStatus } from '../infrastructure/telemetry-service.js';
 import { format as f } from '../prompts/format.js';
+import { announceMarketplace } from '../prompts/marketplace.js';
 import { describeTelemetry } from '../prompts/telemetry.js';
 import { BIN, type Brand } from '../types/brand.js';
 import { REGISTRY_FILES } from '../types/catalog.js';
@@ -17,7 +17,7 @@ import type { PathOpts } from '../types/env.js';
 import { everyEditor } from '../types/harness.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
 import type { Deps, FetchLike } from '../types/ports.js';
-import { UserError, isPlainObject, errorMessage } from '../util.js';
+import { isPlainObject, errorMessage } from '../util.js';
 import { ActionResult } from './action-result.js';
 
 export const MIN_NODE = 18;
@@ -132,17 +132,22 @@ export class DoctorAction {
     const env = deps.env || process.env;
     const checks: DoctorCheck[] = [];
 
-    let catalog = null;
-    try {
-      catalog = await loadCatalog({ repo: brand.repo, ref: brand.ref, deps });
-      checks.push(ok('Reachable', new URL(rawUrl(brand.repo, brand.ref, REGISTRY_FILES[0])).host));
-    } catch (err) {
-      checks.push(
-        fail('Reachable', errorMessage(err), err instanceof UserError ? err.hint : undefined),
-      );
+    // The registry client answers with a `Result` and its own progress events,
+    // so there is nothing to catch: what used to be a throw, with a hint pulled
+    // off the error class, is the failure's own message and hint.
+    const read = await readRegistry({
+      repo: brand.repo,
+      ref: brand.ref,
+      deps,
+      notify: announceMarketplace,
+    });
+    if (!read.ok) {
+      checks.push(fail('Reachable', read.error.message, read.error.hint));
       return checks;
     }
+    checks.push(ok('Reachable', new URL(rawUrl(brand.repo, brand.ref, REGISTRY_FILES[0])).host));
 
+    const catalog = read.value;
     if (!catalog) {
       checks.push(fail('Registry', `no ${REGISTRY_FILES[0]} found`, 'Check --repo and --ref.'));
       return checks;

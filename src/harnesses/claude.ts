@@ -1,4 +1,6 @@
 import { claudeCli, findClaude, type ClaudeCli } from '../infrastructure/claude-cli.js';
+import { BIN } from '../types/brand.js';
+import { Failure } from '../types/failure.js';
 import {
   TITLES,
   type ClaudeEvent,
@@ -7,13 +9,15 @@ import {
   type HarnessListener,
   type HarnessName,
   type HarnessOpts,
+  type InstallOutcome,
   type MarketplaceListing,
   type UninstallOutcome,
 } from '../types/harness.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { RunResult } from '../types/ports.js';
+import { err, ok, type Result } from '../types/result.js';
 import type { Session } from '../types/session.js';
-import { UserError, isPlainObject, nonEmptyString } from '../util.js';
+import { isPlainObject, nonEmptyString } from '../util.js';
 
 /**
  * This harness's half of the listener: it only ever emits Claude events, so the
@@ -137,7 +141,7 @@ export class ClaudeHarness implements Harness {
     cli: ClaudeCli,
     { marketplace, repo }: MarketplaceIds,
     say: Say,
-  ): Promise<Registration> {
+  ): Promise<Result<Registration, Failure>> {
     const entries = await cli.listMarketplaces();
     const existing = entries?.find((e) => isSameRepo(e, new RepoSlug(repo)));
 
@@ -148,7 +152,7 @@ export class ClaudeHarness implements Harness {
       }
       say({ harness: 'claude', kind: 'marketplace-registered', known });
       await this.refresh(cli, known, say);
-      return { known, updated: true };
+      return ok({ known, updated: true });
     }
 
     // A same-named entry from another repo would swallow the install; refuse only
@@ -157,22 +161,22 @@ export class ClaudeHarness implements Harness {
     if (clash) {
       const from = repoOf(clash);
       if (from) {
-        throw new UserError(
-          `Claude Code already has a marketplace named '${marketplace}', from ${from} rather than ${repo}.`,
-          {
-            hint: `Remove it with \`claude plugin marketplace remove ${marketplace}\`, then run this again.`,
-          },
+        return err(
+          new Failure(
+            `Claude Code already has a marketplace named '${marketplace}', from ${from} rather than ${repo}.`,
+            `Remove it with \`claude plugin marketplace remove ${marketplace}\`, then run this again.`,
+          ),
         );
       }
       say({ harness: 'claude', kind: 'marketplace-registered', known: marketplace });
       await this.refresh(cli, marketplace, say);
-      return { known: marketplace, updated: true };
+      return ok({ known: marketplace, updated: true });
     }
 
     const added = await cli.marketplaceAdd(repo);
     if (added.code === 0) {
       say({ harness: 'claude', kind: 'marketplace-added', marketplace });
-      return { known: (await this.registeredName(cli, repo)) || marketplace, updated: false };
+      return ok({ known: (await this.registeredName(cli, repo)) || marketplace, updated: false });
     }
 
     // `add` failing with nothing listed usually means an older CLI that cannot
@@ -187,21 +191,22 @@ export class ClaudeHarness implements Harness {
     if (res.code === 0) {
       say({ harness: 'claude', kind: 'marketplace-updated', known: marketplace });
     }
-    return { known: marketplace, updated: true };
+    return ok({ known: marketplace, updated: true });
   }
 
   /**
-   * Memoized per session, promise rather than result, so a failed registration
-   * is shared instead of retried for every plugin from that marketplace. The
-   * events fire inside the cached promise, with the work, which is what makes
-   * three plugins from one marketplace announce one registration and not three.
+   * Memoized per session, the promise rather than what it settles to, so a
+   * failed registration is shared instead of retried for every plugin from that
+   * marketplace. The events fire inside the cached promise, with the work, which
+   * is what makes three plugins from one marketplace announce one registration
+   * and not three.
    */
   ensureMarketplaceOnce(
     cli: ClaudeCli,
     ids: MarketplaceIds,
     session: Session | null | undefined,
     listener: HarnessListener,
-  ): Promise<Registration> {
+  ): Promise<Result<Registration, Failure>> {
     if (!session?.marketplaces) {
       return this.ensureMarketplace(cli, ids, listener);
     }
@@ -217,26 +222,28 @@ export class ClaudeHarness implements Harness {
     return pending;
   }
 
-  async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<boolean> {
+  async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>> {
     const { plugin, marketplace, repo, session } = ctx;
     const say: Say = ctx.listener;
     const claude = this.binary(opts);
     if (!claude) {
       say({ harness: 'claude', kind: 'cli-missing' });
-      return false;
+      return ok('skipped');
     }
     if (!marketplace) {
       say({ harness: 'claude', kind: 'no-marketplace-name', after: 'install' });
-      return false;
+      return ok('skipped');
     }
     const cli = this.cliFor(claude, opts);
 
-    const { known, updated } = await this.ensureMarketplaceOnce(
+    const registered = await this.ensureMarketplaceOnce(
       cli,
       { marketplace, repo },
       session,
       ctx.listener,
     );
+    if (!registered.ok) return registered;
+    const { known, updated } = registered.value;
     const target = `${plugin}@${known}`;
 
     let res = await cli.pluginInstall(target, SCOPE);
@@ -245,18 +252,18 @@ export class ClaudeHarness implements Harness {
       if (await this.refresh(cli, known, say)) res = await cli.pluginInstall(target, SCOPE);
     }
     if (res.code !== 0) {
-      throw new UserError(
-        `claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim(),
-        {
-          hint: LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
-            ? `'${plugin}' is not in marketplace '${known}'. Run \`npx context-plugins list\` to see what it offers.`
+      return err(
+        new Failure(
+          `claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim(),
+          LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
+            ? `'${plugin}' is not in marketplace '${known}'. Run \`${BIN} list\` to see what it offers.`
             : undefined,
-        },
+        ),
       );
     }
     say({ harness: 'claude', kind: 'plugin-installed', target, scope: SCOPE });
     say({ harness: 'claude', kind: 'reload', after: 'install' });
-    return true;
+    return ok('installed');
   }
 
   // Claude fails the same way whether the plugin is missing or something went

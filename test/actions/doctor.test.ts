@@ -3,7 +3,6 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand } from '../../src/brand.js';
 import type { Brand } from '../../src/types/brand.js';
 import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import { DoctorAction } from '../../src/actions/doctor.js';
@@ -11,7 +10,7 @@ import * as paths from '../../src/infrastructure/paths.js';
 import type { DoctorCheck, DoctorReport } from '../../src/types/doctor.js';
 import type { Env, PathOpts } from '../../src/types/env.js';
 import type { Deps } from '../../src/types/ports.js';
-import { tmpDir, cleanupAll, stubFetch } from '../helpers.js';
+import { cleanupAll, resolveBrand, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 

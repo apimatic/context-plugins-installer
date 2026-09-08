@@ -126,6 +126,9 @@ export class InstallAction {
     if (missing.length) this.prompts.continuingWith(available);
 
     const want = await this.choose(available, explicit, assumeYes);
+    // Ctrl-C at the prompt. The line was said where it happened, so there is
+    // nothing to add: the run stops here and the router answers 130.
+    if (want === 'cancelled') return ActionResult.cancelled(done());
     if (!want.length) {
       this.prompts.nothingChosen();
       return ActionResult.success(done());
@@ -168,7 +171,12 @@ export class InstallAction {
         this.prompts.noSource(harness.title);
         continue;
       }
-      if (await harness.install(ctx, this.pathOpts)) installed.push(name);
+      const outcome = await harness.install(ctx, this.pathOpts);
+      // An editor that looked and could not is the user's to fix, so the run
+      // stops here and says so - never tested for truth, because both arms of
+      // a `Result` and both outcomes inside one are objects and strings.
+      if (!outcome.ok) return failed(outcome.error);
+      if (outcome.value === 'installed') installed.push(name);
     }
     report.targets = installed;
 
@@ -197,7 +205,7 @@ export class InstallAction {
     available: HarnessName[],
     explicit: boolean,
     assumeYes: boolean,
-  ): Promise<HarnessName[]> {
+  ): Promise<HarnessName[] | 'cancelled'> {
     const choice = chooseTargets({
       detected: available.length,
       explicit,

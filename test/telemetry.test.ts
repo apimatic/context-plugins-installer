@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand, type ResolveBrandOptions } from '../src/brand.js';
+import type { ResolveBrandOptions } from '../src/brand.js';
 import * as paths from '../src/infrastructure/paths.js';
 import { printTelemetryLines } from '../src/prompts/telemetry.js';
 import {
@@ -20,7 +20,7 @@ import { COLLECTED, type TelemetryValue } from '../src/types/telemetry.js';
 import type { Brand } from '../src/types/brand.js';
 import type { Env, PathOpts } from '../src/types/env.js';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
-import { tmpDir, cleanupAll, silenceConsole } from './helpers.js';
+import { cleanupAll, resolveBrand, silenceConsole, tmpDir } from './helpers.js';
 
 test.after(cleanupAll);
 

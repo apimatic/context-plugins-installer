@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { InstallRequest } from '../src/actions/install.js';
 import type { UninstallRequest } from '../src/actions/uninstall.js';
 import type { UpdateRequest } from '../src/actions/update.js';
-import { resolveBrand } from '../src/brand.js';
+
 import { InstallCommand } from '../src/commands/install.js';
 import { UninstallCommand } from '../src/commands/uninstall.js';
 import { UpdateCommand } from '../src/commands/update.js';
@@ -15,12 +15,12 @@ import { announceMarketplace } from '../src/prompts/marketplace.js';
 import { log } from '../src/prompts/terminal.js';
 import type { Session } from '../src/types/session.js';
 import type { InstallReport, UninstallResult, UpdateReport } from '../src/types/reports.js';
-import { errorMessage, throwFailure } from '../src/util.js';
+import { errorMessage } from '../src/util.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
 import type { EventSink } from '../src/types/events/domain-event.js';
 import type { Harness, HarnessName } from '../src/types/harness.js';
 import type { Deps } from '../src/types/ports.js';
-import { silenceConsole, stubFetch, tmpDir } from './helpers.js';
+import { resolveBrand, silenceConsole, stubFetch, throwFailure, tmpDir } from './helpers.js';
 
 // The sandboxed machine every install-shaped test is built on. Shared because
 // `install` and `update` are the same machinery from two directions, and their
@@ -38,12 +38,13 @@ export const TARGETS: HarnessName[] = ['cursor', 'vscode'];
  */
 export async function installPlugin({
   session,
+  sink,
   ...req
-}: InstallRequest & { session?: Session }): Promise<InstallReport> {
+}: InstallRequest & { session?: Session; sink?: EventSink }): Promise<InstallReport> {
   const own = !session;
   const run = session ?? createSession({ deps: req.deps, notify: announceMarketplace });
   try {
-    const result = await new InstallCommand(sinkOf(req.deps)).run(req, run);
+    const result = await new InstallCommand(guarded(sink)).run(req, run);
     if (result.failure) throwFailure(result.failure);
     return result.report;
   } finally {
@@ -51,24 +52,32 @@ export async function installPlugin({
   }
 }
 
-export async function uninstallPlugin(req: UninstallRequest): Promise<UninstallResult> {
-  const result = await new UninstallCommand(sinkOf(req.deps)).run(req);
+export async function uninstallPlugin({
+  sink,
+  ...req
+}: UninstallRequest & { sink?: EventSink }): Promise<UninstallResult> {
+  const result = await new UninstallCommand(guarded(sink)).run(req);
   if (result.failure) throwFailure(result.failure);
   return result.report;
 }
 
 /** No throw: `update` reports per row, and its failures are in the report. */
-export async function updateAll(req: UpdateRequest): Promise<UpdateReport> {
-  return (await new UpdateCommand(sinkOf(req.deps)).run(req)).report;
+export async function updateAll({
+  sink,
+  ...req
+}: UpdateRequest & { sink?: EventSink }): Promise<UpdateReport> {
+  return (await new UpdateCommand(guarded(sink)).run(req)).report;
 }
 
-/** A sink that cannot fail the run it is listening to. */
-const sinkOf = (deps?: Deps): EventSink => {
-  const track = deps?.track;
-  if (!track) return () => {};
+/**
+ * A sink that cannot fail the run it is listening to, the way the composition
+ * root's does. Absent means nobody is listening.
+ */
+const guarded = (sink?: EventSink): EventSink => {
+  if (!sink) return () => {};
   return (event) => {
     try {
-      track(event);
+      sink(event);
     } catch (err) {
       log.debug(`telemetry: ${errorMessage(err)}`);
     }
@@ -208,15 +217,6 @@ export interface Tracked {
   properties: Record<string, unknown>;
 }
 
-/**
- * The deps for an install, plus an event sink that collects into `events`. The
- * sink takes a `DomainEvent`; what the tests read is what it declares, because
- * that - and only that - is what leaves the machine.
- */
-export function tracking(spec: DepsSpec, events: Tracked[]): Deps {
-  return { ...deps(spec), track: sinkInto(events) };
-}
-
 export const sinkInto =
   (events: Tracked[]): EventSink =>
   (event) => {
@@ -224,6 +224,16 @@ export const sinkInto =
   };
 
 export type Confirm = NonNullable<Deps['confirm']> & { asked: string[] };
+
+/** Answers the first question with the interrupt a real prompter reports. */
+export function cancellingConfirm(): Confirm {
+  const asked: string[] = [];
+  const fn = async (question: string): Promise<'cancelled'> => {
+    asked.push(question);
+    return 'cancelled';
+  };
+  return Object.assign(fn, { asked });
+}
 
 /** Records what was asked, and answers from a scripted list of booleans. */
 export function scriptedConfirm(answers: boolean[]): Confirm {
