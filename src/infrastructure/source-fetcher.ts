@@ -6,13 +6,18 @@ import { Failure } from '../types/failure.js';
 import { DirectoryPath } from '../types/file/paths.js';
 import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
-import type { Deps, FetchLike, MaterializedSource, RunResult } from '../types/ports.js';
+import type {
+  HttpPorts,
+  MaterializedSource,
+  ProcessRunner,
+  RunResult,
+  SourcePorts,
+} from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
 import { ghHeaders } from './github-registry-client.js';
-import { run, which } from './process-runner.js';
 
 export const DOWNLOAD_CONCURRENCY = 8;
 
@@ -56,31 +61,27 @@ export interface SourceRequest {
   repo: string;
   ref: string;
   sourcePath: string;
-  deps?: Deps;
   notify?: MarketplaceListener;
 }
 
 /** Callers must call cleanup() when done, on the failure arm too. */
-export async function materialize({
-  repo,
-  ref,
-  sourcePath,
-  deps = {},
-  notify = nothing,
-}: SourceRequest): Promise<Result<MaterializedSource, Failure>> {
+export async function materialize(
+  { repo, ref, sourcePath, notify = nothing }: SourceRequest,
+  ports: SourcePorts,
+): Promise<Result<MaterializedSource, Failure>> {
   const { work, cleanup } = tempWorkspace();
 
   // A Failure is not the only way out: a spawn that never starts, a full disk, a
   // response body that dies mid-read all throw, and the workspace has to go
   // either way. Only the success arm hands `cleanup` to the caller.
   try {
-    const git = which('git', deps.env || process.env);
+    const git = ports.runner.which('git');
     // The API route is what happens when git is absent, and saying so before the
     // work starts is the point of the line.
     if (!git) notify({ kind: 'no-git' });
     const dir = git
-      ? await viaGit({ git, repo, ref, sourcePath, work, notify })
-      : await viaApi({ repo, ref, sourcePath, work, deps, notify });
+      ? await viaGit({ git, repo, ref, sourcePath, work, notify }, ports.runner)
+      : await viaApi({ repo, ref, sourcePath, work, notify }, ports);
     if (!dir.ok) {
       cleanup();
       return err(dir.error);
@@ -100,13 +101,10 @@ interface CloneRequest {
   notify?: MarketplaceListener;
 }
 
-export async function cloneRepo({
-  git,
-  repo,
-  ref,
-  work,
-  notify = nothing,
-}: CloneRequest): Promise<Result<string, Failure>> {
+export async function cloneRepo(
+  { git, repo, ref, work, notify = nothing }: CloneRequest,
+  { run }: ProcessRunner,
+): Promise<Result<string, Failure>> {
   const clone = path.join(work, 'repo');
   const url = new RepoSlug(repo).cloneUrl();
   notify({ kind: 'cloning', url, ref });
@@ -148,14 +146,10 @@ interface SparseRequest {
 
 // `add` rather than `set`, so later plugins join the same working tree
 // instead of replacing what is already checked out.
-export async function addSparsePath({
-  git,
-  clone,
-  repo,
-  ref,
-  sourcePath,
-  notify = nothing,
-}: SparseRequest): Promise<Result<string, Failure>> {
+export async function addSparsePath(
+  { git, clone, repo, ref, sourcePath, notify = nothing }: SparseRequest,
+  { run }: ProcessRunner,
+): Promise<Result<string, Failure>> {
   const added = await expect(
     run(git, ['-C', clone, 'sparse-checkout', 'add', sourcePath]),
     `git sparse-checkout add ${sourcePath}`,
@@ -170,17 +164,13 @@ export async function addSparsePath({
   return ok(dir);
 }
 
-export async function viaGit({
-  git,
-  repo,
-  ref,
-  sourcePath,
-  work,
-  notify,
-}: CloneRequest & { sourcePath: string }): Promise<Result<string, Failure>> {
-  const clone = await cloneRepo({ git, repo, ref, work, notify });
+export async function viaGit(
+  { git, repo, ref, sourcePath, work, notify }: CloneRequest & { sourcePath: string },
+  runner: ProcessRunner,
+): Promise<Result<string, Failure>> {
+  const clone = await cloneRepo({ git, repo, ref, work, notify }, runner);
   if (!clone.ok) return err(clone.error);
-  return addSparsePath({ git, clone: clone.value, repo, ref, sourcePath, notify });
+  return addSparsePath({ git, clone: clone.value, repo, ref, sourcePath, notify }, runner);
 }
 
 async function expect(
@@ -224,19 +214,10 @@ function asTree(data: unknown): Result<GitTree, Failure> {
   });
 }
 
-export async function fetchTree({
-  repo,
-  ref,
-  deps = {},
-  notify = nothing,
-}: {
-  repo: string;
-  ref: string;
-  deps?: Deps;
-  notify?: MarketplaceListener;
-}): Promise<Result<GitTree, Failure>> {
-  const fetchImpl: FetchLike = deps.fetchImpl || fetch;
-  const env = deps.env || process.env;
+export async function fetchTree(
+  { repo, ref, notify = nothing }: { repo: string; ref: string; notify?: MarketplaceListener },
+  { fetch: fetchImpl, env }: HttpPorts,
+): Promise<Result<GitTree, Failure>> {
   const treeUrl = new RepoSlug(repo).treeUrl(ref);
   let body: unknown;
   try {
@@ -264,17 +245,10 @@ interface DownloadRequest extends SourceRequest {
   work: string;
 }
 
-export async function downloadPath({
-  tree,
-  repo,
-  ref,
-  sourcePath,
-  work,
-  deps = {},
-  notify = nothing,
-}: DownloadRequest): Promise<Result<string, Failure>> {
-  const fetchImpl: FetchLike = deps.fetchImpl || fetch;
-  const env = deps.env || process.env;
+export async function downloadPath(
+  { tree, repo, ref, sourcePath, work, notify = nothing }: DownloadRequest,
+  { fetch: fetchImpl, env }: HttpPorts,
+): Promise<Result<string, Failure>> {
   // Mirrors the repository layout so two plugins never share a destination.
   const dest = new DirectoryPath(ensureDir(path.join(work, 'files', ...sourcePath.split('/'))));
 
@@ -318,35 +292,24 @@ export async function downloadPath({
   return ok(dest.toString());
 }
 
-export async function viaApi({
-  repo,
-  ref,
-  sourcePath,
-  work,
-  deps = {},
-  notify = nothing,
-}: SourceRequest & { work: string }): Promise<Result<string, Failure>> {
-  const tree = await fetchTree({ repo, ref, deps, notify });
+export async function viaApi(
+  { repo, ref, sourcePath, work, notify = nothing }: SourceRequest & { work: string },
+  ports: HttpPorts,
+): Promise<Result<string, Failure>> {
+  const tree = await fetchTree({ repo, ref, notify }, ports);
   if (!tree.ok) return err(tree.error);
-  return downloadPath({ tree: tree.value, repo, ref, sourcePath, work, deps, notify });
+  return downloadPath({ tree: tree.value, repo, ref, sourcePath, work, notify }, ports);
 }
 
 /** One clone (or API tree) per repo@ref; every checkout after the first is local. Callers must call cleanup(). */
-export async function openRepo({
-  repo,
-  ref,
-  deps = {},
-  notify = nothing,
-}: {
-  repo: string;
-  ref: string;
-  deps?: Deps;
-  notify?: MarketplaceListener;
-}): Promise<RepoHandle> {
+export async function openRepo(
+  { repo, ref, notify = nothing }: { repo: string; ref: string; notify?: MarketplaceListener },
+  ports: SourcePorts,
+): Promise<RepoHandle> {
   const { work, cleanup } = tempWorkspace();
 
   const done = new Map<string, DirectoryPath>();
-  const git = which('git', deps.env || process.env);
+  const git = ports.runner.which('git');
 
   if (git) {
     let cloning: Promise<Result<string, Failure>> | null = null;
@@ -357,17 +320,13 @@ export async function openRepo({
         const cached = done.get(sourcePath);
         if (cached) return ok(cached);
         // The promise is cached, not the result, so concurrent callers share one clone.
-        cloning ??= cloneRepo({ git, repo, ref, work, notify });
+        cloning ??= cloneRepo({ git, repo, ref, work, notify }, ports.runner);
         const clone = await cloning;
         if (!clone.ok) return err(clone.error);
-        const dir = await addSparsePath({
-          git,
-          clone: clone.value,
-          repo,
-          ref,
-          sourcePath,
-          notify,
-        });
+        const dir = await addSparsePath(
+          { git, clone: clone.value, repo, ref, sourcePath, notify },
+          ports.runner,
+        );
         if (!dir.ok) return err(dir.error);
         const at = new DirectoryPath(dir.value);
         done.set(sourcePath, at);
@@ -384,18 +343,13 @@ export async function openRepo({
     async checkout(sourcePath) {
       const cached = done.get(sourcePath);
       if (cached) return ok(cached);
-      fetching ??= fetchTree({ repo, ref, deps, notify });
+      fetching ??= fetchTree({ repo, ref, notify }, ports);
       const tree = await fetching;
       if (!tree.ok) return err(tree.error);
-      const dir = await downloadPath({
-        tree: tree.value,
-        repo,
-        ref,
-        sourcePath,
-        work,
-        deps,
-        notify,
-      });
+      const dir = await downloadPath(
+        { tree: tree.value, repo, ref, sourcePath, work, notify },
+        ports,
+      );
       if (!dir.ok) return err(dir.error);
       const at = new DirectoryPath(dir.value);
       done.set(sourcePath, at);
@@ -403,3 +357,17 @@ export async function openRepo({
     },
   };
 }
+
+/**
+ * The fetcher the composition root builds. One method, because one is all
+ * anything above infrastructure needs: `openRepo` decides between a clone and
+ * the API from the git it can find, and hands back a handle that checks out
+ * each plugin folder once.
+ */
+export interface SourceFetcher {
+  openRepo(args: { repo: string; ref: string; notify?: MarketplaceListener }): Promise<RepoHandle>;
+}
+
+export const sourceFetcher = (ports: SourcePorts): SourceFetcher => ({
+  openRepo: (args) => openRepo(args, ports),
+});

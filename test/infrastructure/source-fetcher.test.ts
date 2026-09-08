@@ -14,7 +14,7 @@ import {
 import type { Env } from '../../src/types/env.js';
 import type { FetchResponseLike } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
-import { tmpDir, cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
+import { cleanupAll, portsFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -31,21 +31,25 @@ const recorder = () => {
 };
 
 test('a tree response that is not a JSON object is refused, not cast', async () => {
-  const tree = await fetchTree({
-    repo: REPO,
-    ref: 'main',
-    deps: { fetchImpl: stubFetch({ [TREE_URL]: { body: '[]' } }) },
-  });
+  const tree = await fetchTree(
+    {
+      repo: REPO,
+      ref: 'main',
+    },
+    portsFor(stubFetch({ [TREE_URL]: { body: '[]' } })),
+  );
   assert.equal(tree.ok, false);
   assert.match(tree.ok ? '' : tree.error.message, /not a JSON object/);
 });
 
 test('tree entries that are not blobs with a string path are dropped', async () => {
-  const tree = await fetchTree({
-    repo: REPO,
-    ref: 'main',
-    deps: {
-      fetchImpl: stubFetch({
+  const tree = await fetchTree(
+    {
+      repo: REPO,
+      ref: 'main',
+    },
+    portsFor(
+      stubFetch({
         [TREE_URL]: {
           body: {
             tree: [
@@ -59,8 +63,8 @@ test('tree entries that are not blobs with a string path are dropped', async () 
           },
         },
       }),
-    },
-  });
+    ),
+  );
   assert.ok(tree.ok);
   assert.deepEqual(
     tree.value.tree.map((n) => n.path),
@@ -71,12 +75,14 @@ test('tree entries that are not blobs with a string path are dropped', async () 
 
 test('a truncated tree is reported to the listener, not printed', async () => {
   const seen = recorder();
-  const tree = await fetchTree({
-    repo: REPO,
-    ref: 'main',
-    deps: { fetchImpl: stubFetch({ [TREE_URL]: { body: { truncated: true, tree: [] } } }) },
-    notify: seen.notify,
-  });
+  const tree = await fetchTree(
+    {
+      repo: REPO,
+      ref: 'main',
+      notify: seen.notify,
+    },
+    portsFor(stubFetch({ [TREE_URL]: { body: { truncated: true, tree: [] } } })),
+  );
   assert.ok(tree.ok);
   assert.deepEqual(seen.events, [{ kind: 'tree-truncated' }]);
 });
@@ -86,14 +92,16 @@ test('a tree entry that climbs out of the checkout is refused before any write',
   const escapee = 'plugins/x/../../../../../escaped.txt';
   const tree: GitTree = { truncated: false, tree: [{ type: 'blob', path: escapee }] };
 
-  const dest = await downloadPath({
-    tree,
-    repo: REPO,
-    ref: 'main',
-    sourcePath: 'plugins/x',
-    work,
-    deps: { fetchImpl: stubFetch({ [rawFile(escapee)]: { body: 'pwned' } }) },
-  });
+  const dest = await downloadPath(
+    {
+      tree,
+      repo: REPO,
+      ref: 'main',
+      sourcePath: 'plugins/x',
+      work,
+    },
+    portsFor(stubFetch({ [rawFile(escapee)]: { body: 'pwned' } })),
+  );
   assert.equal(dest.ok, false);
   assert.match(dest.ok ? '' : dest.error.message, /outside the checkout/);
   assert.equal(fs.existsSync(path.join(work, '..', '..', 'escaped.txt')), false);
@@ -106,16 +114,16 @@ test('a well-formed tree lands under the checkout', async () => {
     truncated: false,
     tree: files.map((p) => ({ type: 'blob', path: p })),
   };
-  const dest = await downloadPath({
-    tree,
-    repo: REPO,
-    ref: 'main',
-    sourcePath: 'plugins/x',
-    work,
-    deps: {
-      fetchImpl: stubFetch(Object.fromEntries(files.map((p) => [rawFile(p), { body: `# ${p}` }]))),
+  const dest = await downloadPath(
+    {
+      tree,
+      repo: REPO,
+      ref: 'main',
+      sourcePath: 'plugins/x',
+      work,
     },
-  });
+    portsFor(stubFetch(Object.fromEntries(files.map((p) => [rawFile(p), { body: `# ${p}` }])))),
+  );
   assert.ok(dest.ok);
   // Two files share a directory, so the second one takes the memoised mkdir.
   assert.equal(
@@ -143,7 +151,7 @@ test('one repo handle fetches the API tree once and serves every plugin from it'
     [rawFile('plugins/beta/plugin.json')]: { body: { name: 'beta' } },
   });
 
-  const handle = await openRepo({ repo: REPO, ref: 'main', deps: { fetchImpl, env: NO_GIT } });
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
   try {
     const alpha = await handle.checkout('plugins/alpha');
     const beta = await handle.checkout('plugins/beta');
@@ -171,7 +179,7 @@ test('checking the same plugin out twice does not download it again', async () =
     [rawFile(blob)]: { body: { name: 'alpha' } },
   });
 
-  const handle = await openRepo({ repo: REPO, ref: 'main', deps: { fetchImpl, env: NO_GIT } });
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
   try {
     const first = await handle.checkout('plugins/alpha');
     const second = await handle.checkout('plugins/alpha');
@@ -190,12 +198,14 @@ test('materialize honours an injected env when probing for git', async () => {
     [rawFile(blob)]: { body: { name: 'alpha' } },
   });
 
-  const result = await materialize({
-    repo: REPO,
-    ref: 'main',
-    sourcePath: 'plugins/alpha',
-    deps: { fetchImpl, env: NO_GIT },
-  });
+  const result = await materialize(
+    {
+      repo: REPO,
+      ref: 'main',
+      sourcePath: 'plugins/alpha',
+    },
+    portsFor(fetchImpl, NO_GIT),
+  );
   assert.ok(result.ok);
   try {
     assert.equal(result.value.via, 'api', 'an empty PATH must force the API route');
@@ -223,13 +233,15 @@ test('a fallback to the API is announced to the listener, and printed by nobody'
   const con = silenceConsole();
   let result;
   try {
-    result = await materialize({
-      repo: REPO,
-      ref: 'main',
-      sourcePath: 'plugins/alpha',
-      deps: { fetchImpl, env: NO_GIT },
-      notify: seen.notify,
-    });
+    result = await materialize(
+      {
+        repo: REPO,
+        ref: 'main',
+        sourcePath: 'plugins/alpha',
+        notify: seen.notify,
+      },
+      portsFor(fetchImpl, NO_GIT),
+    );
   } finally {
     con.restore();
   }
@@ -247,12 +259,14 @@ test('a failed download is a failure, not a throw, and takes the workspace with 
     [rawFile(blob)]: { status: 500 },
   });
 
-  const result = await materialize({
-    repo: REPO,
-    ref: 'main',
-    sourcePath: 'plugins/alpha',
-    deps: { fetchImpl, env: NO_GIT },
-  });
+  const result = await materialize(
+    {
+      repo: REPO,
+      ref: 'main',
+      sourcePath: 'plugins/alpha',
+    },
+    portsFor(fetchImpl, NO_GIT),
+  );
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.error.message, /Download failed \(500\)/);
 });
@@ -298,12 +312,14 @@ test('a fetch that throws leaves no temp workspace behind', async () => {
 
   try {
     await assert.rejects(
-      materialize({
-        repo: REPO,
-        ref: 'main',
-        sourcePath: 'plugins/alpha',
-        deps: { fetchImpl, env: NO_GIT },
-      }),
+      materialize(
+        {
+          repo: REPO,
+          ref: 'main',
+          sourcePath: 'plugins/alpha',
+        },
+        portsFor(fetchImpl, NO_GIT),
+      ),
       /connection reset/,
     );
     assert.deepEqual(

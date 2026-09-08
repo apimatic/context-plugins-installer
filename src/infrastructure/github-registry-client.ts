@@ -4,7 +4,7 @@ import type { Env } from '../types/env.js';
 import { Failure } from '../types/failure.js';
 import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
-import type { Deps, FetchLike } from '../types/ports.js';
+import type { HttpPorts } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener } from '../types/session.js';
 import { isPlainObject, stripBom, errorMessage } from '../types/util.js';
@@ -46,9 +46,8 @@ const hostOf = (url: string): string => {
 /** A successful `null` on 404, so a missing registry is not an error. */
 export async function getJson(
   url: string,
-  { env = process.env, fetchImpl = fetch }: Deps = {},
+  { fetch: doFetch, env }: HttpPorts,
 ): Promise<Result<unknown, Failure>> {
-  const doFetch: FetchLike = fetchImpl;
   let text: string;
   // Reading the body belongs in here with the request: a connection that dies
   // mid-body is the same kind of problem as one that never opened, and left
@@ -81,26 +80,32 @@ export async function getJson(
 export interface RegistryRequest {
   repo: string;
   ref: string;
-  deps?: Deps;
   notify?: MarketplaceListener;
+}
+
+/**
+ * The registry read, bound to its ports. `session` and every action take this
+ * rather than the function, so nothing below has to carry a fetch it does not
+ * use down to the one place that does.
+ */
+export interface RegistryClient {
+  readRegistry(req: RegistryRequest): Promise<Result<Catalog | null, Failure>>;
 }
 
 const nothing: MarketplaceListener = () => {};
 
 /** A successful `null` when the repo declares no registry at all. */
-export async function readRegistry({
-  repo,
-  ref,
-  deps = {},
-  notify = nothing,
-}: RegistryRequest): Promise<Result<Catalog | null, Failure>> {
+export async function readRegistry(
+  { repo, ref, notify = nothing }: RegistryRequest,
+  ports: HttpPorts,
+): Promise<Result<Catalog | null, Failure>> {
   const slug = RepoSlug.parse(repo);
   if (!slug.ok) return err(slug.error);
   const gitRef = GitRef.parse(ref);
   if (!gitRef.ok) return err(gitRef.error);
 
   for (const file of REGISTRY_FILES) {
-    const read = await getJson(slug.value.rawUrl(ref, file), deps);
+    const read = await getJson(slug.value.rawUrl(ref, file), ports);
     if (!read.ok) return err(read.error);
     if (isPlainObject(read.value)) return ok(normalize(read.value, file));
     // A 404 is the ordinary "this repo uses the other folder"; anything else
@@ -111,3 +116,8 @@ export async function readRegistry({
   }
   return ok(null);
 }
+
+/** The client the composition root builds, and everything above it takes. */
+export const registryClient = (ports: HttpPorts): RegistryClient => ({
+  readRegistry: (req) => readRegistry(req, ports),
+});

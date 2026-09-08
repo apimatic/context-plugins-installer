@@ -104,8 +104,16 @@ export async function run(argv: readonly string[], services: Services): Promise<
           await new UninstallCommand(sink).run({ brand, plugin, targets, force: flags.force }),
         );
       }
-      case 'update':
-        return answer(await new UpdateCommand(sink).run({ brand }));
+      case 'update': {
+        // One session for the whole run, created and disposed here for the same
+        // reason install's is: whoever opens a workspace closes it.
+        const session = services.session(prompts.marketplaceListener);
+        try {
+          return answer(await new UpdateCommand(sink).run({ brand }, session));
+        } finally {
+          await session.cleanup();
+        }
+      }
       case 'list':
         return answer(await new ListCommand().run({ brand, json: flags.json, long: flags.long }));
       case 'doctor':

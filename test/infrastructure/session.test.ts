@@ -1,15 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
+import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
+import type { SourceFetcher } from '../../src/infrastructure/source-fetcher.js';
 import type { HarnessEvent } from '../../src/types/harness.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
+import { ok } from '../../src/types/result.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
-import { cleanupAll, runnerFor, silenceConsole, stubFetch } from '../helpers.js';
+import {
+  cleanupAll,
+  portsFor,
+  runnerFor,
+  sessionFrom,
+  silenceConsole,
+  stubFetch,
+} from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -28,7 +37,7 @@ test('a session reads a marketplace registry once however many plugins ask for i
   const fetchImpl = stubFetch({
     [registry]: { body: { name: 'acme', plugins: [{ name: 'alpha' }, { name: 'beta' }] } },
   });
-  const session = createSession({ deps: { fetchImpl, env: {} } });
+  const session = sessionFrom({ fetchImpl, env: {} });
 
   const first = await session.catalog({ repo, ref: 'main' });
   const second = await session.catalog({ repo, ref: 'main' });
@@ -56,10 +65,7 @@ test('a registry file skipped once is reported once, however many plugins ask', 
     },
   });
   const events: MarketplaceEvent[] = [];
-  const session = createSession({
-    deps: { fetchImpl, env: {} },
-    notify: (e) => events.push(e),
-  });
+  const session = sessionFrom({ fetchImpl, env: {} }, (e: MarketplaceEvent) => events.push(e));
 
   for (const _plugin of ['alpha', 'beta', 'gamma']) {
     const read = await session.catalog({ repo, ref: 'main' });
@@ -86,7 +92,7 @@ test('two spellings of one repository are one piece of shared work', async () =>
     [registry]: { body: { name: 'acme', plugins: [{ name: 'alpha' }] } },
     [lower]: { body: { name: 'acme', plugins: [{ name: 'alpha' }] } },
   });
-  const session = createSession({ deps: { fetchImpl, env: {} } });
+  const session = sessionFrom({ fetchImpl, env: {} });
 
   await session.catalog({ repo: 'Acme/M', ref: 'main' });
   await session.catalog({ repo: 'acme/m', ref: 'main' });
@@ -97,7 +103,7 @@ test('two spellings of one repository are one piece of shared work', async () =>
 
 test('a marketplace spelled two ways is registered with Claude once', async () => {
   const { exec, calls } = recordingExec();
-  const session = createSession({ deps: {} });
+  const session = sessionFrom();
 
   await quietly(async () => {
     for (const repo of ['Acme/M', 'acme/m']) {
@@ -126,7 +132,7 @@ test('a session keeps separate registries for separate marketplaces', async () =
       body: { name: 'other', plugins: [] },
     },
   });
-  const session = createSession({ deps: { fetchImpl, env: {} } });
+  const session = sessionFrom({ fetchImpl, env: {} });
 
   const first = await session.catalog({ repo: one, ref: 'main' });
   const second = await session.catalog({ repo: two, ref: 'main' });
@@ -136,26 +142,46 @@ test('a session keeps separate registries for separate marketplaces', async () =
   await session.cleanup();
 });
 
-test('session cleanup disposes what an injected fetch handed back', async () => {
-  let disposed = 0;
-  const session = createSession({
-    deps: {
-      materialize: async () => ({
-        dir: new DirectoryPath('/tmp/whatever'),
-        cleanup: () => {
-          disposed += 1;
-        },
-        via: 'stub',
-      }),
+/**
+ * One workspace per repo@ref, opened once and disposed once. The shape this
+ * replaces asserted two disposals for two plugins, because it drove the old
+ * `deps.materialize` hook - which fetched per plugin and had no memo.
+ * Production never set that hook, so what it measured was the test seam.
+ *
+ * It counts `openRepo` calls and not only disposals, because disposals alone
+ * cannot see the memo break: `repos.set(key, ...)` overwrites, so the map holds
+ * one handle per key whether or not the memo was consulted, and the first
+ * version of this test passed with the memo removed.
+ */
+test('a session opens each repo workspace once, and disposes it at the end', async () => {
+  const opened: string[] = [];
+  const disposed: string[] = [];
+  const fetcher: SourceFetcher = {
+    openRepo: async ({ repo, ref }) => {
+      opened.push(`${repo}@${ref}`);
+      return {
+        via: 'api',
+        cleanup: () => disposed.push(repo),
+        checkout: async () => ok(new DirectoryPath('/tmp/whatever')),
+      };
     },
-  });
+  };
+  const session = createSession({ registry: registryClient(portsFor(stubFetch({}))), fetcher });
 
   await session.source({ repo: 'a/b', ref: 'main', sourcePath: 'plugins/alpha' });
   await session.source({ repo: 'a/b', ref: 'main', sourcePath: 'plugins/beta' });
-  assert.equal(disposed, 0, 'nothing is disposed mid-run');
+  await session.source({ repo: 'A/B', ref: 'main', sourcePath: 'plugins/gamma' });
+  await session.source({ repo: 'c/d', ref: 'main', sourcePath: 'plugins/alpha' });
+
+  assert.deepEqual(
+    opened,
+    ['a/b@main', 'c/d@main'],
+    'one clone per repo@ref, with the repo case folded',
+  );
+  assert.deepEqual(disposed, [], 'nothing is disposed mid-run');
 
   await session.cleanup();
-  assert.equal(disposed, 2, 'every fetch is disposed at the end of the run');
+  assert.deepEqual(disposed.sort(), ['a/b', 'c/d'], 'one disposal per repo, not per plugin');
 });
 
 /** A `claude` CLI stub: records every invocation, reports an empty marketplace list. */
@@ -180,7 +206,7 @@ function recordingExec(): { exec: RunCommand; calls: string[] } {
 test('the Claude marketplace is registered once per session, and said once', async () => {
   const repo = 'acme/plugin-marketplace';
   const { exec, calls } = recordingExec();
-  const session = createSession({ deps: {} });
+  const session = sessionFrom();
   const events: HarnessEvent[] = [];
 
   for (const _plugin of ['alpha', 'beta', 'gamma']) {

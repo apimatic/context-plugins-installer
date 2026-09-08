@@ -9,9 +9,9 @@ import { announceMarketplace } from '../../src/prompts/marketplace.js';
 import { RouterPrompts } from '../../src/prompts/router.js';
 import { log } from '../../src/prompts/terminal.js';
 import { UninstallPrompts } from '../../src/prompts/uninstall.js';
-import { UpdatePrompts } from '../../src/prompts/update.js';
+import type { FetchLike } from '../../src/types/ports.js';
 import type { MarketplaceEvent, MarketplaceListener } from '../../src/types/session.js';
-import { stubFetch } from '../helpers.js';
+import { portsFor, stubFetch } from '../helpers.js';
 
 // The other half of "infrastructure reports and a prompts class speaks", for
 // the marketplace events. `test/infrastructure/session.test.ts` asserts which
@@ -87,8 +87,8 @@ for (const [kind, [event, expected]] of Object.entries(CASES)) {
 /**
  * The wiring, which is the part a refactor can silently drop. Every one of
  * these classes hands its listener to something that reads a marketplace - the
- * router to the install session, `update` to its own, `list` and `doctor` to
- * `readRegistry`, `uninstall` to the name lookup - so a member that stopped
+ * router to the session that `install` and `update` share, `list` and `doctor`
+ * to `readRegistry`, `uninstall` to the name lookup - so a member that stopped
  * being the renderer would take that command's progress lines with it and
  * every other assertion in the suite would still pass.
  */
@@ -97,7 +97,6 @@ test('every prompts class that owns a marketplace call says the lines', () => {
     ['router', new RouterPrompts().marketplaceListener],
     ['list', new ListPrompts().marketplaceListener],
     ['doctor', new DoctorPrompts().marketplaceListener],
-    ['update', new UpdatePrompts().marketplaceListener],
     ['uninstall', new UninstallPrompts().marketplaceListener],
   ];
   for (const [owner, listener] of owners) {
@@ -115,6 +114,44 @@ test('every prompts class that owns a marketplace call says the lines', () => {
  * would silence a real run while every session test - which calls
  * `createSession` directly - stayed green.
  */
+/**
+ * And that the ports reach the *fetcher*, not only the registry client. The
+ * test above passes with a fetcher built over a blank environment, because a
+ * registry read does not need the token - so this one asserts the header the
+ * env is for, through the clone path's own request.
+ */
+test('the composition root gives both clients the ports it was handed', async () => {
+  const headers: Record<string, string>[] = [];
+  const fetchImpl: FetchLike = async (_url, init) => {
+    headers.push({ ...(init?.headers ?? {}) });
+    return {
+      ok: false,
+      status: 500,
+      statusText: 'stop here',
+      text: async () => '',
+      json: async () => ({}),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    };
+  };
+  // No git on this PATH, so `openRepo` takes the API route and asks for a tree.
+  const session = services().session(() => {}, {
+    fetch: fetchImpl,
+    env: { PATH: '', GITHUB_TOKEN: 'sekret' },
+    runner: { run: async () => ({ code: 1, stdout: '', stderr: '' }), which: () => null },
+  });
+  try {
+    await session.source({ repo: 'acme/m', ref: 'main', sourcePath: 'plugins/alpha' });
+  } finally {
+    await session.cleanup();
+  }
+  assert.equal(headers.length, 1, 'the API route made its one request');
+  assert.equal(
+    headers[0].Authorization,
+    'Bearer sekret',
+    'the fetcher read the env it was built with, not the host one',
+  );
+});
+
 test('the composition root hands the session the listener it was given', async () => {
   const repo = 'acme/plugin-marketplace';
   const fetchImpl = stubFetch({
@@ -124,7 +161,7 @@ test('the composition root hands the session the listener it was given', async (
     },
   });
   const seen: MarketplaceEvent[] = [];
-  const session = services().session((event) => seen.push(event), { fetchImpl, env: {} });
+  const session = services().session((event) => seen.push(event), portsFor(fetchImpl));
   try {
     const read = await session.catalog({ repo, ref: 'main' });
     assert.ok(read.ok);

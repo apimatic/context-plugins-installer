@@ -49,12 +49,11 @@ export class ListAction {
     };
     const nothing: ListReport = { result: empty, gaps: NO_GAPS };
 
-    const read = await readRegistry({
-      repo: brand.repo,
-      ref: brand.ref,
-      deps: this.deps,
-      notify: this.notify,
-    });
+    // SHIM: ports from `deps` until this action takes a RegistryClient.
+    const read = await readRegistry(
+      { repo: brand.repo, ref: brand.ref, notify: this.notify },
+      { fetch: this.deps.fetchImpl ?? fetch, env: this.deps.env ?? process.env },
+    );
     if (!read.ok) return ActionResult.failed(nothing, read.error);
     const catalog = read.value;
     if (!catalog) {

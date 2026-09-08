@@ -1,11 +1,10 @@
 import type { Catalog } from '../types/catalog.js';
 import type { Failure } from '../types/failure.js';
 import type { DirectoryPath } from '../types/file/paths.js';
-import type { Deps } from '../types/ports.js';
-import { ok, type Result } from '../types/result.js';
+import type { Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle, Session } from '../types/session.js';
-import { readRegistry } from './github-registry-client.js';
-import { openRepo } from './source-fetcher.js';
+import type { RegistryClient } from './github-registry-client.js';
+import type { SourceFetcher } from './source-fetcher.js';
 
 // Case-folded on the repo half, the way GitHub reads a slug: two rows spelled
 // `Acme/M` and `acme/m` are one repository, and keying on the spelling made one
@@ -17,13 +16,17 @@ const keyOf = (repo: string, ref: string): string => `${repo.toLowerCase()}@${re
 // registration - each done once per repo@ref. Promises are cached rather than
 // results so concurrent callers share one request.
 export function createSession({
-  deps = {},
+  registry,
+  fetcher,
   notify,
-}: { deps?: Deps; notify?: MarketplaceListener } = {}): Session {
+}: {
+  registry: RegistryClient;
+  fetcher: SourceFetcher;
+  notify?: MarketplaceListener;
+}): Session {
   const catalogs = new Map<string, Promise<Result<Catalog | null, Failure>>>();
   const repos = new Map<string, Promise<RepoHandle>>();
   const marketplaces: Session['marketplaces'] = new Map();
-  const disposers: (() => void)[] = [];
 
   return {
     marketplaces,
@@ -32,26 +35,20 @@ export function createSession({
       const key = keyOf(repo, ref);
       let pending = catalogs.get(key);
       if (!pending) {
-        pending = readRegistry({ repo, ref, deps, notify });
+        pending = registry.readRegistry({ repo, ref, notify });
         catalogs.set(key, pending);
       }
       return pending;
     },
 
     async source({ repo, ref, sourcePath }): Promise<Result<DirectoryPath | null, Failure>> {
-      // An injected fetch is the test seam and stays per-plugin. It is the one
-      // path that can still throw: a fake that blows up is a test asserting a
-      // bug, not a failure this program knows how to describe.
-      if (deps.materialize) {
-        const result = await deps.materialize({ repo, ref, sourcePath, deps });
-        if (result && typeof result.cleanup === 'function') disposers.push(result.cleanup);
-        return ok(result ? result.dir : null);
-      }
-
+      // One handle per repo@ref, and every checkout after the first is local.
+      // A test substitutes the whole fetcher rather than a `materialize` hook,
+      // which is what let this method stop having two shapes.
       const key = keyOf(repo, ref);
       let opening = repos.get(key);
       if (!opening) {
-        opening = openRepo({ repo, ref, deps, notify });
+        opening = fetcher.openRepo({ repo, ref, notify });
         repos.set(key, opening);
       }
       const handle = await opening;
@@ -59,13 +56,6 @@ export function createSession({
     },
 
     async cleanup() {
-      for (const dispose of disposers.splice(0).reverse()) {
-        try {
-          dispose();
-        } catch {
-          /* best effort */
-        }
-      }
       const pending = [...repos.values()];
       repos.clear();
       for (const opening of pending) {

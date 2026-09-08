@@ -1,6 +1,4 @@
 import { titlesOf, type HarnessName } from '../types/harness.js';
-import type { MarketplaceListener } from '../types/session.js';
-import { announceMarketplace } from './marketplace.js';
 import { log } from './terminal.js';
 import { InstallPrompts } from './install.js';
 
@@ -8,14 +6,6 @@ import { InstallPrompts } from './install.js';
 const ID_WIDTH_CAP = 42;
 
 export class UpdatePrompts {
-  /**
-   * Marketplace progress - the registry read, the clone, the marketplace add -
-   * rendered by the one function that owns those words. It hangs off the
-   * prompts class rather than being imported at the call site so that
-   * everything `update` says is reachable from here.
-   */
-  readonly marketplaceListener: MarketplaceListener = announceMarketplace;
-
   /** Set once the rows are known, so every line in the grid lines up. */
   private width = 4;
 

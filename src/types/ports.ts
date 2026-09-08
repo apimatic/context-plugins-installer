@@ -51,6 +51,22 @@ export type FetchLike = (
   },
 ) => Promise<FetchResponseLike>;
 
+/**
+ * What reaching GitHub needs of the outside: something to fetch with, and the
+ * environment its token lives in. Required, both of them - an optional port
+ * with a `|| fetch` fallback at the leaf is how a caller comes to think it
+ * injected something when it did not.
+ */
+export interface HttpPorts {
+  fetch: FetchLike;
+  env: Env;
+}
+
+/** The same, plus git, for the fetcher that would rather clone than download. */
+export interface SourcePorts extends HttpPorts {
+  runner: ProcessRunner;
+}
+
 export interface MaterializedSource {
   dir: DirectoryPath;
   cleanup: () => void;

@@ -4,7 +4,7 @@ import type { PathOpts } from './env.js';
 import type { EventSink } from './events/domain-event.js';
 import type { Failure } from './failure.js';
 import type { ManifestContext } from './manifest-context.js';
-import type { Deps, Telemetry, TelemetrySettings } from './ports.js';
+import type { SourcePorts, Telemetry, TelemetrySettings } from './ports.js';
 import type { Result } from './result.js';
 import type { MarketplaceListener, Session } from './session.js';
 
@@ -34,7 +34,7 @@ export interface Services {
    * `notify` comes from the caller's prompts class - the composition root
    * builds the session but does not choose the words it says on the way.
    */
-  session(notify: MarketplaceListener, deps?: Deps): Session;
+  session(notify: MarketplaceListener, ports?: SourcePorts): Session;
   /**
    * Where events go. Wrapped so that a sink which throws cannot fail a run
    * that has already written its files - reporting is a courtesy, and this is

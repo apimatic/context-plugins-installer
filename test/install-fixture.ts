@@ -11,7 +11,6 @@ import { UpdateCommand } from '../src/commands/update.js';
 import { harnesses } from '../src/harnesses/index.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import { services } from '../src/composition/index.js';
-import { createSession } from '../src/infrastructure/session.js';
 import { announceMarketplace } from '../src/prompts/marketplace.js';
 import { log } from '../src/prompts/terminal.js';
 import type { Session } from '../src/types/session.js';
@@ -23,6 +22,7 @@ import type { Deps } from '../src/types/ports.js';
 import {
   resolveBrand,
   runnerFor,
+  sessionFrom,
   silenceConsole,
   stubFetch,
   throwFailure,
@@ -49,7 +49,7 @@ export async function installPlugin({
   ...req
 }: InstallRequest & { session?: Session; sink?: EventSink }): Promise<InstallReport> {
   const own = !session;
-  const run = session ?? createSession({ deps: req.deps, notify: announceMarketplace });
+  const run = session ?? sessionFrom(req.deps, announceMarketplace);
   try {
     const result = await new InstallCommand(guarded(sink)).run(req, run);
     if (result.failure) throwFailure(result.failure);
@@ -70,10 +70,17 @@ export async function uninstallPlugin({
 
 /** No throw: `update` reports per row, and its failures are in the report. */
 export async function updateAll({
+  session,
   sink,
   ...req
-}: UpdateRequest & { sink?: EventSink }): Promise<UpdateReport> {
-  return (await new UpdateCommand(guarded(sink)).run(req)).report;
+}: UpdateRequest & { session?: Session; sink?: EventSink }): Promise<UpdateReport> {
+  const own = !session;
+  const run = session ?? sessionFrom(req.deps, announceMarketplace);
+  try {
+    return (await new UpdateCommand(guarded(sink)).run(req, run)).report;
+  } finally {
+    if (own) await run.cleanup();
+  }
 }
 
 /**

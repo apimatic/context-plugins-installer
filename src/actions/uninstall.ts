@@ -72,12 +72,11 @@ export class UninstallAction {
       brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
     if (known || !want.includes('claude')) return { marketplace: known };
 
-    const read = await readRegistry({
-      repo: brand.repo,
-      ref: brand.ref,
-      deps: this.deps,
-      notify: this.prompts.marketplaceListener,
-    });
+    // SHIM: ports from `deps` until this action takes a RegistryClient.
+    const read = await readRegistry(
+      { repo: brand.repo, ref: brand.ref, notify: this.prompts.marketplaceListener },
+      { fetch: this.deps.fetchImpl ?? fetch, env: this.deps.env ?? process.env },
+    );
     const resolved = read.ok
       ? resolvePlugin(read.value, { plugin, repo: brand.repo, ref: brand.ref })
       : read;

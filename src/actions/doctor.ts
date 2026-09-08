@@ -141,12 +141,11 @@ export class DoctorAction {
     // The registry client answers with a `Result` and its own progress events,
     // so there is nothing to catch: what used to be a throw, with a hint pulled
     // off the error class, is the failure's own message and hint.
-    const read = await readRegistry({
-      repo: brand.repo,
-      ref: brand.ref,
-      deps,
-      notify: this.notify,
-    });
+    // SHIM: ports from `deps` until this action takes a RegistryClient.
+    const read = await readRegistry(
+      { repo: brand.repo, ref: brand.ref, notify: this.notify },
+      { fetch: deps.fetchImpl ?? fetch, env: deps.env ?? process.env },
+    );
     if (!read.ok) {
       checks.push(fail('Reachable', read.error.message, read.error.hint));
       return checks;

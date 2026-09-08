@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 
 import { UpdateCommand } from '../../src/commands/update.js';
 import * as paths from '../../src/infrastructure/paths.js';
-import { cleanupAll } from '../helpers.js';
+import { cleanupAll, sessionFrom } from '../helpers.js';
 import {
   brandFor,
   deps,
@@ -46,11 +46,14 @@ async function recorded(plugin = 'my-sdk'): Promise<{ m: Machine; d: ReturnType<
 
 const update = async (m: Machine, d: object, events: Tracked[]): Promise<void> => {
   await quietly(() =>
-    new UpdateCommand(sinkInto(events)).run({
-      brand: brandFor(REPO),
-      deps: d,
-      pathOpts: m.pathOpts,
-    }),
+    new UpdateCommand(sinkInto(events)).run(
+      {
+        brand: brandFor(REPO),
+        deps: d,
+        pathOpts: m.pathOpts,
+      },
+      sessionFrom(d),
+    ),
   );
 };
 
@@ -107,11 +110,14 @@ test('a row this build cannot read reports nothing, and still fails the run', as
 
   const events: Tracked[] = [];
   const result = await quietly(() =>
-    new UpdateCommand(sinkInto(events)).run({
-      brand: brandFor(REPO),
-      deps: d,
-      pathOpts: m.pathOpts,
-    }),
+    new UpdateCommand(sinkInto(events)).run(
+      {
+        brand: brandFor(REPO),
+        deps: d,
+        pathOpts: m.pathOpts,
+      },
+      sessionFrom(d),
+    ),
   );
 
   assert.deepEqual(
@@ -134,11 +140,14 @@ test('a row with no editor on this machine reports nothing', async () => {
 
   const events: Tracked[] = [];
   const result = await quietly(() =>
-    new UpdateCommand(sinkInto(events)).run({
-      brand: brandFor(REPO),
-      deps: d,
-      pathOpts: m.pathOpts,
-    }),
+    new UpdateCommand(sinkInto(events)).run(
+      {
+        brand: brandFor(REPO),
+        deps: d,
+        pathOpts: m.pathOpts,
+      },
+      sessionFrom(d),
+    ),
   );
 
   assert.deepEqual(result.report.failed, []);

@@ -5,6 +5,7 @@ import type { EventSink } from '../types/events/domain-event.js';
 import { PluginInstallFailedEvent } from '../types/events/plugin-install-failed.js';
 import { PluginInstalledEvent } from '../types/events/plugin-installed.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
+import type { Session } from '../types/session.js';
 
 /**
  * `update` is one install per recorded plugin, so it reports the same events -
@@ -14,9 +15,11 @@ import type { UpdateReport, UpdatedRow } from '../types/reports.js';
 export class UpdateCommand {
   constructor(private readonly sink: EventSink) {}
 
-  async run(req: UpdateRequest): Promise<ActionResult<UpdateReport>> {
+  async run(req: UpdateRequest, session: Session): Promise<ActionResult<UpdateReport>> {
     const prompts = new UpdatePrompts(req.pathOpts?.home);
-    const result = await new UpdateAction(prompts, req.deps, req.pathOpts).execute(req.brand);
+    const result = await new UpdateAction(prompts, session, req.deps, req.pathOpts).execute(
+      req.brand,
+    );
     for (const row of result.report.rows) this.report(row);
     return result;
   }

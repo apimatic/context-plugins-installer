@@ -7,9 +7,9 @@ import {
   rawUrl,
   readRegistry,
 } from '../../src/infrastructure/github-registry-client.js';
-import type { Deps, FetchResponseLike } from '../../src/types/ports.js';
+import type { FetchResponseLike, HttpPorts } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
-import { stubFetch, type StubRoute } from '../helpers.js';
+import { portsFor, stubFetch, type StubRoute } from '../helpers.js';
 
 const REPO = 'context-plugins/plugin-marketplace';
 const CLAUDE_REG = rawUrl(REPO, 'main', '.claude-plugin/marketplace.json');
@@ -21,10 +21,7 @@ const registry = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const deps = (routes: Record<string, StubRoute>): Deps => ({
-  fetchImpl: stubFetch(routes),
-  env: {},
-});
+const ports = (routes: Record<string, StubRoute>): HttpPorts => portsFor(stubFetch(routes));
 
 const recorder = () => {
   const events: MarketplaceEvent[] = [];
@@ -32,7 +29,7 @@ const recorder = () => {
 };
 
 const read = (routes: Record<string, StubRoute>, notify?: (e: MarketplaceEvent) => void) =>
-  readRegistry({ repo: REPO, ref: 'main', deps: deps(routes), notify });
+  readRegistry({ repo: REPO, ref: 'main', notify }, ports(routes));
 
 test('a repo with no registry at all reads as a successful null', async () => {
   const result = await read({});
@@ -56,7 +53,7 @@ test('a 403 comes back as a failure suggesting a token, not as a throw', async (
 });
 
 test('an unusable repo fails before anything is fetched', async () => {
-  const result = await readRegistry({ repo: 'not a repo', ref: 'main', deps: deps({}) });
+  const result = await readRegistry({ repo: 'not a repo', ref: 'main' }, ports({}));
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.error.message, /Invalid repo/);
   assert.match(result.ok ? '' : (result.error.hint ?? ''), /owner\/repo/);
@@ -139,7 +136,7 @@ test('a body that dies mid-read is a failure like any other network problem', as
     json: async () => ({}),
     arrayBuffer: async () => new ArrayBuffer(0),
   });
-  const result = await readRegistry({ repo: REPO, ref: 'main', deps: { fetchImpl, env: {} } });
+  const result = await readRegistry({ repo: REPO, ref: 'main' }, portsFor(fetchImpl));
   assert.equal(result.ok, false);
   assert.match(
     result.ok ? '' : result.error.message,
@@ -152,7 +149,7 @@ test('a url too malformed to parse still reports the failure it hit', async () =
   const fetchImpl = async (): Promise<FetchResponseLike> => {
     throw new Error('Invalid URL');
   };
-  const result = await getJson('not://a real url', { fetchImpl, env: {} });
+  const result = await getJson('not://a real url', portsFor(fetchImpl));
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.error.message, /Invalid URL/);
 });

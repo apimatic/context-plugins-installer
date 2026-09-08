@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import { InstallCommand } from '../../src/commands/install.js';
-import { createSession } from '../../src/infrastructure/session.js';
 import type { InstallRequest } from '../../src/actions/install.js';
 import type { ActionResult } from '../../src/actions/action-result.js';
 import type { Deps } from '../../src/types/ports.js';
 import type { InstallReport } from '../../src/types/reports.js';
-import { cleanupAll } from '../helpers.js';
+import { cleanupAll, sessionFrom } from '../helpers.js';
 import {
   TARGETS,
   brandFor,
@@ -38,7 +37,7 @@ async function install(
   req: Partial<InstallRequest>,
   events: Tracked[],
 ): Promise<ActionResult<InstallReport>> {
-  const session = createSession({ deps: d, notify: () => {} });
+  const session = sessionFrom(d, () => {});
   try {
     return await quietly(() =>
       new InstallCommand(sinkInto(events)).run(
