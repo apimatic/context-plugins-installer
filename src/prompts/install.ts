@@ -10,10 +10,8 @@ import {
   type HarnessListener,
   type HarnessName,
 } from '../types/harness.js';
-import type { MarketplaceListener } from '../types/session.js';
 import { format as f } from './format.js';
 import { harnessListener } from './harness/index.js';
-import { announceMarketplace } from './marketplace.js';
 import { log } from './terminal.js';
 
 /**
@@ -40,8 +38,6 @@ export class InstallPrompts {
   ) {}
 
   readonly harnessListener: HarnessListener = (event) => harnessListener(this.home)(event);
-
-  readonly marketplaceListener: MarketplaceListener = announceMarketplace;
 
   intro(plugin: string, brand: Brand, ref: string, marketplace: string, about?: string): void {
     const from = ref === 'main' ? brand.label : `${brand.label} (${ref})`;

@@ -21,6 +21,15 @@ import type { Brand } from '../src/types/brand.js';
 import type { Env, PathOpts } from '../src/types/env.js';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
 import { cleanupAll, resolveBrand, silenceConsole, tmpDir } from './helpers.js';
+import {
+  TARGETS,
+  brandFor,
+  deps,
+  installPlugin,
+  machine as editorMachine,
+  pluginSource,
+  quietly,
+} from './install-fixture.js';
 
 test.after(cleanupAll);
 
@@ -560,4 +569,84 @@ test('an unwritable state directory reports both lines, in order, and sends noth
   assert.match(lines[0].text, /^telemetry: could not write /);
   assert.equal(lines[1].text, 'telemetry: no writable state directory; nothing sent');
   assert.deepEqual(fetchImpl.sent, [], 'nothing may be sent without a stable id');
+});
+
+/**
+ * The whole chain in one assertion: a real install builds its events, the real
+ * sender queues them, and one flush turns them into the request Mixpanel
+ * receives. Each piece is pinned on its own - what an event says in
+ * test/types/events, which events a run fires in test/commands - and this is
+ * the one place they are checked together, because between them sit the
+ * run-level block and the fixed fields, and neither is any event's to see.
+ *
+ * Through the command rather than the router: the router has no deps seam, so
+ * an install driven through `run()` would have to reach GitHub for real.
+ */
+test('one successful install is one request, with the run-level facts and nothing else', async () => {
+  const m = editorMachine();
+  const mixpanel = sink();
+  const t = createTelemetry({
+    brand: brandFor(REPO),
+    command: 'install',
+    version: () => '9.9.9',
+    deps: { env: {}, fetchImpl: mixpanel },
+    pathOpts: m.pathOpts,
+  });
+
+  await quietly(() =>
+    installPlugin({
+      brand: brandFor(REPO),
+      plugin: 'my-sdk',
+      targets: TARGETS,
+      deps: deps({ repo: REPO, srcDir: pluginSource() }),
+      sink: (event) => t.report(event),
+      pathOpts: m.pathOpts,
+    }),
+  );
+  await flushQuietly(t);
+
+  assert.equal(mixpanel.sent.length, 1, 'both editors travel in one request');
+  assert.equal(mixpanel.sent[0]?.url, TRACK_URL);
+  const events = eventsIn(mixpanel.sent[0]);
+  assert.deepEqual(
+    events.map((e) => [e.event, e.properties.harness]),
+    [
+      ['Context Plugin Installed', 'cursor'],
+      ['Context Plugin Installed', 'vscode'],
+    ],
+  );
+
+  // The keys and their order, which is the layout of the payload: the run-level
+  // facts, then what the event declares, then the fixed fields last - so no
+  // event can rename the token or the identity.
+  assert.deepEqual(Object.keys(events[0]?.properties ?? {}), [
+    'command',
+    'cli_version',
+    'node_major',
+    'os',
+    'arch',
+    'ci',
+    'interactive',
+    'run_id',
+    'plugin',
+    'harness',
+    'marketplace',
+    'targets_explicit',
+    'duration_ms',
+    'token',
+    '$device_id',
+    'distinct_id',
+    'time',
+    '$insert_id',
+  ]);
+  assert.equal(events[0]?.properties.command, 'install');
+  assert.equal(events[0]?.properties.plugin, 'my-sdk');
+  assert.equal(events[0]?.properties.marketplace, REPO);
+  assert.equal(events[0]?.properties.cli_version, '9.9.9');
+  for (const e of events) {
+    for (const [key, value] of Object.entries(e.properties)) {
+      assert.ok(value === null || typeof value !== 'object', `${key} is not a primitive`);
+    }
+  }
+  assert.ok(!JSON.stringify(events).includes(m.root), 'no path from this machine');
 });

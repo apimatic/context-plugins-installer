@@ -10,12 +10,12 @@ import { UninstallCommand } from '../src/commands/uninstall.js';
 import { UpdateCommand } from '../src/commands/update.js';
 import { harnesses } from '../src/harnesses/index.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
+import { services } from '../src/composition.js';
 import { createSession } from '../src/infrastructure/session.js';
 import { announceMarketplace } from '../src/prompts/marketplace.js';
 import { log } from '../src/prompts/terminal.js';
 import type { Session } from '../src/types/session.js';
 import type { InstallReport, UninstallResult, UpdateReport } from '../src/types/reports.js';
-import { errorMessage } from '../src/util.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
 import type { EventSink } from '../src/types/events/domain-event.js';
 import type { Harness, HarnessName } from '../src/types/harness.js';
@@ -70,19 +70,15 @@ export async function updateAll({
 }
 
 /**
- * A sink that cannot fail the run it is listening to, the way the composition
- * root's does. Absent means nobody is listening.
+ * A sink that cannot fail the run it is listening to - the composition root's
+ * own, wrapped around the test's collector rather than a second copy of it, so
+ * that the test which proves a throwing sink cannot fail a run proves the one
+ * that ships. Absent means nobody is listening.
  */
-const guarded = (sink?: EventSink): EventSink => {
-  if (!sink) return () => {};
-  return (event) => {
-    try {
-      sink(event);
-    } catch (err) {
-      log.debug(`telemetry: ${errorMessage(err)}`);
-    }
-  };
-};
+const guarded = (sink?: EventSink): EventSink =>
+  sink
+    ? services().sink({ report: sink, flush: async () => [] }, (message) => log.debug(message))
+    : () => {};
 
 /** A sandboxed machine: its own state dir, Cursor dir, and VS Code user dir. */
 export function machine() {
