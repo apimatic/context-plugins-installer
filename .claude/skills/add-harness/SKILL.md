@@ -13,6 +13,13 @@ the words. Everything else in the program - `doctor`, `list`, `update`, the mani
 already iterates the registry, so most of the work is the class, its lines, and the
 places that spell out editor names by hand.
 
+Four sibling skills own the rules this one only points at, and they are worth
+reading rather than inferring from the template: `service` for anything the
+harness does to the machine, `event` for the kinds it emits, `prompts` for the
+words those become, and `value-object` for anything it validates. This document
+is the checklist for an editor specifically - the parts the compiler cannot
+flag.
+
 ## Pick the shape first
 
 Read both existing shapes before writing anything; the new one is a copy of whichever
@@ -91,14 +98,21 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      happens rather than from what a function returns: a line explaining a wait is only
      useful before it, and a memo that caches the work then says it as often as the work
      is done. End `install` and `uninstall` with
-     `{ kind: 'reload', after: 'install' | 'uninstall' }`.
+     `{ kind: 'reload', after: 'install' | 'uninstall' }`. The `event` skill has the
+     rest of that rule, including the two bugs behind it.
+   - **Reach the machine through `src/infrastructure/`,** not through `node:fs` or
+     `node:child_process` directly - `replaceDir` from `file-system.ts`, `run` and
+     `which` from `process-runner.ts`, and a new module there if the editor needs
+     something none of them does. See the `service` skill; a harness may import that
+     directory, which is exactly why it should not reimplement it.
    - Treat anything read from the editor (a config file, a CLI's JSON output) as a JSON
      boundary: `isPlainObject` / `nonEmptyString` checks, never an `as` cast. If it edits
      a config file the user also edits by hand, splice text like
      `infrastructure/vscode-settings.ts`
      does and take a backup first - do not parse-and-reserialize their file.
 
-4. **Give it words in `src/prompts/harness/`.** Add its `RELOAD` entry in `editor.ts`,
+4. **Give it words in `src/prompts/harness/`** (and read the `prompts` skill first).
+   Add its `RELOAD` entry in `editor.ts`,
    then - only if it says anything no other editor says - a `<name>.ts` with one case per
    kind of its own and a `default` that hands the rest to `announceEditor`, plus a case in
    the switch in `index.ts`. A file-copying editor may need nothing but the `RELOAD`
