@@ -908,10 +908,13 @@ unless it asserts prose. Shim removed: `orThrow`.
 
 **Landed, in the planned order.** `src/doctor.ts` is gone; `src/install.ts` is 75 lines -
 three shims over the new commands plus the telemetry sink they share - and `src/cli.ts`
-holds no rendering. Two exits are not met and are Phase 6's by nature: `orThrow` still has
-one caller (`src/catalog.ts`, which `doctor` and the uninstall lookup still use), and the
-three shims in `install.ts` exist because `cli.ts` has no `Services` to build the commands
-from yet. The suite is 469, from 443 at the end of Phase 4.
+holds no rendering. Two exits are not met and are Phase 6's by nature: `orThrow` has four
+call sites left (`brand.ts` three times, `src/catalog.ts` once) plus `assertPlugin`, which
+is defined over it and lost its last caller with the old `install.ts`; and the three shims
+in `install.ts` exist because `cli.ts` has no `Services` to build the commands from yet.
+The bridge in `catalog.ts` is down to one caller rather than two - the uninstall lookup
+reads the registry directly as of this phase, so only `doctor` still goes through it. The
+suite is 469, from 443 at the end of Phase 4.
 
 **Corrections, each with what forced it.** Every one of these was decided by the boundary
 lint or by a measurement, not by preference:
@@ -978,8 +981,71 @@ refuses to run.
   `process.exit` below `bin/`.
 - `UserError` deleted. A thrown `Error` anywhere is a bug: stack under `--verbose`, exit 1.
 
-**Exit:** `grep -rn 'UserError\|process\.exit' src` is empty. `cli.test.ts` is fully
-migrated. `src/cli.ts` is gone.
+**Carried in from the Phase 5 review.** Every one of these is a defect the seven per-command
+output comparisons could not see - they compare what the terminal says, and these are in the
+event stream and the prose about it - and every one lands in code this phase rewrites
+anyway:
+
+- **`error_kind` is `user` for every failed `update` row.** Measured against the pre-phase
+  build, which answered `unexpected` for a throw: old `install.ts` decided it with
+  `err instanceof UserError`, and the same probe - a harness whose `install` throws a plain
+  `Error` - reads `unexpected` there and `user` here. `UpdateAction` catches per row, so the
+  command's own catch, the thing meant to tell the two apart, is never entered for a row.
+  The event has to be built where the kind is known: `UpdatedRow` carries it, `user` from
+  the `isFailed()` arm and from an unreadable row, `unexpected` from the catch. A null
+  `report` is not the discriminator - an unreadable row has one of those too. A plain
+  `install` is unaffected and identical to the old build, so the fix is scoped to `update`.
+- **An unreadable manifest row now sends an event the old build did not**, labelled
+  `marketplace: 'custom'` for a row whose recorded repo is the built-in marketplace - the
+  one thing that label is defined not to mean. The `ignored` entry carries `repo`, which
+  `gapWarnings` already reads, so the true label is computable; deciding that a record
+  problem is not an install failure at all and keeping the old silence is the other correct
+  answer. Whichever it is gets a test, because the count of events a run sends is part of
+  the telemetry contract.
+- **Nothing anywhere asserts `error_kind: 'unexpected'`**, and the three commands whose
+  whole job is firing events - `install`, `uninstall`, `update` - have no test under
+  `test/commands/`. That absence is what bought both defects above at 469 green. The
+  flushed-payload test this phase already owes covers the Failure arm; it has to cover the
+  throw arm too.
+- **`InstallReport.plugin` is raw argv on the parse-failure arm.** Safe today only because
+  both commands re-validate with `PluginId.create`, and a leak the moment events are built
+  from reports - which is this phase. Validate before the report exists, or type the field
+  as a `PluginId`.
+- **Four comments in `infrastructure/telemetry-service.ts` document the wrong declaration**
+  now that their exports have moved: `COLLECTED`'s "keep it in step" docblock is
+  `optOutOf`'s, `marketplaceLabel`'s privacy rationale introduces `TelemetryOptions`,
+  `describeTelemetry`'s one-liner sits above `setTelemetryEnabled`'s own, and the Mixpanel
+  naming note sits above `FLUSH_TIMEOUT_MS`. The first matters beyond tidiness: it is the
+  instruction that keeps the disclosure honest, and it belongs with `COLLECTED` in
+  `types/telemetry.ts`.
+- **`assertPlugin` in `util.ts` has no caller in `src/`**, so it goes with `orThrow` - and
+  it is one of the sites that deletion has to find, along with `brand.ts` three times and
+  `catalog.ts` once. Its test goes with it; `PluginId.parse` is already covered.
+- **`ActionResult.cancelled` has no producer.** This is the phase that gives it one, which
+  is also when exit 130 stops being unreachable. `install`'s "no harness selected" stays
+  `success`: nothing was asked of the machine and the old exit was 0.
+- **`asTelemetryVerb` casts** where two `if`s would narrow, which is the one `as` on a
+  validated value in the new code. The router is where argv becomes typed, so it is the
+  right place for it to stop.
+- **`installed`'s read-before-validate comment** claims a bad `--targets` still reports the
+  gaps in the file. Nothing renders them - the command returns before the prompts, exactly
+  as the old code threw before them. Keep the behaviour, fix the sentence.
+- **The confirm seam exists twice**: the action decides `canAsk` from `deps.confirm` while
+  the asking uses the prompts' own. Only `InstallCommand` sets both, and `UpdateAction` sets
+  one - harmless while `update` always resolves to `take-all`, and a real TTY prompt in a
+  non-interactive run if it ever did not. The composition root is where the two become one
+  value.
+- **Sentences in `CLAUDE.md` that Phase 5 falsified**: per-event properties placed in
+  `install.ts` (three command files now), `doctor.ts` named as a caller of `titlesOf`
+  (deleted), `gapWarnings` said to live in `cli.ts` (`prompts/gaps.ts`), `deps.track`
+  reported from `install.ts` (the commands do it), and the "two callers" claim about
+  `catalog.ts`. This phase fixes what it touches - `deps.track` and the per-event
+  properties are its own work - and Phase 7 owns the rest with the rewrite.
+
+**Exit:** `grep -rn 'UserError\|process\.exit' src` is empty, and so is
+`grep -rn 'orThrow\|assertPlugin' src`. `cli.test.ts` is fully migrated. `src/cli.ts` is
+gone. The flushed-payload test pins both values of `error_kind`, and every command that
+fires an event has a test under `test/commands/`.
 
 ### Phase 7 · Enforcement and documentation (1 PR, small)
 
