@@ -2,25 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
+import { sourceFetcher } from '../../src/infrastructure/source-fetcher.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
-import type { SourceFetcher } from '../../src/infrastructure/source-fetcher.js';
 import type { HarnessEvent } from '../../src/types/harness.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
-import type { RunCommand, RunResult } from '../../src/types/ports.js';
+import type { FetchLike, RunCommand, RunResult, SourceFetcher } from '../../src/types/ports.js';
 import { ok } from '../../src/types/result.js';
-import type { MarketplaceEvent } from '../../src/types/session.js';
-import {
-  cleanupAll,
-  portsFor,
-  runnerFor,
-  sessionFrom,
-  silenceConsole,
-  stubFetch,
-} from '../helpers.js';
+import type { MarketplaceEvent, MarketplaceListener, Session } from '../../src/types/session.js';
+import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch } from '../helpers.js';
 
 test.after(cleanupAll);
+
+/** A session over one stubbed fetch, both clients built the way production builds them. */
+const sessionWith = (fetchImpl: FetchLike, notify?: MarketplaceListener): Session => {
+  const ports = portsFor(fetchImpl);
+  return createSession({ registry: registryClient(ports), fetcher: sourceFetcher(ports), notify });
+};
 
 async function quietly<T>(fn: () => Promise<T>): Promise<T> {
   const con = silenceConsole();
@@ -37,7 +36,7 @@ test('a session reads a marketplace registry once however many plugins ask for i
   const fetchImpl = stubFetch({
     [registry]: { body: { name: 'acme', plugins: [{ name: 'alpha' }, { name: 'beta' }] } },
   });
-  const session = sessionFrom({ fetchImpl, env: {} });
+  const session = sessionWith(fetchImpl);
 
   const first = await session.catalog({ repo, ref: 'main' });
   const second = await session.catalog({ repo, ref: 'main' });
@@ -65,7 +64,7 @@ test('a registry file skipped once is reported once, however many plugins ask', 
     },
   });
   const events: MarketplaceEvent[] = [];
-  const session = sessionFrom({ fetchImpl, env: {} }, (e: MarketplaceEvent) => events.push(e));
+  const session = sessionWith(fetchImpl, (e: MarketplaceEvent) => events.push(e));
 
   for (const _plugin of ['alpha', 'beta', 'gamma']) {
     const read = await session.catalog({ repo, ref: 'main' });
@@ -92,7 +91,7 @@ test('two spellings of one repository are one piece of shared work', async () =>
     [registry]: { body: { name: 'acme', plugins: [{ name: 'alpha' }] } },
     [lower]: { body: { name: 'acme', plugins: [{ name: 'alpha' }] } },
   });
-  const session = sessionFrom({ fetchImpl, env: {} });
+  const session = sessionWith(fetchImpl);
 
   await session.catalog({ repo: 'Acme/M', ref: 'main' });
   await session.catalog({ repo: 'acme/m', ref: 'main' });
@@ -103,7 +102,7 @@ test('two spellings of one repository are one piece of shared work', async () =>
 
 test('a marketplace spelled two ways is registered with Claude once', async () => {
   const { exec, calls } = recordingExec();
-  const session = sessionFrom();
+  const session = sessionWith(stubFetch({}));
 
   await quietly(async () => {
     for (const repo of ['Acme/M', 'acme/m']) {
@@ -132,7 +131,7 @@ test('a session keeps separate registries for separate marketplaces', async () =
       body: { name: 'other', plugins: [] },
     },
   });
-  const session = sessionFrom({ fetchImpl, env: {} });
+  const session = sessionWith(fetchImpl);
 
   const first = await session.catalog({ repo: one, ref: 'main' });
   const second = await session.catalog({ repo: two, ref: 'main' });
@@ -206,7 +205,7 @@ function recordingExec(): { exec: RunCommand; calls: string[] } {
 test('the Claude marketplace is registered once per session, and said once', async () => {
   const repo = 'acme/plugin-marketplace';
   const { exec, calls } = recordingExec();
-  const session = sessionFrom();
+  const session = sessionWith(stubFetch({}));
   const events: HarnessEvent[] = [];
 
   for (const _plugin of ['alpha', 'beta', 'gamma']) {

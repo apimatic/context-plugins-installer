@@ -2,10 +2,9 @@ import * as fs from 'node:fs';
 
 import { harnesses } from '../harnesses/index.js';
 import { ensureDir, rmrf } from '../infrastructure/file-system.js';
-import { ghHeaders, rawUrl, readRegistry } from '../infrastructure/github-registry-client.js';
+import { ghHeaders, rawUrl } from '../infrastructure/github-registry-client.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
-import { run, which } from '../infrastructure/process-runner.js';
 import { telemetryStatus } from '../infrastructure/telemetry-service.js';
 import { format as f } from '../prompts/format.js';
 import { describeTelemetry } from '../prompts/telemetry.js';
@@ -15,7 +14,7 @@ import type { DoctorCheck, DoctorReport } from '../types/doctor.js';
 import type { PathOpts } from '../types/env.js';
 import { everyEditor } from '../types/harness.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
-import type { Deps, FetchLike } from '../types/ports.js';
+import type { HttpPorts, ProcessRunner, RegistryClient } from '../types/ports.js';
 import type { MarketplaceListener } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
@@ -38,7 +37,6 @@ const fail = (label: string, detail: string, hint?: string): DoctorCheck => ({
 
 export interface DoctorRequest {
   brand: Brand;
-  deps?: Deps;
   pathOpts?: PathOpts;
 }
 
@@ -49,21 +47,26 @@ export interface DoctorRequest {
  */
 export class DoctorAction {
   /**
-   * From `DoctorCommand`, for the same reason as `ListAction`: the checks are a
-   * report the command renders, so the progress lines the registry read
-   * produces are the only thing this action says, and it does not own them.
+   * Every check this action makes is a question about the machine, so every
+   * service it needs is one it was handed: the registry to reach, the process
+   * table to look in, and the environment both read. `notify` comes from
+   * `DoctorCommand` for the same reason as `ListAction`'s - the checks are a
+   * report the command renders, so the registry's progress lines are the only
+   * thing this action says, and it does not own the words.
    */
   constructor(
+    private readonly registry: RegistryClient,
+    private readonly runner: ProcessRunner,
+    private readonly ports: HttpPorts,
     private readonly notify: MarketplaceListener,
-    private readonly deps: Deps = {},
     private readonly pathOpts?: PathOpts,
   ) {}
 
   private async environment(): Promise<DoctorCheck[]> {
-    const { deps, pathOpts } = this;
-    const whichImpl = deps.which || which;
-    const runImpl = deps.run || run;
-    const env = deps.env || process.env;
+    const { pathOpts } = this;
+    const { env } = this.ports;
+    const whichImpl = (cmd: string): string | null => this.runner.which(cmd);
+    const runImpl = this.runner.run;
     const checks: DoctorCheck[] = [];
 
     const version = process.versions.node;
@@ -74,7 +77,7 @@ export class DoctorAction {
         : fail('Node.js', `v${version}`, `Version ${MIN_NODE} or newer is required.`),
     );
 
-    const git = whichImpl('git', env);
+    const git = whichImpl('git');
     if (git) {
       let detail = f.path(git, pathOpts?.home);
       try {
@@ -133,19 +136,18 @@ export class DoctorAction {
   }
 
   private async marketplace(brand: Brand): Promise<DoctorCheck[]> {
-    const { deps } = this;
-    const fetchImpl: FetchLike = deps.fetchImpl || fetch;
-    const env = deps.env || process.env;
+    const { fetch: fetchImpl, env } = this.ports;
     const checks: DoctorCheck[] = [];
 
     // The registry client answers with a `Result` and its own progress events,
     // so there is nothing to catch: what used to be a throw, with a hint pulled
     // off the error class, is the failure's own message and hint.
     // SHIM: ports from `deps` until this action takes a RegistryClient.
-    const read = await readRegistry(
-      { repo: brand.repo, ref: brand.ref, notify: this.notify },
-      { fetch: deps.fetchImpl ?? fetch, env: deps.env ?? process.env },
-    );
+    const read = await this.registry.readRegistry({
+      repo: brand.repo,
+      ref: brand.ref,
+      notify: this.notify,
+    });
     if (!read.ok) {
       checks.push(fail('Reachable', read.error.message, read.error.hint));
       return checks;
@@ -196,8 +198,8 @@ export class DoctorAction {
 
   // Every outcome is `ok`: opting out is a choice, not a problem to fix.
   private telemetry(brand: Brand): DoctorCheck {
-    const { deps, pathOpts } = this;
-    const status = telemetryStatus({ brand, env: deps.env || process.env, pathOpts });
+    const { pathOpts } = this;
+    const status = telemetryStatus({ brand, env: this.ports.env, pathOpts });
     return ok('Telemetry', describeTelemetry(status, BIN));
   }
 

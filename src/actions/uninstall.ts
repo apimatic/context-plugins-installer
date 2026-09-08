@@ -2,7 +2,6 @@ import { resolvePlugin } from '../application/plugin-resolution.js';
 import { resolveTargets } from '../application/target-selection.js';
 import { decideUninstall, uninstallLines } from '../application/uninstall-decision.js';
 import { harnesses } from '../harnesses/index.js';
-import { readRegistry } from '../infrastructure/github-registry-client.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UninstallPrompts } from '../prompts/uninstall.js';
@@ -15,7 +14,7 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
-import type { Deps } from '../types/ports.js';
+import type { RegistryClient } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
 import { errorMessage, nonEmptyString } from '../types/util.js';
 import { ActionResult } from './action-result.js';
@@ -26,7 +25,6 @@ export interface UninstallRequest {
   targets?: readonly string[] | null;
   /** Clear the record even for editors that could not confirm the removal. */
   force?: boolean;
-  deps?: Deps;
   pathOpts?: HarnessOpts;
 }
 
@@ -53,7 +51,7 @@ export class UninstallAction {
 
   constructor(
     private readonly prompts: UninstallPrompts,
-    private readonly deps: Deps = {},
+    private readonly registry: RegistryClient,
     private readonly pathOpts?: HarnessOpts,
   ) {}
 
@@ -72,11 +70,11 @@ export class UninstallAction {
       brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
     if (known || !want.includes('claude')) return { marketplace: known };
 
-    // SHIM: ports from `deps` until this action takes a RegistryClient.
-    const read = await readRegistry(
-      { repo: brand.repo, ref: brand.ref, notify: this.prompts.marketplaceListener },
-      { fetch: this.deps.fetchImpl ?? fetch, env: this.deps.env ?? process.env },
-    );
+    const read = await this.registry.readRegistry({
+      repo: brand.repo,
+      ref: brand.ref,
+      notify: this.prompts.marketplaceListener,
+    });
     const resolved = read.ok
       ? resolvePlugin(read.value, { plugin, repo: brand.repo, ref: brand.ref })
       : read;

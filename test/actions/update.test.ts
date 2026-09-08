@@ -5,21 +5,22 @@ import * as fs from 'node:fs';
 import { openManifest, upsert } from '../../src/infrastructure/manifest-store.js';
 import * as paths from '../../src/infrastructure/paths.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
-import type { Deps } from '../../src/types/ports.js';
+import { ok } from '../../src/types/result.js';
 import { isPlainObject } from '../../src/types/util.js';
-import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
+import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { foreignTargets } from '../../src/types/installed-record.js';
-import { cleanupAll, silenceConsole, stubFetch } from '../helpers.js';
+import { cleanupAll, portsFor, silenceConsole, stubFetch } from '../helpers.js';
 import {
-  TARGETS,
   brandFor,
-  deps,
   installPlugin,
   machine,
   pluginSource,
   quietly,
   scriptedConfirm,
+  TARGETS,
+  type Wiring,
   updateAll,
+  wiring,
 } from '../install-fixture.js';
 
 test.after(cleanupAll);
@@ -36,14 +37,20 @@ test('update skips a row whose editors are all gone instead of failing', async (
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
   const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
+    installPlugin({
+      brand,
+      plugin: 'my-sdk',
+      targets: ['cursor'],
+      wiring: d,
+      pathOpts: m.pathOpts,
+    }),
   );
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
 
-  const result = await quietly(() => updateAll({ brand, deps: d, pathOpts: m.pathOpts }));
+  const result = await quietly(() => updateAll({ brand, wiring: d, pathOpts: m.pathOpts }));
 
   assert.deepEqual(result.failed, [], 'no editor for it is not a failure');
   assert.deepEqual(result.updated, []);
@@ -53,22 +60,21 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   await quietly(() =>
     installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...d, confirm: scriptedConfirm([false, true]) },
+      wiring: d,
+      ask: scriptedConfirm([false, true]),
       pathOpts: m.pathOpts,
     }),
   );
 
   const confirm = scriptedConfirm([]);
-  await quietly(() =>
-    updateAll({ brand: brandFor(repo), deps: { ...d, confirm }, pathOpts: m.pathOpts }),
-  );
+  await quietly(() => updateAll({ brand: brandFor(repo), wiring: d, pathOpts: m.pathOpts }));
 
   assert.deepEqual(confirm.asked, []);
   assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, ['vscode']);
@@ -77,7 +83,7 @@ test('update never re-asks, it replays the recorded harnesses', async () => {
 test('update names the targets it cannot update, and leaves them recorded', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const d = deps({ repo, srcDir: pluginSource() });
+  const d = wiring({ repo, srcDir: pluginSource() });
   const file = paths.manifestPath(m.pathOpts).toString();
 
   await quietly(() =>
@@ -85,7 +91,7 @@ test('update names the targets it cannot update, and leaves them recorded', asyn
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
       pathOpts: m.pathOpts,
     }),
   );
@@ -97,7 +103,7 @@ test('update names the targets it cannot update, and leaves them recorded', asyn
 
   const con = silenceConsole();
   try {
-    await updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts });
+    await updateAll({ brand: brandFor(repo), wiring: d, pathOpts: m.pathOpts });
   } finally {
     con.restore();
   }
@@ -131,14 +137,20 @@ test('update reads the registry once for the whole run, not once per plugin', as
       },
     },
   });
-  const d: Deps = {
-    fetchImpl,
-    env: {},
-    materialize: async ({ sourcePath }) => ({
-      dir: new DirectoryPath(pluginSource(sourcePath.split('/').pop())),
-      cleanup: () => {},
-      via: 'stub',
-    }),
+  // Two plugins from one repo: the fetcher hands each its own folder, so the
+  // memo is what decides how often the registry is read.
+  const ports = portsFor(fetchImpl);
+  const d: Wiring = {
+    ports,
+    registry: registryClient(ports),
+    fetcher: {
+      openRepo: async () => ({
+        via: 'api',
+        cleanup: () => {},
+        checkout: async (sourcePath: string) =>
+          ok(new DirectoryPath(pluginSource(sourcePath.split('/').pop()))),
+      }),
+    },
   };
 
   for (const plugin of ['alpha', 'beta']) {
@@ -147,7 +159,7 @@ test('update reads the registry once for the whole run, not once per plugin', as
         brand: brandFor(repo),
         plugin,
         targets: TARGETS,
-        deps: d,
+        wiring: d,
         pathOpts: m.pathOpts,
       }),
     );
@@ -155,7 +167,7 @@ test('update reads the registry once for the whole run, not once per plugin', as
 
   const before = fetchImpl.calls.filter((u) => u === registry).length;
   const result = await quietly(() =>
-    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
+    updateAll({ brand: brandFor(repo), wiring: d, pathOpts: m.pathOpts }),
   );
 
   const during = fetchImpl.calls.filter((u) => u === registry).length - before;
@@ -168,7 +180,7 @@ test('update fails loudly on rows it cannot read instead of skipping them', asyn
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   // One good install on record, plus a row only a newer CLI understands.
   await quietly(() =>
@@ -176,7 +188,7 @@ test('update fails loudly on rows it cannot read instead of skipping them', asyn
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
       pathOpts: m.pathOpts,
     }),
   );
@@ -186,7 +198,7 @@ test('update fails loudly on rows it cannot read instead of skipping them', asyn
   fs.writeFileSync(file, JSON.stringify(raw));
 
   const result = await quietly(() =>
-    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
+    updateAll({ brand: brandFor(repo), wiring: d, pathOpts: m.pathOpts }),
   );
 
   assert.deepEqual(result.updated, ['my-sdk']);

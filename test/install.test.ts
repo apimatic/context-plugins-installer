@@ -7,20 +7,21 @@ import { openManifest } from '../src/infrastructure/manifest-store.js';
 import * as paths from '../src/infrastructure/paths.js';
 
 import {
-  TARGETS,
   brandFor,
-  deps,
   flat,
   installPlugin,
   machine,
   pluginSource,
   quietly,
+  registryOnly,
   scriptedConfirm,
   sinkInto,
+  TARGETS,
+  type Tracked,
   uninstallPlugin,
   updateAll,
+  wiring,
   withClaude,
-  type Tracked,
 } from './install-fixture.js';
 import { FailureError, cleanupAll, parseJsonc, silenceConsole, stubFetch } from './helpers.js';
 
@@ -36,7 +37,7 @@ test('install places files for every detected harness and records the manifest',
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -71,7 +72,7 @@ test('a second marketplace installs independently', async () => {
       brand: brandFor(repo),
       plugin: 'acme-payments-sdk',
       targets: TARGETS,
-      deps: deps({ repo, marketplace: 'acme', plugin: 'acme-payments-sdk', srcDir }),
+      wiring: wiring({ repo, marketplace: 'acme', plugin: 'acme-payments-sdk', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -94,7 +95,7 @@ test('re-installing updates in place rather than duplicating', async () => {
     brand: brandFor(repo),
     plugin: 'my-sdk',
     targets: TARGETS,
-    deps: deps({ repo, srcDir }),
+    wiring: wiring({ repo, srcDir }),
     pathOpts: m.pathOpts,
   };
 
@@ -119,7 +120,7 @@ test('the same plugin id from a second marketplace is refused without --force', 
       brand: brandFor('context-plugins/plugin-marketplace'),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo: 'context-plugins/plugin-marketplace', srcDir }),
+      wiring: wiring({ repo: 'context-plugins/plugin-marketplace', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -130,7 +131,7 @@ test('the same plugin id from a second marketplace is refused without --force', 
         brand: brandFor('acme/plugin-marketplace'),
         plugin: 'my-sdk',
         targets: TARGETS,
-        deps: deps({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
+        wiring: wiring({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
         pathOpts: m.pathOpts,
       }),
     ),
@@ -146,7 +147,7 @@ test('--force lets the second marketplace take over', async () => {
       brand: brandFor('context-plugins/plugin-marketplace'),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo: 'context-plugins/plugin-marketplace', srcDir }),
+      wiring: wiring({ repo: 'context-plugins/plugin-marketplace', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -156,7 +157,7 @@ test('--force lets the second marketplace take over', async () => {
       plugin: 'my-sdk',
       targets: TARGETS,
       force: true,
-      deps: deps({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
+      wiring: wiring({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -174,7 +175,7 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
       brand,
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -183,7 +184,7 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
       brand,
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -219,7 +220,7 @@ test('a row nothing has installed is cleared rather than left stuck', async () =
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: TARGETS,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -252,7 +253,7 @@ test('a target that could not be confirmed keeps the row until --force', async (
     brand: brandFor(repo),
     plugin: 'ghost-sdk',
     targets: ['claude', 'cursor'],
-    deps: { fetchImpl: stubFetch({}), env: {} },
+    wiring: registryOnly(stubFetch({})),
     pathOpts: offPath,
   };
 
@@ -293,7 +294,7 @@ test('a partial clear says which targets it cleared, not that the row is gone', 
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['claude', 'cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       // No PATH, so Claude Code cannot be asked and its target must stay.
       pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
     });
@@ -331,7 +332,7 @@ test('--force names what it dropped without confirming', async () => {
       plugin: 'ghost-sdk',
       targets: ['claude'],
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
     });
   } finally {
@@ -370,7 +371,7 @@ test('a removal does not hide a target cleared alongside it', async () => {
       brand: brandFor(repo),
       plugin: 'mix-sdk',
       targets: TARGETS,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -405,7 +406,7 @@ test('an editor that is not installed leaves its target recorded', async () => {
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -444,7 +445,7 @@ test('an unrecognised settings entry is reported, not silently kept or hidden', 
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['vscode'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -476,7 +477,7 @@ test('an unrecognised settings entry is named even when the files did go', async
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['vscode'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -494,10 +495,10 @@ test('a harness that throws still records what was already removed', async () =>
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
   const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
+    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, wiring: d, pathOpts: m.pathOpts }),
   );
 
   // A directory where settings.json belongs: readFileSync throws EISDIR, so the
@@ -515,7 +516,7 @@ test('a harness that throws still records what was already removed', async () =>
           brand,
           plugin: 'my-sdk',
           targets: TARGETS,
-          deps: d,
+          wiring: d,
           pathOpts: m.pathOpts,
         });
       } finally {
@@ -553,7 +554,7 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
       brand: brandFor(repo),
       plugin: 'future-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -571,7 +572,7 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
       plugin: 'future-sdk',
       targets: ['cursor'],
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -598,7 +599,7 @@ test('a row that names no editor is dropped once every editor has answered', asy
     uninstallPlugin({
       brand: brandFor(repo),
       plugin: 'no-targets-sdk',
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -625,7 +626,7 @@ test('a row naming only targets this build does not know has a way out', async (
       brand: brandFor(repo),
       plugin: 'zed-sdk',
       targets: TARGETS,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -645,7 +646,7 @@ test('a row naming only targets this build does not know has a way out', async (
       plugin: 'zed-sdk',
       targets: TARGETS,
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -675,7 +676,7 @@ test('a scoped run never drops a row that stands for every editor', async () => 
       brand: brandFor(repo),
       plugin: 'x-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -710,7 +711,7 @@ test('--force still reports what it left behind', async () => {
       plugin: 'y-sdk',
       targets: ['cursor'],
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -744,7 +745,7 @@ test('a row that names no editor survives an editor that could not answer', asyn
       brand: brandFor(repo),
       plugin: 'empty-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -769,7 +770,7 @@ test('an editor that is simply not here does not fail the run', async () => {
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -791,7 +792,7 @@ test('an editor that was asked and went wrong fails the run', async () => {
         brand: brandFor(repo),
         plugin: 'ghost-sdk',
         targets: ['vscode'],
-        deps: { fetchImpl: stubFetch({}), env: {} },
+        wiring: registryOnly(stubFetch({})),
         pathOpts: m.pathOpts,
       }),
     ),
@@ -817,7 +818,7 @@ test('--force clears a record offline, with no marketplace to resolve', async ()
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       force: true,
-      deps: { fetchImpl: offline, env: {} },
+      wiring: registryOnly(offline),
       pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
     }),
   );
@@ -837,7 +838,7 @@ test('a lookup failure still stops an uninstall with no record to correct', asyn
       uninstallPlugin({
         brand: brandFor(repo),
         plugin: 'never-installed-sdk',
-        deps: { fetchImpl: offline, env: {} },
+        wiring: registryOnly(offline),
         pathOpts: m.pathOpts,
       }),
     ),
@@ -856,7 +857,7 @@ test('asking for an editor that is not installed fails, naming it', async () => 
         brand: brandFor(repo),
         plugin: 'my-sdk',
         targets: ['cursor'],
-        deps: deps({ repo, srcDir: pluginSource() }),
+        wiring: wiring({ repo, srcDir: pluginSource() }),
         pathOpts: m.pathOpts,
       }),
     ),
@@ -879,7 +880,7 @@ test('no editor at all fails rather than silently doing nothing', async () => {
         brand: brandFor(repo),
         plugin: 'my-sdk',
         targets: TARGETS,
-        deps: deps({ repo, srcDir: pluginSource() }),
+        wiring: wiring({ repo, srcDir: pluginSource() }),
         pathOpts: m.pathOpts,
       }),
     ),
@@ -900,7 +901,7 @@ test('a harness that is not installed is skipped, not failed', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -929,7 +930,8 @@ test('the user is asked once per detected harness', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null, // no --targets => ask
-      deps: { ...deps({ repo, srcDir }), confirm },
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
       pathOpts: m.pathOpts,
     }),
   );
@@ -948,7 +950,8 @@ test('a declined harness is not touched', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, true]) },
+      wiring: wiring({ repo, srcDir }),
+      ask: scriptedConfirm([false, true]),
       pathOpts: m.pathOpts,
     }),
   );
@@ -966,8 +969,8 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
-  const args = { brand: brandFor(repo), plugin: 'my-sdk', deps: d, pathOpts: m.pathOpts };
+  const d = wiring({ repo, srcDir });
+  const args = { brand: brandFor(repo), plugin: 'my-sdk', wiring: d, pathOpts: m.pathOpts };
   const vscodeDest = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk');
   const settingsFile = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
 
@@ -983,7 +986,8 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
     installPlugin({
       ...args,
       targets: null,
-      deps: { ...d, confirm: scriptedConfirm([true, false]) },
+      wiring: d,
+      ask: scriptedConfirm([true, false]),
     }),
   );
 
@@ -1011,8 +1015,8 @@ test('the declined-but-installed editor is named once, in the summary', async ()
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
-  const args = { brand: brandFor(repo), plugin: 'my-sdk', deps: d, pathOpts: m.pathOpts };
+  const d = wiring({ repo, srcDir });
+  const args = { brand: brandFor(repo), plugin: 'my-sdk', wiring: d, pathOpts: m.pathOpts };
 
   await quietly(() => installPlugin({ ...args, targets: TARGETS }));
 
@@ -1021,7 +1025,8 @@ test('the declined-but-installed editor is named once, in the summary', async ()
     await installPlugin({
       ...args,
       targets: null,
-      deps: { ...d, confirm: scriptedConfirm([true, false]) },
+      wiring: d,
+      ask: scriptedConfirm([true, false]),
     });
   } finally {
     con.restore();
@@ -1046,7 +1051,8 @@ test('a fresh install records only what it installed', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([true, false]) },
+      wiring: wiring({ repo, srcDir }),
+      ask: scriptedConfirm([true, false]),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1065,7 +1071,8 @@ test('declining everything changes nothing at all', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, false]) },
+      wiring: wiring({ repo, srcDir }),
+      ask: scriptedConfirm([false, false]),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1087,7 +1094,8 @@ test('an undetected harness is never offered', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm },
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
       pathOpts: m.pathOpts,
     }),
   );
@@ -1105,14 +1113,18 @@ test('nothing is downloaded when every harness is declined', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: {
-        ...deps({ repo, srcDir: pluginSource() }),
-        materialize: async () => {
-          fetched = true;
-          throw new Error('should not fetch');
+      // A fetcher that fails if it is reached at all, which is the assertion:
+      // the prompt has to come before the download.
+      wiring: {
+        ...wiring({ repo, srcDir: pluginSource() }),
+        fetcher: {
+          openRepo: async () => {
+            fetched = true;
+            throw new Error('should not fetch');
+          },
         },
-        confirm: scriptedConfirm([false, false]),
       },
+      ask: scriptedConfirm([false, false]),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1148,7 +1160,7 @@ test('uninstall still works offline for rows the sanitized view hides', async ()
     result = await uninstallPlugin({
       brand: brandFor(repo),
       plugin: 'future-sdk',
-      deps: { fetchImpl: offline, env: {} },
+      wiring: registryOnly(offline),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -1170,10 +1182,10 @@ test('a row mixing a known target with a foreign one keeps the foreign name', as
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
   const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
+    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, wiring: d, pathOpts: m.pathOpts }),
   );
 
   // A newer CLI adds its own harness to the row, and a field this build has
@@ -1184,7 +1196,7 @@ test('a row mixing a known target with a foreign one keeps the foreign name', as
   seeded.plugins[0].pinned = true;
   fs.writeFileSync(file, JSON.stringify(seeded));
 
-  const result = await quietly(() => updateAll({ brand, deps: d, pathOpts: m.pathOpts }));
+  const result = await quietly(() => updateAll({ brand, wiring: d, pathOpts: m.pathOpts }));
   assert.deepEqual(result.updated, ['my-sdk'], 'this build still refreshes what it owns');
 
   const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins[0];
@@ -1201,7 +1213,7 @@ test('install reports one event per editor through the track seam, flat and with
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir: pluginSource() }),
+      wiring: wiring({ repo, srcDir: pluginSource() }),
       sink: sinkInto(events),
       pathOpts: m.pathOpts,
     }),
@@ -1239,7 +1251,7 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
       brand: brandFor(repo),
       plugin: 'acme-sdk',
       targets: TARGETS,
-      deps: deps(spec),
+      wiring: wiring(spec),
       sink: sinkInto(events),
       pathOpts: m.pathOpts,
     }),
@@ -1253,7 +1265,7 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
         brand: brandFor(repo),
         plugin: 'missing-sdk',
         targets: TARGETS,
-        deps: deps(spec),
+        wiring: wiring(spec),
         sink: sinkInto(events),
         pathOpts: m.pathOpts,
       }),
@@ -1277,7 +1289,7 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
         brand: brandFor(repo),
         plugin: '../etc',
         targets: TARGETS,
-        deps: deps(spec),
+        wiring: wiring(spec),
         sink: sinkInto(events),
         pathOpts: m.pathOpts,
       }),
@@ -1291,14 +1303,14 @@ test('uninstall reports one event per editor it removed', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const events: Tracked[] = [];
-  const d = deps({ repo, srcDir: pluginSource() });
+  const d = wiring({ repo, srcDir: pluginSource() });
   const sink = sinkInto(events);
   await quietly(() =>
     installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
       sink,
       pathOpts: m.pathOpts,
     }),
@@ -1310,7 +1322,7 @@ test('uninstall reports one event per editor it removed', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
       sink,
       pathOpts: m.pathOpts,
     }),
@@ -1333,7 +1345,7 @@ test('a throwing track sink never fails an install', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps(spec),
+      wiring: wiring(spec),
       sink: () => {
         throw new Error('sink is down');
       },

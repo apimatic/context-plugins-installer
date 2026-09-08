@@ -19,9 +19,9 @@ export class InstallCommand {
   constructor(private readonly sink: EventSink) {}
 
   async run(req: InstallRequest, session: Session): Promise<ActionResult<InstallReport>> {
-    const prompts = new InstallPrompts(req.pathOpts?.home, req.deps?.confirm);
+    const prompts = new InstallPrompts(req.pathOpts?.home, req.ask);
     const marketplace = MarketplaceLabel.of(req.brand);
-    const action = new InstallAction(prompts, session, req.deps, req.pathOpts);
+    const action = new InstallAction(prompts, session, req.pathOpts);
     try {
       const result = await action.execute(req);
       const { plugin, targets, targetsExplicit, durationMs } = result.report;

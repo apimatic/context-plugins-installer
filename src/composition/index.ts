@@ -39,6 +39,12 @@ export const services = (): Services => ({
 
   telemetry: (brand, command) => createTelemetry({ brand, command, version: packageVersion }),
 
+  registry: (ports = realPorts()) => registryClient(ports),
+
+  runner: (env) => processRunner(env),
+
+  env: () => process.env,
+
   manifest: (pathOpts) => openManifest(paths.manifestPath(pathOpts)),
 
   telemetrySettings: (brand) => ({

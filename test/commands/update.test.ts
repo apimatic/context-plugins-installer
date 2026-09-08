@@ -4,19 +4,21 @@ import * as fs from 'node:fs';
 
 import { UpdateCommand } from '../../src/commands/update.js';
 import * as paths from '../../src/infrastructure/paths.js';
-import { cleanupAll, sessionFrom } from '../helpers.js';
+import { cleanupAll } from '../helpers.js';
 import {
   brandFor,
-  deps,
   installPlugin,
   machine,
   pluginSource,
   quietly,
+  sessionOver,
   sinkInto,
   throwsOnInstall,
-  withHarness,
   type Machine,
   type Tracked,
+  type Wiring,
+  wiring,
+  withHarness,
 } from '../install-fixture.js';
 
 test.after(cleanupAll);
@@ -29,30 +31,26 @@ test.after(cleanupAll);
 const REPO = 'context-plugins/plugin-marketplace';
 
 /** A machine with one plugin recorded for Cursor, ready to be updated. */
-async function recorded(plugin = 'my-sdk'): Promise<{ m: Machine; d: ReturnType<typeof deps> }> {
+async function recorded(plugin = 'my-sdk'): Promise<{ m: Machine; d: Wiring }> {
   const m = machine();
-  const d = deps({ repo: REPO, plugin, srcDir: pluginSource(plugin) });
+  const d = wiring({ repo: REPO, plugin, srcDir: pluginSource(plugin) });
   await quietly(() =>
     installPlugin({
       brand: brandFor(REPO),
       plugin,
       targets: ['cursor'],
-      deps: d,
+      wiring: d,
       pathOpts: m.pathOpts,
     }),
   );
   return { m, d };
 }
 
-const update = async (m: Machine, d: object, events: Tracked[]): Promise<void> => {
+const update = async (m: Machine, d: Wiring, events: Tracked[]): Promise<void> => {
   await quietly(() =>
     new UpdateCommand(sinkInto(events)).run(
-      {
-        brand: brandFor(REPO),
-        deps: d,
-        pathOpts: m.pathOpts,
-      },
-      sessionFrom(d),
+      { brand: brandFor(REPO), pathOpts: m.pathOpts },
+      sessionOver(d),
     ),
   );
 };
@@ -111,12 +109,8 @@ test('a row this build cannot read reports nothing, and still fails the run', as
   const events: Tracked[] = [];
   const result = await quietly(() =>
     new UpdateCommand(sinkInto(events)).run(
-      {
-        brand: brandFor(REPO),
-        deps: d,
-        pathOpts: m.pathOpts,
-      },
-      sessionFrom(d),
+      { brand: brandFor(REPO), pathOpts: m.pathOpts },
+      sessionOver(d),
     ),
   );
 
@@ -141,12 +135,8 @@ test('a row with no editor on this machine reports nothing', async () => {
   const events: Tracked[] = [];
   const result = await quietly(() =>
     new UpdateCommand(sinkInto(events)).run(
-      {
-        brand: brandFor(REPO),
-        deps: d,
-        pathOpts: m.pathOpts,
-      },
-      sessionFrom(d),
+      { brand: brandFor(REPO), pathOpts: m.pathOpts },
+      sessionOver(d),
     ),
   );
 

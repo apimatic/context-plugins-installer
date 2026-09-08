@@ -5,7 +5,7 @@ import { BIN, type Brand } from '../types/brand.js';
 import type { Env, PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';
 import type { FilePath } from '../types/file/paths.js';
-import type { Deps, FetchLike, Telemetry } from '../types/ports.js';
+import type { FetchLike, Telemetry } from '../types/ports.js';
 import type { Result } from '../types/result.js';
 import {
   COLLECTED,
@@ -87,7 +87,13 @@ export interface TelemetryOptions {
   command: string | null;
   /** Read only once there is something to send. */
   version: () => string;
-  deps?: Deps;
+  /**
+   * Read in `flush` and not before: `createTelemetry` must not dereference
+   * global `fetch`, so this stays a value the sender resolves when it has
+   * something to send.
+   */
+  fetchImpl?: FetchLike;
+  env?: Env;
   pathOpts?: PathOpts;
   timeoutMs?: number;
   now?: () => number;
@@ -101,7 +107,8 @@ export function createTelemetry({
   brand,
   command,
   version,
-  deps = {},
+  fetchImpl: injectedFetch,
+  env = process.env,
   pathOpts,
   timeoutMs = FLUSH_TIMEOUT_MS,
   now = Date.now,
@@ -136,7 +143,7 @@ export function createTelemetry({
   }
 
   async function send(events: TelemetryEvent[], lines: TelemetryLine[]): Promise<void> {
-    const env = deps.env || process.env;
+    // env is the one this instance was built with.
     const { status, read, stateFile } = resolve(brand, env, pathOpts);
     if (status.mode === 'off') return;
     const token = brand.telemetry.token;
@@ -190,7 +197,7 @@ export function createTelemetry({
       return;
     }
 
-    const fetchImpl: FetchLike | undefined = deps.fetchImpl ?? globalThis.fetch;
+    const fetchImpl: FetchLike | undefined = injectedFetch ?? globalThis.fetch;
     if (typeof fetchImpl !== 'function') {
       lines.push({ kind: 'debug', text: 'telemetry: no fetch implementation; nothing sent' });
       return;

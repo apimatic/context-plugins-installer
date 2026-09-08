@@ -4,23 +4,24 @@ import assert from 'node:assert';
 import { InstallCommand } from '../../src/commands/install.js';
 import type { InstallRequest } from '../../src/actions/install.js';
 import type { ActionResult } from '../../src/actions/action-result.js';
-import type { Deps } from '../../src/types/ports.js';
 import type { InstallReport } from '../../src/types/reports.js';
-import { cleanupAll, sessionFrom } from '../helpers.js';
+import { cleanupAll } from '../helpers.js';
 import {
-  TARGETS,
   brandFor,
   cancellingConfirm,
-  deps,
   machine,
   pluginSource,
   quietly,
+  sessionOver,
   sinkInto,
+  TARGETS,
   throwsOnInstall,
-  withClaude,
-  withHarness,
   type Machine,
   type Tracked,
+  type Wiring,
+  wiring,
+  withClaude,
+  withHarness,
 } from '../install-fixture.js';
 
 test.after(cleanupAll);
@@ -33,11 +34,11 @@ const REPO = 'context-plugins/plugin-marketplace';
 
 async function install(
   m: Machine,
-  d: Deps,
+  d: Wiring,
   req: Partial<InstallRequest>,
   events: Tracked[],
 ): Promise<ActionResult<InstallReport>> {
-  const session = sessionFrom(d, () => {});
+  const session = sessionOver(d);
   try {
     return await quietly(() =>
       new InstallCommand(sinkInto(events)).run(
@@ -45,7 +46,6 @@ async function install(
           brand: brandFor(REPO),
           plugin: 'my-sdk',
           targets: TARGETS,
-          deps: d,
           pathOpts: m.pathOpts,
           ...req,
         },
@@ -59,7 +59,7 @@ async function install(
 
 test('one event per editor the plugin went into, under the id that validated', async () => {
   const events: Tracked[] = [];
-  await install(machine(), deps({ repo: REPO, srcDir: pluginSource() }), {}, events);
+  await install(machine(), wiring({ repo: REPO, srcDir: pluginSource() }), {}, events);
 
   assert.deepEqual(
     events.map((e) => [e.name, e.properties.harness]),
@@ -83,7 +83,7 @@ test('a failure the action answered with is reported as the user, with its stage
   const events: Tracked[] = [];
   const result = await install(
     machine(),
-    deps({ repo: REPO, srcDir: pluginSource() }),
+    wiring({ repo: REPO, srcDir: pluginSource() }),
     { plugin: 'no-such-sdk' },
     events,
   );
@@ -105,7 +105,7 @@ test('an id that never validated travels as null', async () => {
   const events: Tracked[] = [];
   const result = await install(
     machine(),
-    deps({ repo: REPO, srcDir: pluginSource() }),
+    wiring({ repo: REPO, srcDir: pluginSource() }),
     { plugin: '../etc' },
     events,
   );
@@ -123,7 +123,7 @@ test('an id that never validated travels as null', async () => {
 test('a throw out of the action is unexpected, and still leaves the run', async () => {
   const events: Tracked[] = [];
   const m = machine();
-  const d = deps({ repo: REPO, srcDir: pluginSource() });
+  const d = wiring({ repo: REPO, srcDir: pluginSource() });
 
   await assert.rejects(
     withHarness('cursor', throwsOnInstall('disk on fire'), () =>
@@ -154,7 +154,7 @@ test('an editor that fails the install is the user, not a bug', async () => {
   const m = withClaude(machine());
   const result = await install(
     m,
-    deps({ repo: REPO, srcDir: pluginSource() }),
+    wiring({ repo: REPO, srcDir: pluginSource() }),
     {
       targets: ['claude'],
     },
@@ -179,8 +179,8 @@ test('an editor that fails the install is the user, not a bug', async () => {
 test('an interrupted prompt cancels the run, reports nothing, and exits 130', async () => {
   const events: Tracked[] = [];
   const confirm = cancellingConfirm();
-  const d = { ...deps({ repo: REPO, srcDir: pluginSource() }), confirm };
-  const result = await install(machine(), d, { targets: null }, events);
+  const d = wiring({ repo: REPO, srcDir: pluginSource() });
+  const result = await install(machine(), d, { targets: null, ask: confirm }, events);
 
   assert.equal(result.isCancelled(), true);
   assert.equal(result.exitCode(), 130);
@@ -193,7 +193,7 @@ test('an interrupted prompt cancels the run, reports nothing, and exits 130', as
 test('no editor to install into reports the failure alone', async () => {
   const events: Tracked[] = [];
   const m = machine();
-  await install(m, deps({ repo: REPO, srcDir: pluginSource() }), { targets: ['claude'] }, events);
+  await install(m, wiring({ repo: REPO, srcDir: pluginSource() }), { targets: ['claude'] }, events);
 
   assert.deepEqual(
     events.map((e) => e.name),

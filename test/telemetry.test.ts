@@ -24,7 +24,7 @@ import { cleanupAll, resolveBrand, silenceConsole, tmpDir } from './helpers.js';
 import {
   TARGETS,
   brandFor,
-  deps,
+  wiring,
   installPlugin,
   machine as editorMachine,
   pluginSource,
@@ -94,7 +94,8 @@ function telemetryFor(m: Machine, fetchImpl: FetchLike, over: Partial<TelemetryO
     brand: brand(),
     command: 'install',
     version: () => '9.9.9',
-    deps: { env: {}, fetchImpl },
+    env: {},
+    fetchImpl,
     pathOpts: m.pathOpts,
     ...over,
   });
@@ -337,7 +338,7 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
     assert.equal(describeTelemetry(status, 'context-plugins'), c.described, c.label);
 
     const mixpanel = sink();
-    const t = telemetryFor(m, mixpanel, { brand: b, deps: { env, fetchImpl: mixpanel } });
+    const t = telemetryFor(m, mixpanel, { brand: b, env, fetchImpl: mixpanel });
     t.report(installed({ plugin: 'a' }));
     const con = await flushQuietly(t);
     assert.equal(mixpanel.sent.length, 0, `${c.label}: nothing sent`);
@@ -401,7 +402,7 @@ test('CP_TELEMETRY=log prints the payload to stderr and sends nothing, whatever 
   const m = machine();
   const mixpanel = sink();
   const env = { CP_TELEMETRY: 'log', DO_NOT_TRACK: '1' };
-  const t = telemetryFor(m, mixpanel, { deps: { env, fetchImpl: mixpanel } });
+  const t = telemetryFor(m, mixpanel, { env, fetchImpl: mixpanel });
   const status = statusOf(m, env);
   assert.equal(status.mode, 'log');
   assert.equal(describeTelemetry(status, 'context-plugins'), 'log only (CP_TELEMETRY=log)');
@@ -466,7 +467,7 @@ test('a runtime without a global fetch sends nothing rather than crashing', asyn
   const saved = g.fetch;
   delete g.fetch;
   try {
-    const t = telemetryFor(m, undefined as unknown as FetchLike, { deps: { env: {} } });
+    const t = telemetryFor(m, undefined as unknown as FetchLike, { env: {} });
     t.report(installed({ plugin: 'a' }));
     await flushQuietly(t);
   } finally {
@@ -589,7 +590,8 @@ test('one successful install is one request, with the run-level facts and nothin
     brand: brandFor(REPO),
     command: 'install',
     version: () => '9.9.9',
-    deps: { env: {}, fetchImpl: mixpanel },
+    env: {},
+    fetchImpl: mixpanel,
     pathOpts: m.pathOpts,
   });
 
@@ -598,7 +600,7 @@ test('one successful install is one request, with the run-level facts and nothin
       brand: brandFor(REPO),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo: REPO, srcDir: pluginSource() }),
+      wiring: wiring({ repo: REPO, srcDir: pluginSource() }),
       sink: (event) => t.report(event),
       pathOpts: m.pathOpts,
     }),

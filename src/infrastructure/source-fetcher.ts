@@ -11,6 +11,7 @@ import type {
   MaterializedSource,
   ProcessRunner,
   RunResult,
+  SourceFetcher,
   SourcePorts,
 } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
@@ -356,16 +357,6 @@ export async function openRepo(
       return ok(at);
     },
   };
-}
-
-/**
- * The fetcher the composition root builds. One method, because one is all
- * anything above infrastructure needs: `openRepo` decides between a clone and
- * the API from the git it can find, and hands back a handle that checks out
- * each plugin folder once.
- */
-export interface SourceFetcher {
-  openRepo(args: { repo: string; ref: string; notify?: MarketplaceListener }): Promise<RepoHandle>;
 }
 
 export const sourceFetcher = (ports: SourcePorts): SourceFetcher => ({

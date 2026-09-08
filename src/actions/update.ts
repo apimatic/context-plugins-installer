@@ -4,7 +4,6 @@ import * as paths from '../infrastructure/paths.js';
 import type { UpdatePrompts } from '../prompts/update.js';
 import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { HarnessOpts } from '../types/harness.js';
-import type { Deps } from '../types/ports.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
 import type { Session } from '../types/session.js';
 import { errorMessage } from '../types/util.js';
@@ -13,7 +12,6 @@ import { InstallAction } from './install.js';
 
 export interface UpdateRequest {
   brand: Brand;
-  deps?: Deps;
   pathOpts?: HarnessOpts;
 }
 
@@ -32,7 +30,6 @@ export class UpdateAction {
   constructor(
     private readonly prompts: UpdatePrompts,
     private readonly session: Session,
-    private readonly deps: Deps = {},
     private readonly pathOpts?: HarnessOpts,
   ) {}
 
@@ -86,12 +83,7 @@ export class UpdateAction {
         continue;
       }
 
-      const install = new InstallAction(
-        this.prompts.installPrompts(),
-        session,
-        this.deps,
-        this.pathOpts,
-      );
+      const install = new InstallAction(this.prompts.installPrompts(), session, this.pathOpts);
       try {
         const result = await this.prompts.collapsed(() =>
           install.execute({
@@ -101,7 +93,6 @@ export class UpdateAction {
             targets: reachable,
             force: true,
             assumeYes: true,
-            deps: this.deps,
             pathOpts: this.pathOpts,
           }),
         );

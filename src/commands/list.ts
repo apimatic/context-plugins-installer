@@ -1,6 +1,7 @@
 import type { ActionResult } from '../actions/action-result.js';
 import { ListAction, type ListRequest } from '../actions/list.js';
 import { ListPrompts } from '../prompts/list.js';
+import type { RegistryClient } from '../types/ports.js';
 import type { ListReport } from '../types/reports.js';
 
 export interface ListArgs extends ListRequest {
@@ -10,12 +11,15 @@ export interface ListArgs extends ListRequest {
 
 /** `list` says nothing until it has the catalog, so the command renders once. */
 export class ListCommand {
-  constructor(private readonly prompts = new ListPrompts()) {}
+  constructor(
+    private readonly registry: RegistryClient,
+    private readonly prompts = new ListPrompts(),
+  ) {}
 
   async run(args: ListArgs): Promise<ActionResult<ListReport>> {
     const result = await new ListAction(
+      this.registry,
       this.prompts.marketplaceListener,
-      args.deps,
       args.pathOpts,
     ).execute(args.brand);
     if (result.isFailed()) return result;

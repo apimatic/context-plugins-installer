@@ -3,6 +3,7 @@ import { UninstallAction, type UninstallRequest } from '../actions/uninstall.js'
 import { UninstallPrompts } from '../prompts/uninstall.js';
 import { MarketplaceLabel } from '../types/brand.js';
 import type { EventSink } from '../types/events/domain-event.js';
+import type { RegistryClient } from '../types/ports.js';
 import { PluginUninstallFailedEvent } from '../types/events/plugin-uninstall-failed.js';
 import { PluginUninstalledEvent } from '../types/events/plugin-uninstalled.js';
 import type { PluginId } from '../types/ids/plugin-id.js';
@@ -15,12 +16,15 @@ import type { ErrorKind } from '../types/telemetry.js';
  * failure does. Nothing here decides anything: the action already has.
  */
 export class UninstallCommand {
-  constructor(private readonly sink: EventSink) {}
+  constructor(
+    private readonly sink: EventSink,
+    private readonly registry: RegistryClient,
+  ) {}
 
   async run(req: UninstallRequest): Promise<ActionResult<UninstallResult>> {
     const prompts = new UninstallPrompts(req.pathOpts?.home);
     const marketplace = MarketplaceLabel.of(req.brand);
-    const action = new UninstallAction(prompts, req.deps, req.pathOpts);
+    const action = new UninstallAction(prompts, this.registry, req.pathOpts);
     try {
       const result = await action.execute(req);
       const { plugin, targets } = result.report;

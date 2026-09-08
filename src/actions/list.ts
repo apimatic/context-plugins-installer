@@ -1,4 +1,3 @@
-import { readRegistry } from '../infrastructure/github-registry-client.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { Brand } from '../types/brand.js';
@@ -7,7 +6,7 @@ import { Failure } from '../types/failure.js';
 import type { HarnessName } from '../types/harness.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Manifest } from '../types/installed-record.js';
-import type { Deps } from '../types/ports.js';
+import type { RegistryClient } from '../types/ports.js';
 import type { ListReport, ListResult } from '../types/reports.js';
 import type { MarketplaceListener } from '../types/session.js';
 import { nonEmptyString } from '../types/util.js';
@@ -15,7 +14,6 @@ import { ActionResult } from './action-result.js';
 
 export interface ListRequest {
   brand: Brand;
-  deps?: Deps;
   pathOpts?: PathOpts;
 }
 
@@ -35,8 +33,8 @@ export class ListAction {
    * words rather than be imported here.
    */
   constructor(
+    private readonly registry: RegistryClient,
     private readonly notify: MarketplaceListener,
-    private readonly deps: Deps = {},
     private readonly pathOpts?: PathOpts,
   ) {}
 
@@ -49,11 +47,11 @@ export class ListAction {
     };
     const nothing: ListReport = { result: empty, gaps: NO_GAPS };
 
-    // SHIM: ports from `deps` until this action takes a RegistryClient.
-    const read = await readRegistry(
-      { repo: brand.repo, ref: brand.ref, notify: this.notify },
-      { fetch: this.deps.fetchImpl ?? fetch, env: this.deps.env ?? process.env },
-    );
+    const read = await this.registry.readRegistry({
+      repo: brand.repo,
+      ref: brand.ref,
+      notify: this.notify,
+    });
     if (!read.ok) return ActionResult.failed(nothing, read.error);
     const catalog = read.value;
     if (!catalog) {

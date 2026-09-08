@@ -1,10 +1,9 @@
 import type { Catalog } from '../types/catalog.js';
 import type { Failure } from '../types/failure.js';
 import type { DirectoryPath } from '../types/file/paths.js';
+import type { RegistryClient, SourceFetcher } from '../types/ports.js';
 import type { Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle, Session } from '../types/session.js';
-import type { RegistryClient } from './github-registry-client.js';
-import type { SourceFetcher } from './source-fetcher.js';
 
 // Case-folded on the repo half, the way GitHub reads a slug: two rows spelled
 // `Acme/M` and `acme/m` are one repository, and keying on the spelling made one

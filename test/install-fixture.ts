@@ -8,6 +8,10 @@ import type { UpdateRequest } from '../src/actions/update.js';
 import { InstallCommand } from '../src/commands/install.js';
 import { UninstallCommand } from '../src/commands/uninstall.js';
 import { UpdateCommand } from '../src/commands/update.js';
+import { registryClient } from '../src/infrastructure/github-registry-client.js';
+import { sourceFetcher } from '../src/infrastructure/source-fetcher.js';
+import type { Ask } from '../src/prompts/install.js';
+import { createSession } from '../src/infrastructure/session.js';
 import { harnesses } from '../src/harnesses/index.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import { services } from '../src/composition/index.js';
@@ -18,11 +22,12 @@ import type { InstallReport, UninstallResult, UpdateReport } from '../src/types/
 import { DirectoryPath } from '../src/types/file/paths.js';
 import type { EventSink } from '../src/types/events/domain-event.js';
 import type { Harness, HarnessName, HarnessOpts } from '../src/types/harness.js';
-import type { Deps } from '../src/types/ports.js';
+import type { FetchLike, RegistryClient, SourceFetcher, SourcePorts } from '../src/types/ports.js';
+import { ok } from '../src/types/result.js';
 import {
+  portsFor,
   resolveBrand,
   runnerFor,
-  sessionFrom,
   silenceConsole,
   stubFetch,
   throwFailure,
@@ -44,12 +49,17 @@ export const TARGETS: HarnessName[] = ['cursor', 'vscode'];
  * router is the only caller a released build has, and it reads the result.
  */
 export async function installPlugin({
+  wiring: w,
   session,
   sink,
   ...req
-}: InstallRequest & { session?: Session; sink?: EventSink }): Promise<InstallReport> {
+}: InstallRequest & {
+  wiring: Wiring;
+  session?: Session;
+  sink?: EventSink;
+}): Promise<InstallReport> {
   const own = !session;
-  const run = session ?? sessionFrom(req.deps, announceMarketplace);
+  const run = session ?? sessionOver(w);
   try {
     const result = await new InstallCommand(guarded(sink)).run(req, run);
     if (result.failure) throwFailure(result.failure);
@@ -60,22 +70,28 @@ export async function installPlugin({
 }
 
 export async function uninstallPlugin({
+  wiring: w,
   sink,
   ...req
-}: UninstallRequest & { sink?: EventSink }): Promise<UninstallResult> {
-  const result = await new UninstallCommand(guarded(sink)).run(req);
+}: UninstallRequest & { wiring: Wiring; sink?: EventSink }): Promise<UninstallResult> {
+  const result = await new UninstallCommand(guarded(sink), w.registry).run(req);
   if (result.failure) throwFailure(result.failure);
   return result.report;
 }
 
 /** No throw: `update` reports per row, and its failures are in the report. */
 export async function updateAll({
+  wiring: w,
   session,
   sink,
   ...req
-}: UpdateRequest & { session?: Session; sink?: EventSink }): Promise<UpdateReport> {
+}: UpdateRequest & {
+  wiring: Wiring;
+  session?: Session;
+  sink?: EventSink;
+}): Promise<UpdateReport> {
   const own = !session;
-  const run = session ?? sessionFrom(req.deps, announceMarketplace);
+  const run = session ?? sessionOver(w);
   try {
     return (await new UpdateCommand(guarded(sink)).run(req, run)).report;
   } finally {
@@ -93,6 +109,20 @@ const guarded = (sink?: EventSink): EventSink =>
   sink
     ? services().sink({ report: sink, flush: async () => [] }, (message) => log.debug(message))
     : () => {};
+
+/**
+ * Wiring for a run that never fetches a plugin - an uninstall, mostly. The
+ * fetcher is the real one over a stub fetch, because nothing should reach it:
+ * if a test does, it fails loudly rather than quietly using a stub directory.
+ */
+export const registryOnly = (fetch: FetchLike): Wiring => {
+  const ports = portsFor(fetch);
+  return { ports, registry: registryClient(ports), fetcher: sourceFetcher(ports) };
+};
+
+/** One session over a test's wiring, announcing what it does like a real run. */
+export const sessionOver = (w: Wiring): Session =>
+  createSession({ registry: w.registry, fetcher: w.fetcher, notify: announceMarketplace });
 
 /**
  * A sandboxed machine: its own state dir, Cursor dir, and VS Code user dir.
@@ -127,27 +157,49 @@ export function pluginSource(name = 'my-sdk'): string {
   return dir;
 }
 
-export interface DepsSpec {
+export interface WiringSpec {
   repo: string;
   marketplace?: string;
   plugin?: string;
   srcDir: string;
 }
 
-export function deps({
+/**
+ * What a run reaches the outside through, for a test: a registry that answers
+ * with one plugin, and a fetcher that hands over a directory instead of cloning
+ * one. This replaced the `Deps` bag - the difference is that these are the
+ * services production takes, built over a stub fetch, rather than a set of
+ * optional hooks production had to know about.
+ */
+export interface Wiring {
+  registry: RegistryClient;
+  fetcher: SourceFetcher;
+  ports: SourcePorts;
+}
+
+export function wiring({
   repo,
   marketplace = 'apimatic',
   plugin = 'my-sdk',
   srcDir,
-}: DepsSpec): Deps {
-  return {
-    fetchImpl: stubFetch({
+}: WiringSpec): Wiring {
+  const ports = portsFor(
+    stubFetch({
       [rawUrl(repo, 'main', '.claude-plugin/marketplace.json')]: {
         body: { name: marketplace, plugins: [{ name: plugin, source: `./plugins/${plugin}` }] },
       },
     }),
-    env: {},
-    materialize: async () => ({ dir: new DirectoryPath(srcDir), cleanup: () => {}, via: 'stub' }),
+  );
+  return {
+    ports,
+    registry: registryClient(ports),
+    fetcher: {
+      openRepo: async () => ({
+        via: 'api',
+        cleanup: () => {},
+        checkout: async () => ok(new DirectoryPath(srcDir)),
+      }),
+    },
   };
 }
 
@@ -245,7 +297,7 @@ export const sinkInto =
     events.push({ name: event.name, properties: event.properties() });
   };
 
-export type Confirm = NonNullable<Deps['confirm']> & { asked: string[] };
+export type Confirm = Ask & { asked: string[] };
 
 /** Answers the first question with the interrupt a real prompter reports. */
 export function cancellingConfirm(): Confirm {

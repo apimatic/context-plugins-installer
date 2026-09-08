@@ -101,7 +101,12 @@ export async function run(argv: readonly string[], services: Services): Promise<
       case 'remove': {
         if (!plugin) return noPlugin(`Usage: ${BIN} uninstall <plugin>`);
         return answer(
-          await new UninstallCommand(sink).run({ brand, plugin, targets, force: flags.force }),
+          await new UninstallCommand(sink, services.registry()).run({
+            brand,
+            plugin,
+            targets,
+            force: flags.force,
+          }),
         );
       }
       case 'update': {
@@ -115,9 +120,15 @@ export async function run(argv: readonly string[], services: Services): Promise<
         }
       }
       case 'list':
-        return answer(await new ListCommand().run({ brand, json: flags.json, long: flags.long }));
+        return answer(
+          await new ListCommand(services.registry()).run({
+            brand,
+            json: flags.json,
+            long: flags.long,
+          }),
+        );
       case 'doctor':
-        return answer(await new DoctorCommand().run({ brand, json: flags.json }));
+        return answer(await new DoctorCommand(services).run({ brand, json: flags.json }));
       case 'installed':
         return answer(
           new InstalledCommand().run({ targets, json: flags.json }, services.manifest()),

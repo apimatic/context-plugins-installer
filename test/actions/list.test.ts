@@ -5,12 +5,12 @@ import * as path from 'node:path';
 
 import { ListAction } from '../../src/actions/list.js';
 
-import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
+import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { upsert } from '../../src/infrastructure/manifest-store.js';
 import * as paths from '../../src/infrastructure/paths.js';
 import type { HarnessName } from '../../src/types/harness.js';
 import { announceMarketplace } from '../../src/prompts/marketplace.js';
-import { cleanupAll, resolveBrand, stubFetch, tmpDir } from '../helpers.js';
+import { cleanupAll, portsFor, resolveBrand, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -52,7 +52,9 @@ const record = (
   });
 
 const listing = async (m: ReturnType<typeof machine>, fetchImpl: ReturnType<typeof registry>) =>
-  new ListAction(announceMarketplace, { fetchImpl, env: {} }, m.pathOpts).execute(brand());
+  new ListAction(registryClient(portsFor(fetchImpl)), announceMarketplace, m.pathOpts).execute(
+    brand(),
+  );
 
 test('the marketplace name and every plugin it offers come from the registry', async () => {
   const m = machine();
@@ -141,8 +143,8 @@ test('a registry with no marketplace file is a failure, not an empty listing', a
   const m = machine();
 
   const result = await new ListAction(
+    registryClient(portsFor(stubFetch({}))),
     announceMarketplace,
-    { fetchImpl: stubFetch({}), env: {} },
     m.pathOpts,
   ).execute(brand());
 

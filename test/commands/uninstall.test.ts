@@ -4,20 +4,20 @@ import * as fs from 'node:fs';
 
 import { UninstallCommand } from '../../src/commands/uninstall.js';
 import * as paths from '../../src/infrastructure/paths.js';
-import type { Deps } from '../../src/types/ports.js';
 import { cleanupAll } from '../helpers.js';
 import {
-  TARGETS,
   brandFor,
-  deps,
   installPlugin,
   machine,
   pluginSource,
   quietly,
   sinkInto,
-  withHarness,
+  TARGETS,
   type Machine,
   type Tracked,
+  type Wiring,
+  wiring,
+  withHarness,
 } from '../install-fixture.js';
 
 test.after(cleanupAll);
@@ -29,28 +29,27 @@ test.after(cleanupAll);
 const REPO = 'context-plugins/plugin-marketplace';
 
 /** A machine with the plugin installed into both file-copying editors. */
-async function installed(): Promise<{ m: Machine; d: Deps }> {
+async function installed(): Promise<{ m: Machine; d: Wiring }> {
   const m = machine();
-  const d = deps({ repo: REPO, srcDir: pluginSource() });
+  const d = wiring({ repo: REPO, srcDir: pluginSource() });
   await quietly(() =>
     installPlugin({
       brand: brandFor(REPO),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
       pathOpts: m.pathOpts,
     }),
   );
   return { m, d };
 }
 
-const uninstall = (m: Machine, d: Deps, events: Tracked[], plugin = 'my-sdk') =>
+const uninstall = (m: Machine, d: Wiring, events: Tracked[], plugin = 'my-sdk') =>
   quietly(() =>
-    new UninstallCommand(sinkInto(events)).run({
+    new UninstallCommand(sinkInto(events), d.registry).run({
       brand: brandFor(REPO),
       plugin,
       targets: TARGETS,
-      deps: d,
       pathOpts: m.pathOpts,
     }),
   );

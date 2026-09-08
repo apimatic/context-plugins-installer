@@ -5,13 +5,12 @@ import { isInteractive } from '../infrastructure/environment.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { InstallPrompts } from '../prompts/install.js';
-import { InstallPrompts as Prompts } from '../prompts/install.js';
+import { InstallPrompts as Prompts, type Ask } from '../prompts/install.js';
 import type { Brand } from '../types/brand.js';
 import type { DirectoryPath } from '../types/file/paths.js';
 import { Failure } from '../types/failure.js';
 import type { HarnessContext, HarnessName, HarnessOpts } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
-import type { Deps } from '../types/ports.js';
 import type { InstallReport, InstallStage } from '../types/reports.js';
 import type { Session } from '../types/session.js';
 import { ActionResult } from './action-result.js';
@@ -24,7 +23,8 @@ export interface InstallRequest {
   targets?: readonly string[] | null;
   force?: boolean;
   assumeYes?: boolean;
-  deps?: Deps;
+  /** Whoever answers "install into X?"; a real prompter when nobody does. */
+  ask?: Ask;
   /** HarnessOpts, not PathOpts: this is forwarded to the harnesses, runner and all. */
   pathOpts?: HarnessOpts;
 }
@@ -56,7 +56,6 @@ export class InstallAction {
   constructor(
     private readonly prompts: InstallPrompts,
     private readonly session: Session,
-    private readonly deps: Deps = {},
     private readonly pathOpts?: HarnessOpts,
   ) {}
 

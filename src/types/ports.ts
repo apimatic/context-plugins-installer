@@ -1,3 +1,4 @@
+import type { Catalog } from './catalog.js';
 import type { Env } from './env.js';
 import type { DirectoryPath, FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
@@ -5,6 +6,7 @@ import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
 import type { DomainEvent } from './events/domain-event.js';
 import type { TelemetryLine, TelemetryStatus } from './telemetry.js';
+import type { MarketplaceListener, RepoHandle } from './session.js';
 
 // The interfaces through which this program reaches anything outside itself: a
 // process, the network, a person at a terminal. Every one of them is the seam a
@@ -73,31 +75,6 @@ export interface MaterializedSource {
   via: 'git' | 'api' | string;
 }
 
-/** The injection seam the test suite is built on; every field defaults to the real thing. */
-export interface Deps {
-  fetchImpl?: FetchLike;
-  env?: Env;
-  materialize?: (args: {
-    repo: string;
-    ref: string;
-    sourcePath: string;
-    deps?: Deps;
-  }) => Promise<MaterializedSource>;
-  /** `'cancelled'` for the interrupt, so a test can drive that path too. */
-  confirm?: (
-    question: string,
-    defaultYes: boolean,
-  ) => boolean | 'cancelled' | Promise<boolean | 'cancelled'>;
-  which?: (cmd: string, env?: Env) => string | null;
-  run?: RunCommand;
-}
-
-/**
- * `installed.json` as operations rather than bytes, which is what lets
- * `ManifestContext` hold the rules about a row without knowing there is a file.
- * Every operation works on the raw array: a row this build cannot read belongs
- * to whoever wrote it, so nothing here may sanitize on the way through.
- */
 export interface ManifestStore {
   readRaw(): RawManifest;
   /**
@@ -140,6 +117,25 @@ export interface Telemetry {
    * it produced them, for the caller to put on the terminal.
    */
   flush(): Promise<TelemetryLine[]>;
+}
+
+/**
+ * The registry read and the plugin fetch, each bound to its ports. Declared
+ * here rather than beside the implementation for the same reason `Telemetry`
+ * is: `src/commands/` may not import `src/infrastructure/`, so a command that
+ * hands one of these to an action has to be able to name it without naming the
+ * module that builds it.
+ */
+export interface RegistryClient {
+  readRegistry(req: {
+    repo: string;
+    ref: string;
+    notify?: MarketplaceListener;
+  }): Promise<Result<Catalog | null, Failure>>;
+}
+
+export interface SourceFetcher {
+  openRepo(args: { repo: string; ref: string; notify?: MarketplaceListener }): Promise<RepoHandle>;
 }
 
 export interface Prompter {

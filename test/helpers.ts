@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type {
-  Deps,
   FetchLike,
   FetchResponseLike,
   ProcessRunner,
@@ -11,15 +10,11 @@ import type {
   SourcePorts,
 } from '../src/types/ports.js';
 import type { Failure } from '../src/types/failure.js';
-import { ok, type Result } from '../src/types/result.js';
-import type { MarketplaceListener, Session } from '../src/types/session.js';
-import { readBrand, type ResolveBrandOptions } from '../src/composition/brand.js';
-import { registryClient } from '../src/infrastructure/github-registry-client.js';
-import { run as realRun, which } from '../src/infrastructure/process-runner.js';
-import { createSession } from '../src/infrastructure/session.js';
-import { sourceFetcher, type SourceFetcher } from '../src/infrastructure/source-fetcher.js';
-import type { Brand } from '../src/types/brand.js';
 import type { Env } from '../src/types/env.js';
+import type { Result } from '../src/types/result.js';
+import { readBrand, type ResolveBrandOptions } from '../src/composition/brand.js';
+import { run as realRun, which } from '../src/infrastructure/process-runner.js';
+import type { Brand } from '../src/types/brand.js';
 
 const dirs: string[] = [];
 
@@ -231,27 +226,3 @@ export const portsFor = (
   env: Env = {},
   run: RunCommand = realRun,
 ): SourcePorts => ({ fetch, env, runner: runnerFor(run, env) });
-
-/**
- * A `SourceFetcher` built from the old `deps.materialize` hook: it hands over a
- * directory instead of cloning one. This is the whole of what `session.source`
- * used to do when that hook was set, moved out of production and into the two
- * places that actually wanted it.
- */
-export const fetcherFrom = (materialize: NonNullable<Deps['materialize']>): SourceFetcher => ({
-  openRepo: async ({ repo, ref }) => ({
-    via: 'api',
-    cleanup: () => {},
-    checkout: async (sourcePath) => ok((await materialize({ repo, ref, sourcePath })).dir),
-  }),
-});
-
-/** A session over stubbed ports, with an optional stubbed source directory. */
-export const sessionFrom = (deps: Deps = {}, notify?: MarketplaceListener): Session => {
-  const ports = portsFor(deps.fetchImpl ?? fetch, deps.env ?? {});
-  return createSession({
-    registry: registryClient(ports),
-    fetcher: deps.materialize ? fetcherFrom(deps.materialize) : sourceFetcher(ports),
-    notify,
-  });
-};

@@ -17,9 +17,7 @@ export class UpdateCommand {
 
   async run(req: UpdateRequest, session: Session): Promise<ActionResult<UpdateReport>> {
     const prompts = new UpdatePrompts(req.pathOpts?.home);
-    const result = await new UpdateAction(prompts, session, req.deps, req.pathOpts).execute(
-      req.brand,
-    );
+    const result = await new UpdateAction(prompts, session, req.pathOpts).execute(req.brand);
     for (const row of result.report.rows) this.report(row);
     return result;
   }

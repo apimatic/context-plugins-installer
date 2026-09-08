@@ -4,7 +4,7 @@ import type { Env } from '../types/env.js';
 import { Failure } from '../types/failure.js';
 import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
-import type { HttpPorts } from '../types/ports.js';
+import type { HttpPorts, RegistryClient } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener } from '../types/session.js';
 import { isPlainObject, stripBom, errorMessage } from '../types/util.js';
@@ -81,15 +81,6 @@ export interface RegistryRequest {
   repo: string;
   ref: string;
   notify?: MarketplaceListener;
-}
-
-/**
- * The registry read, bound to its ports. `session` and every action take this
- * rather than the function, so nothing below has to carry a fetch it does not
- * use down to the one place that does.
- */
-export interface RegistryClient {
-  readRegistry(req: RegistryRequest): Promise<Result<Catalog | null, Failure>>;
 }
 
 const nothing: MarketplaceListener = () => {};
