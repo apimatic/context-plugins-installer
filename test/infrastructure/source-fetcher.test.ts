@@ -6,7 +6,6 @@ import * as path from 'node:path';
 import {
   downloadPath,
   fetchTree,
-  materialize,
   openRepo,
   pool,
   type GitTree,
@@ -191,27 +190,21 @@ test('checking the same plugin out twice does not download it again', async () =
   }
 });
 
-test('materialize honours an injected env when probing for git', async () => {
+test('the git probe reads the injected env, not the host PATH', async () => {
   const blob = 'plugins/alpha/plugin.json';
   const fetchImpl = stubFetch({
     [TREE_URL]: { body: { tree: [{ type: 'blob', path: blob }] } },
     [rawFile(blob)]: { body: { name: 'alpha' } },
   });
 
-  const result = await materialize(
-    {
-      repo: REPO,
-      ref: 'main',
-      sourcePath: 'plugins/alpha',
-    },
-    portsFor(fetchImpl, NO_GIT),
-  );
-  assert.ok(result.ok);
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
   try {
-    assert.equal(result.value.via, 'api', 'an empty PATH must force the API route');
-    assert.ok(fs.existsSync(result.value.dir.file('plugin.json').toString()));
+    assert.equal(handle.via, 'api', 'an empty PATH must force the API route');
+    const dir = await handle.checkout('plugins/alpha');
+    assert.ok(dir.ok);
+    assert.ok(fs.existsSync(dir.value.file('plugin.json').toString()));
   } finally {
-    result.value.cleanup();
+    handle.cleanup();
   }
 });
 
@@ -231,56 +224,53 @@ test('a fallback to the API is announced to the listener, and printed by nobody'
   const seen = recorder();
 
   const con = silenceConsole();
-  let result;
+  let handle;
+  let dir;
   try {
-    result = await materialize(
-      {
-        repo: REPO,
-        ref: 'main',
-        sourcePath: 'plugins/alpha',
-        notify: seen.notify,
-      },
+    handle = await openRepo(
+      { repo: REPO, ref: 'main', notify: seen.notify },
       portsFor(fetchImpl, NO_GIT),
     );
+    dir = await handle.checkout('plugins/alpha');
   } finally {
     con.restore();
   }
 
-  assert.ok(result.ok);
-  result.value.cleanup();
+  assert.ok(dir.ok);
+  handle.cleanup();
   assert.deepEqual(con.lines, [], 'infrastructure printed something');
   assert.deepEqual(seen.events, [{ kind: 'no-git' }, { kind: 'downloaded', files: 1 }]);
 });
 
-test('a failed download is a failure, not a throw, and takes the workspace with it', async () => {
+test('a failed download is a failure, not a throw', async () => {
   const blob = 'plugins/alpha/plugin.json';
   const fetchImpl = stubFetch({
     [TREE_URL]: { body: { tree: [{ type: 'blob', path: blob }] } },
     [rawFile(blob)]: { status: 500 },
   });
 
-  const result = await materialize(
-    {
-      repo: REPO,
-      ref: 'main',
-      sourcePath: 'plugins/alpha',
-    },
-    portsFor(fetchImpl, NO_GIT),
-  );
-  assert.equal(result.ok, false);
-  assert.match(result.ok ? '' : result.error.message, /Download failed \(500\)/);
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
+  try {
+    const dir = await handle.checkout('plugins/alpha');
+    assert.equal(dir.ok, false);
+    assert.match(dir.ok ? '' : dir.error.message, /Download failed \(500\)/);
+  } finally {
+    handle.cleanup();
+  }
 });
 
 /**
- * `materialize` owns a temp workspace until it hands `cleanup` to the caller, so
- * anything that leaves without handing it over has to remove it. A Failure is
- * not the only such exit: a body that dies mid-read throws, and the old code's
- * try/catch was the only thing deleting the directory in that case.
+ * The workspace belongs to the handle, not to one checkout, so a body that dies
+ * mid-read has to leave it disposable rather than orphaned: `handle.cleanup()`
+ * is what removes it, and the session's `cleanup` - which the router calls in a
+ * `finally` - is what reaches it on a real run. The shape this replaces gave the
+ * one-shot fetch a try/catch of its own, which is the second owner that made
+ * two of every decision in this module.
  *
  * The temp root is redirected so the check is exact rather than a count of
  * whatever else the machine has in /tmp.
  */
-test('a fetch that throws leaves no temp workspace behind', async () => {
+test('a fetch that throws leaves a workspace the handle still removes', async () => {
   const root = tmpDir('cp-tmproot-');
   const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
   process.env.TMPDIR = root;
@@ -310,23 +300,18 @@ test('a fetch that throws leaves no temp workspace behind', async () => {
     };
   };
 
+  const workspaces = (): string[] =>
+    fs.readdirSync(root).filter((n) => n.startsWith('context-plugins-'));
+
   try {
-    await assert.rejects(
-      materialize(
-        {
-          repo: REPO,
-          ref: 'main',
-          sourcePath: 'plugins/alpha',
-        },
-        portsFor(fetchImpl, NO_GIT),
-      ),
-      /connection reset/,
-    );
-    assert.deepEqual(
-      fs.readdirSync(root).filter((n) => n.startsWith('context-plugins-')),
-      [],
-      'the workspace outlived the failure',
-    );
+    const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
+    assert.equal(workspaces().length, 1, 'the handle opened a workspace');
+
+    await assert.rejects(handle.checkout('plugins/alpha'), /connection reset/);
+    assert.equal(workspaces().length, 1, 'a throw must not orphan the workspace');
+
+    handle.cleanup();
+    assert.deepEqual(workspaces(), [], 'the workspace outlived its handle');
   } finally {
     process.env.TMPDIR = saved.TMPDIR;
     process.env.TEMP = saved.TEMP;

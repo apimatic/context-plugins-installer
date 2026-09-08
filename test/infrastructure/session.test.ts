@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import * as fs from 'node:fs';
 
 import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { sourceFetcher } from '../../src/infrastructure/source-fetcher.js';
@@ -8,10 +9,16 @@ import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
 import type { HarnessEvent } from '../../src/types/harness.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
-import type { FetchLike, RunCommand, RunResult, SourceFetcher } from '../../src/types/ports.js';
+import type {
+  FetchLike,
+  FetchResponseLike,
+  RunCommand,
+  RunResult,
+  SourceFetcher,
+} from '../../src/types/ports.js';
 import { ok } from '../../src/types/result.js';
 import type { MarketplaceEvent, MarketplaceListener, Session } from '../../src/types/session.js';
-import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch } from '../helpers.js';
+import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -181,6 +188,70 @@ test('a session opens each repo workspace once, and disposes it at the end', asy
 
   await session.cleanup();
   assert.deepEqual(disposed.sort(), ['a/b', 'c/d'], 'one disposal per repo, not per plugin');
+});
+
+/**
+ * The guarantee the one-shot fetch's own try/catch used to make, asserted at the
+ * level that makes it now. The workspace belongs to the repo handle the session
+ * memoised, so a body that dies mid-read leaves the session still holding it -
+ * and `cleanup`, which the router calls in a `finally`, is what removes it. A
+ * second owner inside the fetcher is what this replaces, not what it lost.
+ */
+test('a checkout that throws leaves the session able to remove the workspace', async () => {
+  const root = tmpDir('cp-tmproot-');
+  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
+  process.env.TMPDIR = root;
+  process.env.TEMP = root;
+  process.env.TMP = root;
+
+  const repo = 'acme/marketplace';
+  const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
+  const fetchImpl = async (url: string): Promise<FetchResponseLike> => {
+    const body = JSON.stringify({ tree: [{ type: 'blob', path: 'plugins/alpha/plugin.json' }] });
+    if (url === treeUrl) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => body,
+        json: async () => JSON.parse(body) as unknown,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => '',
+      json: async () => ({}),
+      arrayBuffer: async () => {
+        throw new Error('connection reset while reading the body');
+      },
+    };
+  };
+
+  const workspaces = (): string[] =>
+    fs.readdirSync(root).filter((n) => n.startsWith('context-plugins-'));
+
+  try {
+    // An empty PATH forces the API route, so the throw is the body and not git.
+    const ports = portsFor(fetchImpl, { PATH: '', PATHEXT: '' });
+    const session = createSession({
+      registry: registryClient(ports),
+      fetcher: sourceFetcher(ports),
+    });
+
+    await assert.rejects(
+      session.source({ repo, ref: 'main', sourcePath: 'plugins/alpha' }),
+      /connection reset/,
+    );
+    assert.equal(workspaces().length, 1, 'the session opened a workspace');
+
+    await session.cleanup();
+    assert.deepEqual(workspaces(), [], 'the session did not dispose the workspace');
+  } finally {
+    process.env.TMPDIR = saved.TMPDIR;
+    process.env.TEMP = saved.TEMP;
+    process.env.TMP = saved.TMP;
+  }
 });
 
 /** A `claude` CLI stub: records every invocation, reports an empty marketplace list. */

@@ -42,7 +42,7 @@ export function createSession({
 
     async source({ repo, ref, sourcePath }): Promise<Result<DirectoryPath | null, Failure>> {
       // One handle per repo@ref, and every checkout after the first is local.
-      // A test substitutes the whole fetcher rather than a `materialize` hook,
+      // A test substitutes the whole fetcher rather than an injected hook,
       // which is what let this method stop having two shapes.
       const key = keyOf(repo, ref);
       let opening = repos.get(key);

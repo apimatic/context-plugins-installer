@@ -8,7 +8,6 @@ import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type {
   HttpPorts,
-  MaterializedSource,
   ProcessRunner,
   RunResult,
   SourceFetcher,
@@ -56,42 +55,6 @@ function tempWorkspace(): { work: string; cleanup: () => void } {
     }
   };
   return { work, cleanup };
-}
-
-export interface SourceRequest {
-  repo: string;
-  ref: string;
-  sourcePath: string;
-  notify?: MarketplaceListener;
-}
-
-/** Callers must call cleanup() when done, on the failure arm too. */
-export async function materialize(
-  { repo, ref, sourcePath, notify = nothing }: SourceRequest,
-  ports: SourcePorts,
-): Promise<Result<MaterializedSource, Failure>> {
-  const { work, cleanup } = tempWorkspace();
-
-  // A Failure is not the only way out: a spawn that never starts, a full disk, a
-  // response body that dies mid-read all throw, and the workspace has to go
-  // either way. Only the success arm hands `cleanup` to the caller.
-  try {
-    const git = ports.runner.which('git');
-    // The API route is what happens when git is absent, and saying so before the
-    // work starts is the point of the line.
-    if (!git) notify({ kind: 'no-git' });
-    const dir = git
-      ? await viaGit({ git, repo, ref, sourcePath, work, notify }, ports.runner)
-      : await viaApi({ repo, ref, sourcePath, work, notify }, ports);
-    if (!dir.ok) {
-      cleanup();
-      return err(dir.error);
-    }
-    return ok({ dir: new DirectoryPath(dir.value), cleanup, via: git ? 'git' : 'api' });
-  } catch (e) {
-    cleanup();
-    throw e;
-  }
 }
 
 interface CloneRequest {
@@ -165,15 +128,6 @@ export async function addSparsePath(
   return ok(dir);
 }
 
-export async function viaGit(
-  { git, repo, ref, sourcePath, work, notify }: CloneRequest & { sourcePath: string },
-  runner: ProcessRunner,
-): Promise<Result<string, Failure>> {
-  const clone = await cloneRepo({ git, repo, ref, work, notify }, runner);
-  if (!clone.ok) return err(clone.error);
-  return addSparsePath({ git, clone: clone.value, repo, ref, sourcePath, notify }, runner);
-}
-
 async function expect(
   promise: Promise<RunResult>,
   what: string,
@@ -241,7 +195,11 @@ export async function fetchTree(
   return tree;
 }
 
-interface DownloadRequest extends SourceRequest {
+interface DownloadRequest {
+  repo: string;
+  ref: string;
+  sourcePath: string;
+  notify?: MarketplaceListener;
   tree: GitTree;
   work: string;
 }
@@ -291,15 +249,6 @@ export async function downloadPath(
 
   notify({ kind: 'downloaded', files: blobs.length });
   return ok(dest.toString());
-}
-
-export async function viaApi(
-  { repo, ref, sourcePath, work, notify = nothing }: SourceRequest & { work: string },
-  ports: HttpPorts,
-): Promise<Result<string, Failure>> {
-  const tree = await fetchTree({ repo, ref, notify }, ports);
-  if (!tree.ok) return err(tree.error);
-  return downloadPath({ tree: tree.value, repo, ref, sourcePath, work, notify }, ports);
 }
 
 /** One clone (or API tree) per repo@ref; every checkout after the first is local. Callers must call cleanup(). */

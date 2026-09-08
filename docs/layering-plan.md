@@ -1334,20 +1334,28 @@ for the same reason.
   it is a `perf:` change, so it would publish a release from a branch whose whole promise
   is that nothing releases. A memo keyed on the parent directory, inside `downloadPath`
   in `infrastructure/source-fetcher.ts`, as its own `perf:` commit after this lands.
-- **`materialize` in `source-fetcher.ts` has no production caller.** `session.source`
-  either calls the injected `deps.materialize` - the test seam - or `openRepo`, so the
-  real one is reached only from `test/infrastructure/source-fetcher.test.ts`. Found while
-  reviewing Phase 4, which changed its return type without noticing. It predates the
-  phase: Phase 2b added the caching `openRepo` beside it and nothing moved over. Either
-  the session should use it for the one-shot path or it should go with its four tests,
-  which is the "kept alive by its own test" shape Phase 3 settled three of by deletion.
-  Phase 6 did not decide it and Phase 7 measured why it is not the one-liner it looks
-  like: `openRepo` re-implements the same git-or-API decision that `materialize` makes,
-  so there are two of them and a fix to one would miss the other - and four of the six
-  `source-fetcher` tests enter through `materialize` while two enter through `openRepo`,
-  so deleting it either re-points those four or quietly drops the coverage of `viaGit`'s
-  failure paths. It belongs to the `Deps` PR: `session.source` branching on
-  `deps.materialize` is exactly the code that decides whether the real one has a caller.
+- **`materialize` in `source-fetcher.ts` had no production caller, and is gone.** Settled
+  where this file said it would be, immediately after the `Deps` PR: `session.source`
+  branching on `deps.materialize` was the code that decided whether the real one had a
+  caller, and with that branch gone the answer was no. It went with `viaGit` and `viaApi`,
+  the two arms it assembled - `openRepo` has re-implemented the same git-or-API decision
+  since Phase 2b, which is the duplication this entry kept describing - and with
+  `MaterializedSource`, whose `via: 'git' | 'api' | string` collapsed to `string` while
+  `RepoHandle.via` is the tight union. The four tests that entered through it now enter
+  through `openRepo`. The temp workspace has one owner again: `materialize`'s try/catch
+  was the second, and the guarantee it made is asserted end to end in
+  `test/infrastructure/session.test.ts` instead - a body that dies mid-read, then
+  `session.cleanup()`, then no `context-plugins-*` directory under a redirected temp root.
+  That is the stronger claim, because the router disposes the session in a `finally` and
+  the shape it replaces tested a function production never called.
+- **One thing this file said about that deletion was wrong.** It warned that deleting
+  `materialize` would "quietly drop the coverage of `viaGit`'s failure paths". There was
+  none to drop: all four of those tests forced the API route with an empty PATH, so
+  `viaGit`, `cloneRepo` and `addSparsePath` were reached by no test at all. **The gap is
+  real and predates the deletion** - nothing in the suite drives the fetcher's git route,
+  which is the route almost every user takes, and the four re-pointed tests still do not.
+  Filling it needs a `git` stub on a stubbed PATH, the way `install-fixture.ts` stubs
+  `claude`. Open, and the one this entry leaves behind.
 
 ## Risks and how each is held
 

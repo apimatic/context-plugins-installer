@@ -1,6 +1,6 @@
 import type { Catalog } from './catalog.js';
 import type { Env } from './env.js';
-import type { DirectoryPath, FilePath } from './file/paths.js';
+import type { FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
@@ -67,12 +67,6 @@ export interface HttpPorts {
 /** The same, plus git, for the fetcher that would rather clone than download. */
 export interface SourcePorts extends HttpPorts {
   runner: ProcessRunner;
-}
-
-export interface MaterializedSource {
-  dir: DirectoryPath;
-  cleanup: () => void;
-  via: 'git' | 'api' | string;
 }
 
 export interface ManifestStore {
