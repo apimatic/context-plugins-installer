@@ -1,11 +1,9 @@
-import type { Env } from '../types/env.js';
 import type { InstalledPlugin, MarketplaceListing } from '../types/harness.js';
-import type { RunCommand, RunResult } from '../types/ports.js';
+import type { ProcessRunner, RunCommand, RunResult } from '../types/ports.js';
 import { isPlainObject, nonEmptyString, stripBom } from '../types/util.js';
-import { run, which } from './process-runner.js';
 
 /** null when the CLI is not on PATH, which every caller reads as "cannot ask". */
-export const findClaude = (env: Env = process.env): string | null => which('claude', env);
+export const findClaude = (runner: ProcessRunner): string | null => runner.which('claude');
 
 /**
  * Everything this program says to the `claude` binary, and the only place its
@@ -48,7 +46,8 @@ async function listJson(
   }
 }
 
-export function claudeCli(claude: string, exec: RunCommand = run): ClaudeCli {
+export function claudeCli(claude: string, runner: ProcessRunner): ClaudeCli {
+  const exec: RunCommand = runner.run;
   return {
     /**
      * Junk rows are dropped rather than fatal: one unreadable marketplace must

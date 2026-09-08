@@ -19,6 +19,18 @@ export interface RunResult {
 
 export type RunCommand = (file: string, args: string[], opts?: object) => Promise<RunResult>;
 
+/**
+ * The process table, as the two operations this program needs of it. `which`
+ * takes no environment because the service holds the one it was built with: a
+ * lookup that answered from a different `PATH` than the spawn after it is a
+ * bug with nothing to catch it, and passing the env at every call site is how
+ * that became possible.
+ */
+export interface ProcessRunner {
+  run: RunCommand;
+  which(cmd: string): string | null;
+}
+
 export interface FetchResponseLike {
   ok: boolean;
   status: number;

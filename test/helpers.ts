@@ -2,11 +2,18 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
+import type {
+  FetchLike,
+  FetchResponseLike,
+  ProcessRunner,
+  RunCommand,
+} from '../src/types/ports.js';
 import type { Failure } from '../src/types/failure.js';
 import type { Result } from '../src/types/result.js';
 import { readBrand, type ResolveBrandOptions } from '../src/composition/brand.js';
+import { which } from '../src/infrastructure/process-runner.js';
 import type { Brand } from '../src/types/brand.js';
+import type { Env } from '../src/types/env.js';
 
 const dirs: string[] = [];
 
@@ -196,3 +203,13 @@ export function orThrow<T>(result: Result<T, Failure>): T {
 /** One brand and no ceremony: `readBrand` is the Result-returning seam in src. */
 export const resolveBrand = (options: ResolveBrandOptions = {}): Brand =>
   orThrow(readBrand(options));
+
+/**
+ * A `ProcessRunner` whose spawn is a fake and whose lookup reads the env it was
+ * given rather than the host's. The real `which` does the looking, so a PATH
+ * stub keeps behaving exactly as it did when the two were separate arguments.
+ */
+export const runnerFor = (run: RunCommand, env: Env = {}): ProcessRunner => ({
+  run,
+  which: (cmd) => which(cmd, env),
+});

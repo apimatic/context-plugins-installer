@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import type { Env } from '../types/env.js';
-import type { RunResult } from '../types/ports.js';
+import type { ProcessRunner, RunResult } from '../types/ports.js';
 
 /** PATH lookup that honours PATHEXT, so spawning never needs shell: true. */
 export function which(cmd: string, env: Env = process.env): string | null {
@@ -61,3 +61,14 @@ export function run(file: string, args: string[], opts: SpawnOptions = {}): Prom
     );
   });
 }
+
+/**
+ * The two of them as one service, bound to an environment. Everything that
+ * spawns takes this rather than the functions, so a test substitutes one object
+ * instead of two arguments - and so `which` and `run` cannot disagree about
+ * which `PATH` they are looking at.
+ */
+export const processRunner = (env: Env = process.env): ProcessRunner => ({
+  run,
+  which: (cmd) => which(cmd, env),
+});

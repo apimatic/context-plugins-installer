@@ -7,7 +7,7 @@ import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import type { Env } from '../../src/types/env.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
-import { tmpDir, cleanupAll, outcome } from '../helpers.js';
+import { cleanupAll, outcome, runnerFor, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -64,7 +64,10 @@ const listing = (entries: unknown): Partial<RunResult> => ({
   stdout: JSON.stringify(entries),
 });
 
-const opts = (run: RunCommand): HarnessOpts => ({ env: withClaude(), run });
+const opts = (run: RunCommand): HarnessOpts => {
+  const env = withClaude();
+  return { env, runner: runnerFor(run, env) };
+};
 
 test('an already-registered marketplace is updated, not re-added', async () => {
   const run = fakeCli({
@@ -410,7 +413,10 @@ test('a listing whose rows carry no id is unknown, not proof of absence', async 
 // survives - nothing could be established either way - but the run does not.
 test('no claude to ask is a skip, and the record survives it', async () => {
   const run = fakeCli({});
-  assert.equal(await claude.uninstall(CTX, { env: { PATH: '' }, run }), 'skipped');
+  assert.equal(
+    await claude.uninstall(CTX, { env: { PATH: '' }, runner: runnerFor(run, { PATH: '' }) }),
+    'skipped',
+  );
   assert.equal(run.calls.length, 0);
 });
 
@@ -425,7 +431,10 @@ test('a real uninstall failure is a failure, not a skip', async () => {
 
 test('no claude on PATH is a skip, not a failure', async () => {
   const run = fakeCli({});
-  assert.equal(outcome(await claude.install(CTX, { env: { PATH: '' }, run })), 'skipped');
+  assert.equal(
+    outcome(await claude.install(CTX, { env: { PATH: '' }, runner: runnerFor(run, { PATH: '' }) })),
+    'skipped',
+  );
   assert.equal(run.calls.length, 0);
 });
 
@@ -494,10 +503,7 @@ test('a stale local copy is announced before the refresh that explains the wait'
   };
   const { ctx, kinds } = recording();
 
-  assert.equal(
-    outcome(await claude.install(ctx, { env: withClaude(), run: wrapped })),
-    'installed',
-  );
+  assert.equal(outcome(await claude.install(ctx, opts(wrapped))), 'installed');
 
   assert.deepEqual(kinds(), [
     'marketplace-added',
@@ -562,7 +568,7 @@ test('a failed uninstall reports the code and the tail, and says nothing about r
 
 test('no claude on PATH is said once, for either verb', async () => {
   const run = fakeCli({});
-  const off: HarnessOpts = { env: { PATH: '' }, run };
+  const off: HarnessOpts = { env: { PATH: '' }, runner: runnerFor(run, { PATH: '' }) };
 
   const installing = recording();
   assert.equal(outcome(await claude.install(installing.ctx, off)), 'skipped');

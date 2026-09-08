@@ -9,7 +9,7 @@ import type { HarnessEvent } from '../../src/types/harness.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
-import { cleanupAll, stubFetch, silenceConsole } from '../helpers.js';
+import { cleanupAll, runnerFor, silenceConsole, stubFetch } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -102,7 +102,7 @@ test('a marketplace spelled two ways is registered with Claude once', async () =
   await quietly(async () => {
     for (const repo of ['Acme/M', 'acme/m']) {
       await new ClaudeHarness().ensureMarketplaceOnce(
-        claudeCli('claude', exec),
+        claudeCli('claude', runnerFor(exec)),
         { marketplace: 'acme', repo },
         session,
         () => {},
@@ -185,7 +185,7 @@ test('the Claude marketplace is registered once per session, and said once', asy
 
   for (const _plugin of ['alpha', 'beta', 'gamma']) {
     await new ClaudeHarness().ensureMarketplaceOnce(
-      claudeCli('claude', exec),
+      claudeCli('claude', runnerFor(exec)),
       { marketplace: 'acme', repo },
       session,
       (e) => events.push(e),
@@ -203,7 +203,7 @@ test('without a session the marketplace is registered per call, as before', asyn
   const { exec, calls } = recordingExec();
 
   await quietly(async () => {
-    const cli = claudeCli('claude', exec);
+    const cli = claudeCli('claude', runnerFor(exec));
     const harness = new ClaudeHarness();
     await harness.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null, () => {});
     await harness.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null, () => {});

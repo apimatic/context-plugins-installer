@@ -2,7 +2,7 @@ import type { PathOpts } from './env.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { DirectoryPath, FilePath } from './file/paths.js';
-import type { RunCommand } from './ports.js';
+import type { ProcessRunner } from './ports.js';
 import type { Session } from './session.js';
 
 // One editor's install strategy, and the vocabulary the rest of the program uses
@@ -63,7 +63,12 @@ export const nothingChanged = (): string => `Nothing was changed. Are ${everyEdi
 
 /** PathOpts plus the process-runner seam the Claude harness reads. */
 export interface HarnessOpts extends PathOpts {
-  run?: RunCommand;
+  /**
+   * The process table, for the one harness that shells out. A service rather
+   * than a bare `run` so that finding a binary and spawning it cannot read
+   * different environments.
+   */
+  runner?: ProcessRunner;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { claudeCli, findClaude, type ClaudeCli } from '../infrastructure/claude-cli.js';
+import { processRunner } from '../infrastructure/process-runner.js';
 import { BIN } from '../types/brand.js';
 import { Failure } from '../types/failure.js';
 import {
@@ -14,7 +15,7 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
-import type { RunResult } from '../types/ports.js';
+import type { ProcessRunner, RunResult } from '../types/ports.js';
 import { err, ok, type Result } from '../types/result.js';
 import type { Session } from '../types/session.js';
 import { isPlainObject, nonEmptyString } from '../types/util.js';
@@ -102,12 +103,22 @@ export class ClaudeHarness implements Harness {
     return 'claude on PATH';
   }
 
+  /**
+   * One service for both questions. `HarnessOpts` carries a runner rather than
+   * a bare `run`, so the lookup that finds `claude` and the spawn that uses it
+   * read the same `PATH` - which is also what lets a test point both at a fake
+   * binary with one object.
+   */
+  private runner(opts?: HarnessOpts): ProcessRunner {
+    return opts?.runner ?? processRunner(opts?.env);
+  }
+
   private binary(opts?: HarnessOpts): string | null {
-    return findClaude(opts?.env);
+    return findClaude(this.runner(opts));
   }
 
   private cliFor(claude: string, opts?: HarnessOpts): ClaudeCli {
-    return claudeCli(claude, opts?.run);
+    return claudeCli(claude, this.runner(opts));
   }
 
   private async refresh(cli: ClaudeCli, known: string, say: Say): Promise<boolean> {

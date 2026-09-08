@@ -18,9 +18,16 @@ import type { Session } from '../src/types/session.js';
 import type { InstallReport, UninstallResult, UpdateReport } from '../src/types/reports.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
 import type { EventSink } from '../src/types/events/domain-event.js';
-import type { Harness, HarnessName } from '../src/types/harness.js';
+import type { Harness, HarnessName, HarnessOpts } from '../src/types/harness.js';
 import type { Deps } from '../src/types/ports.js';
-import { resolveBrand, silenceConsole, stubFetch, throwFailure, tmpDir } from './helpers.js';
+import {
+  resolveBrand,
+  runnerFor,
+  silenceConsole,
+  stubFetch,
+  throwFailure,
+  tmpDir,
+} from './helpers.js';
 
 // The sandboxed machine every install-shaped test is built on. Shared because
 // `install` and `update` are the same machinery from two directions, and their
@@ -80,7 +87,14 @@ const guarded = (sink?: EventSink): EventSink =>
     ? services().sink({ report: sink, flush: async () => [] }, (message) => log.debug(message))
     : () => {};
 
-/** A sandboxed machine: its own state dir, Cursor dir, and VS Code user dir. */
+/**
+ * A sandboxed machine: its own state dir, Cursor dir, and VS Code user dir.
+ * `pathOpts` is checked with `satisfies HarnessOpts` rather than annotated as
+ * one: that is what it is forwarded as - the commands hand it straight to the
+ * harnesses - so a field that no longer exists on that type is refused here,
+ * while the three sandbox variables keep their exact string types for the
+ * tests that read them.
+ */
 export function machine() {
   const root = tmpDir('cp-machine-');
   const env = {
@@ -90,7 +104,7 @@ export function machine() {
   };
   fs.mkdirSync(env.CP_CURSOR_DIR, { recursive: true }); // Cursor "installed"
   fs.mkdirSync(env.CP_VSCODE_USER_DIR, { recursive: true }); // VS Code "installed"
-  return { root, pathOpts: { env, home: root } };
+  return { root, pathOpts: { env, home: root } satisfies HarnessOpts };
 }
 
 export type Machine = ReturnType<typeof machine>;
@@ -148,13 +162,18 @@ export function withClaude(m: Machine) {
     if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
     return { code: 1, stdout: '', stderr: 'not found in installed plugins' };
   };
+  const env = { ...m.pathOpts.env, PATH: bin, PATHEXT: '.CMD' };
+  // The runner, not a bare `run`: the two stub files above make `claude`
+  // findable, and this makes every spawn of it answer from the routes above
+  // rather than execute them. Handing over only one of the two is how this fake
+  // silently stopped being used when the seam moved - the stubs exit 0, so an
+  // install that should have failed passed instead, and only a behavioural test
+  // noticed. The return is annotated `Machine` for the same reason: without it
+  // the object literal has no target type, so a field that no longer exists is
+  // dropped in silence rather than refused.
   return {
     ...m,
-    pathOpts: {
-      ...m.pathOpts,
-      env: { ...m.pathOpts.env, PATH: bin, PATHEXT: '.CMD' },
-      run,
-    },
+    pathOpts: { ...m.pathOpts, env, runner: runnerFor(run, env) } satisfies HarnessOpts,
   };
 }
 
