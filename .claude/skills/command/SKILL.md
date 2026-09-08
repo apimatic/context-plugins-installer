@@ -26,13 +26,17 @@ with real event logic), `commands/args.ts` (the flag table),
 
    ```ts
    export class ThingCommand {
+     // Services come in here, from `Services` in the router. Take the narrow
+     // interface your command needs (`MachineServices`, say) rather than the
+     // whole thing: structural typing then says what this command may reach.
      constructor(
        private readonly sink: EventSink,
+       private readonly registry: RegistryClient,
        private readonly prompts = new ThingPrompts(),
      ) {}
 
      async run(args: ThingArgs): Promise<ActionResult<ThingReport>> {
-       const action = new ThingAction(this.prompts.marketplaceListener, args.deps, args.pathOpts);
+       const action = new ThingAction(this.prompts, this.registry, args.pathOpts);
        try {
          const result = await action.execute(args);
          if (args.json) this.prompts.json(result.report);

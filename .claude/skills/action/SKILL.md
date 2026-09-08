@@ -24,9 +24,12 @@ export interface ThingRequest {
 }
 
 export class ThingAction {
+  // Every service it uses, required, and nothing it does not. No optional
+  // ports with a fallback at the point of use: that is how a caller comes to
+  // believe it injected something when it did not.
   constructor(
     private readonly prompts: ThingPrompts,
-    private readonly deps: Deps = {},
+    private readonly registry: RegistryClient,
     private readonly pathOpts?: PathOpts,
   ) {}
 
@@ -36,7 +39,11 @@ export class ThingAction {
     const want = resolveTargets(req.targets); // a pure decision
     if (!want.ok) return ActionResult.failed(nothing, want.error);
 
-    const read = await someService({ deps: this.deps, notify: this.prompts.marketplaceListener });
+    const read = await this.registry.readRegistry({
+      repo: req.brand.repo,
+      ref: req.brand.ref,
+      notify: this.prompts.marketplaceListener,
+    });
     if (!read.ok) return ActionResult.failed(nothing, read.error);
 
     return ActionResult.success({/* what happened */});
@@ -84,14 +91,19 @@ export class ThingAction {
 - **Don't fire telemetry.** The command has the sink and the report.
 - **Don't build the empty report inline at each return.** Two of them will
   disagree about a field.
+- **Don't take a service you do not use.** `InstallAction` carried a `Deps` bag
+  it never read for two phases, forwarded from a request that carried it twice;
+  a required, named service per need is what made that visible.
 
 ## Tests
 
 Two levels, and both matter:
 
-- `test/actions/<name>.test.ts` for the flow, over the `Deps` seam and a
+- `test/actions/<name>.test.ts` for the flow, over the services the action
+  takes - a `RegistryClient` over a stub fetch, a fake `ProcessRunner` - and a
   sandboxed machine built from `CP_STATE_DIR` / `CP_CURSOR_DIR` /
-  `CP_VSCODE_USER_DIR`, asserting on real files.
+  `CP_VSCODE_USER_DIR`, asserting on real files. What a test substitutes is the
+  same service production takes, so there is nothing to keep in step.
 - `test/commands/<name>.test.ts` for what the command fires, with its own
   `EventSink` collecting events into an array.
 

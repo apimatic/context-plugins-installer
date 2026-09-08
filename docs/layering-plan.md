@@ -1053,14 +1053,57 @@ root, then the last of the throwing. Every exit grep above is empty; `src/cli.ts
 `prompts/prompter.ts` where the tree already said it belonged. The suite is 489, from 469
 at the end of Phase 5.
 
-**Not landed, and named rather than quietly dropped:** the `Deps` type. `deps.track` is
-gone - production reports through the composition root's sink, and a test passes its own -
-but `fetchImpl`, `env`, `materialize`, `confirm`, `which` and `run` are still one bag
-threaded through the actions rather than services taken in a constructor. Converting them
-is mechanical and large: it touches every action, the session, both fetchers, `doctor`, and
-roughly twenty test files, and it replaces the test strategy `CLAUDE.md` documents. It buys
-no behaviour and the boundary lint already holds the layering without it, so it is its own
-PR rather than the tail of this one.
+**Not landed in Phase 6, and named rather than quietly dropped:** the `Deps` type. It
+converted after Phase 7, in four slices, and the record is below.
+
+### Services all the way down (after Phase 7, 4 commits)
+
+`Deps` is gone - no type, no field, no caller - and every action takes the services it
+uses, required, in its constructor. Four slices, bottom-up, so each one compiled and left
+the suite green:
+
+1. **The process table.** `run` and `which` were separate arguments, so the lookup that
+   found `claude` and the spawn that used it could read different environments. One
+   `ProcessRunner` port now, with a `which` that takes no env because the service holds
+   it, and `HarnessOpts` carries the runner rather than a bare `run`.
+2. **The two GitHub clients.** The fetcher threaded `deps` through six internal
+   signatures to read `deps.fetchImpl || fetch` at the leaves; both take required ports
+   now and expose the one method anything above infrastructure uses. `createSession`
+   takes the two clients, which retired `deps.materialize`: a test substitutes a whole
+   fetcher, so `session.source` has one shape instead of two. `update` stopped building
+   its own session - the router creates and disposes it, as it already did for install.
+3. **The actions.** `list` and `uninstall` take a `RegistryClient`; `doctor` adds a
+   `ProcessRunner` and `HttpPorts`. `RegistryClient` and `SourceFetcher` moved to
+   `types/ports.ts` - the same inversion `Telemetry` needed in Phase 7, because a command
+   may not name what builds its services. Commands take a narrow interface over the
+   router's `Services`, so structural typing says what each may reach.
+4. **The documentation**, since the test strategy `CLAUDE.md` described no longer exists.
+
+**What the conversion found.** `InstallAction` took a `Deps` and never read it - the
+Phase 7 review had flagged `InstallRequest` for carrying fields the action ignores, and
+with the bag gone it was simply a dead parameter, as was the one `UpdateAction` forwarded
+to it. What install actually wanted was the confirm, which is an `ask` on the request now.
+That is the case for named services over a bag in one line: a bag hides what nobody uses.
+
+**Two coverage gaps, both found by breaking things.** Handing the fetcher a blank
+environment left the suite green, because a registry read needs no token and nothing
+exercised the clone path's headers through the composition root. And removing the
+session's `openRepo` memo left it green - including the disposal test written earlier in
+the same slice, which claimed to pin the memo and could not, because `repos.set(key, ...)`
+overwrites either way. Both are covered now, the second by counting `openRepo` calls.
+
+**One silent break, caught by a behavioural test rather than the compiler.** Moving
+`HarnessOpts.run` to `HarnessOpts.runner` disabled the whole fake-CLI seam: the fixture
+sets that field inside an object literal whose type is inferred, so nothing checked it and
+the fake was dropped. The stub `claude` files exit 0, so an install that should have failed
+passed. `machine()`'s `pathOpts` is checked with `satisfies HarnessOpts` now - which
+checks without widening `env` to optional, where an annotation would have broken thirty
+call sites.
+
+**Verification.** Sixteen command shapes against the pre-conversion tip, exit 2 on an
+unparseable rc file included: all identical, with the harness first checked against a
+one-character change to `--version` - the first run of it was vacuous, because a `printf`
+ate the escapes and both probes died the same way. 501 tests, from 500.
 
 **Corrections, each with what forced it.**
 

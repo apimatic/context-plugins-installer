@@ -193,7 +193,9 @@ that ends up somewhere else is a rule two callers can disagree about.
   contract: nothing else can misspell or widen it. `EventSink` is where they go.
 - **`types/ports.ts`** and **`types/services.ts`** - the interfaces this program
   reaches the outside through (`RunCommand`, `FetchLike`, `ManifestStore`,
-  `Telemetry`, `TelemetrySettings`, `Prompter`, and the `Deps` seam), plus
+  `Telemetry`, `TelemetrySettings`, `Prompter`, `RegistryClient`,
+  `SourceFetcher`, `ProcessRunner` and the `HttpPorts` / `SourcePorts` bundles),
+  plus
   `Services`, the bundle a run needs built. They are ports rather than
   implementations so that a command can name what it needs without naming what
   builds it.
@@ -423,9 +425,12 @@ is a promise only one place can make. And the session takes its `notify` from
 the caller: the root builds it, but the words it says on the way belong to
 whoever owns the run.
 
-Everything below still takes the `Deps` seam (`fetchImpl`, `env`, `materialize`,
-`confirm`, `which`, `run`); turning those into constructor services is the one
-piece of the plan's Phase 6 that has not landed. `docs/layering-plan.md` is the
+Everything below takes the services it uses, in its constructor, and none of
+them is optional. There is no `Deps` bag any more: a `RegistryClient`, a
+`SourceFetcher`, a `ProcessRunner`, `HttpPorts`. A command receives them
+through a narrow interface named for that command - `MachineServices` for
+`doctor` - over the same `Services` object the router holds, so what it may
+reach is what its own type says. `docs/layering-plan.md` is the
 record of how the layering above got here, phase by phase, including the
 findings each review round turned up - worth reading before moving anything
 across a boundary, because several of these shapes are the second or third
@@ -554,17 +559,27 @@ minted lazily, so read-only commands leave nothing behind.
 
 ### The test seam
 
-The test seam is dependency injection, everywhere. `Deps` carries
-`fetchImpl` / `run` / `materialize` / `confirm` / `which` / `env`; `PathOpts` carries
-`platform` / `env` / `home`. It no longer carries `track`: events reach the
-sink the composition root builds, and a test passes its own sink to the
-command. `test/install-fixture.ts` holds the three convenience wrappers the
+The test seam is constructor injection, everywhere, and what a test substitutes
+is the same service production takes. There is no bag of optional hooks: a test
+builds a `Wiring` (`test/install-fixture.ts`) - a `RegistryClient` over a stub
+fetch, and a `SourceFetcher` that hands over a directory rather than cloning
+one - and passes its own `EventSink` for the events. `registryOnly` is the
+wiring for a run that never fetches a plugin, with the real fetcher behind it
+so a test that unexpectedly reaches for one fails loudly instead of quietly
+using a stub. `PathOpts` still carries `platform` / `env` / `home`, and
+`HarnessOpts` adds the `ProcessRunner` - which is what lets a test drive the
+Claude Code path with a fake `claude` rather than excluding it, and why finding
+that binary and spawning it cannot read different environments.
+`test/install-fixture.ts` holds the three convenience wrappers the
 suite drives (`installPlugin`, `uninstallPlugin`, `updateAll`) - they were
 `src/install.ts` until the router became the only caller a released build
 has. The command options take `HarnessOpts`, not
-`PathOpts`, because that value is forwarded straight to the harnesses — which
-is what lets a test drive the Claude Code path with a fake `claude` rather than
-excluding it. Tests build a sandboxed "machine" from env overrides
+`PathOpts`, because that value is forwarded straight to the harnesses; the
+fixture checks it with `satisfies HarnessOpts` rather than an annotation, so a
+field that no longer exists on that type is refused where it is written. That
+is not hypothetical - when the harness seam moved from `run` to `runner`, the
+inferred literal dropped the fake silently and one behavioural test caught it.
+Tests build a sandboxed "machine" from env overrides
 (`CP_STATE_DIR`, `CP_CURSOR_DIR`, `CP_VSCODE_USER_DIR`) and assert on real files.
 Never touch the developer's real home directory in tests; never add I/O that
 bypasses these seams.
