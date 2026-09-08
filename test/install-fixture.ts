@@ -1,9 +1,21 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type { InstallRequest } from '../src/actions/install.js';
+import type { UninstallRequest } from '../src/actions/uninstall.js';
+import type { UpdateRequest } from '../src/actions/update.js';
 import { resolveBrand } from '../src/brand.js';
+import { InstallCommand } from '../src/commands/install.js';
+import { UninstallCommand } from '../src/commands/uninstall.js';
+import { UpdateCommand } from '../src/commands/update.js';
 import { harnesses } from '../src/harnesses/index.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
+import { createSession } from '../src/infrastructure/session.js';
+import { announceMarketplace } from '../src/prompts/marketplace.js';
+import { log } from '../src/prompts/terminal.js';
+import type { Session } from '../src/types/session.js';
+import type { InstallReport, UninstallResult, UpdateReport } from '../src/types/reports.js';
+import { errorMessage, throwFailure } from '../src/util.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
 import type { EventSink } from '../src/types/events/domain-event.js';
 import type { Harness, HarnessName } from '../src/types/harness.js';
@@ -17,6 +29,51 @@ import { silenceConsole, stubFetch, tmpDir } from './helpers.js';
 // Claude Code is deliberately excluded from these targets: it shells out to a
 // real `claude` binary that may be installed on the machine running the tests.
 export const TARGETS: HarnessName[] = ['cursor', 'vscode'];
+
+/**
+ * The three entry points this suite drives, as `src/install.ts` used to offer
+ * them: run the command, and turn a `Failure` back into the throw several
+ * hundred assertions are written against. They are test scaffolding now - the
+ * router is the only caller a released build has, and it reads the result.
+ */
+export async function installPlugin({
+  session,
+  ...req
+}: InstallRequest & { session?: Session }): Promise<InstallReport> {
+  const own = !session;
+  const run = session ?? createSession({ deps: req.deps, notify: announceMarketplace });
+  try {
+    const result = await new InstallCommand(sinkOf(req.deps)).run(req, run);
+    if (result.failure) throwFailure(result.failure);
+    return result.report;
+  } finally {
+    if (own) await run.cleanup();
+  }
+}
+
+export async function uninstallPlugin(req: UninstallRequest): Promise<UninstallResult> {
+  const result = await new UninstallCommand(sinkOf(req.deps)).run(req);
+  if (result.failure) throwFailure(result.failure);
+  return result.report;
+}
+
+/** No throw: `update` reports per row, and its failures are in the report. */
+export async function updateAll(req: UpdateRequest): Promise<UpdateReport> {
+  return (await new UpdateCommand(sinkOf(req.deps)).run(req)).report;
+}
+
+/** A sink that cannot fail the run it is listening to. */
+const sinkOf = (deps?: Deps): EventSink => {
+  const track = deps?.track;
+  if (!track) return () => {};
+  return (event) => {
+    try {
+      track(event);
+    } catch (err) {
+      log.debug(`telemetry: ${errorMessage(err)}`);
+    }
+  };
+};
 
 /** A sandboxed machine: its own state dir, Cursor dir, and VS Code user dir. */
 export function machine() {

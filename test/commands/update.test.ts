@@ -4,11 +4,11 @@ import * as fs from 'node:fs';
 
 import { UpdateCommand } from '../../src/commands/update.js';
 import * as paths from '../../src/infrastructure/paths.js';
-import { installPlugin } from '../../src/install.js';
 import { cleanupAll } from '../helpers.js';
 import {
   brandFor,
   deps,
+  installPlugin,
   machine,
   pluginSource,
   quietly,

@@ -3,47 +3,61 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { parseArgs, parseTargets, helpText, run } from '../src/cli.js';
-import { UserError } from '../src/util.js';
-import { runCli } from './cli-harness.js';
-import { silenceConsole, tmpDir, cleanupAll, stubFetch } from './helpers.js';
-import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import type { FetchLike } from '../src/types/ports.js';
+import { parseArgs, parseTargets } from '../../src/commands/args.js';
+import { helpText } from '../../src/commands/help.js';
+import { run } from '../../src/main.js';
+import { runCli } from '../cli-harness.js';
+import { silenceConsole, tmpDir, cleanupAll, stubFetch } from '../helpers.js';
+import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
+import type { FetchLike } from '../../src/types/ports.js';
+import { orThrow } from '../../src/util.js';
+
+// The router, through the real entry point: which exit code a command line
+// answers with, and which of them never reaches a command at all. `orThrow`
+// unwraps the parser's `Result` where a test only cares about the parse.
+
+const parse = (argv: string[]) => orThrow(parseArgs(argv));
 
 test.after(cleanupAll);
 
 test('the plugin id is positional and the command comes first', () => {
-  const parsed = parseArgs(['install', 'my-sdk']);
+  const parsed = parse(['install', 'my-sdk']);
   assert.equal(parsed.command, 'install');
   assert.deepEqual(parsed.args, ['my-sdk']);
 });
 
 test('value flags accept both --flag value and --flag=value', () => {
-  assert.equal(parseArgs(['install', 'x', '--repo', 'a/b']).flags.repo, 'a/b');
-  assert.equal(parseArgs(['install', 'x', '--repo=a/b']).flags.repo, 'a/b');
+  assert.equal(parse(['install', 'x', '--repo', 'a/b']).flags.repo, 'a/b');
+  assert.equal(parse(['install', 'x', '--repo=a/b']).flags.repo, 'a/b');
 });
 
 test('kebab-case flags map to camelCase keys', () => {
-  assert.equal(parseArgs(['install', 'x', '--marketplace', 'acme']).flags.marketplace, 'acme');
+  assert.equal(parse(['install', 'x', '--marketplace', 'acme']).flags.marketplace, 'acme');
 });
 
 test('boolean flags, their negations, and short forms', () => {
-  assert.equal(parseArgs(['install', 'x', '--force']).flags.force, true);
-  assert.equal(parseArgs(['install', 'x', '--no-force']).flags.force, false);
-  assert.equal(parseArgs(['-h']).flags.help, true);
-  assert.equal(parseArgs(['-v']).flags.version, true);
+  assert.equal(parse(['install', 'x', '--force']).flags.force, true);
+  assert.equal(parse(['install', 'x', '--no-force']).flags.force, false);
+  assert.equal(parse(['-h']).flags.help, true);
+  assert.equal(parse(['-v']).flags.version, true);
 });
 
+// A `Failure`, not a throw: a command line this parser cannot read is the one
+// thing that exits 2, and the router reads that off the answer's shape.
 test('a value flag with no value is a usage error', () => {
-  assert.throws(() => parseArgs(['install', 'x', '--repo']), UserError);
+  const parsed = parseArgs(['install', 'x', '--repo']);
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.ok ? '' : parsed.error.message, /--repo needs a value/);
 });
 
 test('an unknown option is rejected rather than ignored', () => {
-  assert.throws(() => parseArgs(['install', 'x', '--nope']), UserError);
+  const parsed = parseArgs(['install', 'x', '--nope']);
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.ok ? '' : parsed.error.message, /Unknown option: --nope/);
 });
 
 test('-- stops flag parsing', () => {
-  const parsed = parseArgs(['install', '--', '--weird-name']);
+  const parsed = parse(['install', '--', '--weird-name']);
   assert.deepEqual(parsed.args, ['--weird-name']);
 });
 

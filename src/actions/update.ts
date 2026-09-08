@@ -161,6 +161,10 @@ export class UpdateAction {
       )
       .map((r) => ({ plugin: r.plugin, error: r.error }));
     this.prompts.summary(updated.length, total, failed);
-    return ActionResult.success({ updated, failed, rows });
+    const report = { updated, failed, rows };
+    // No `Failure`: the grid named every row that failed and the summary
+    // counted them, so there is no sentence left for the router to add - the
+    // same reason `doctor` answers this way.
+    return failed.length ? ActionResult.failed(report) : ActionResult.success(report);
   };
 }

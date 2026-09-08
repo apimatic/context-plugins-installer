@@ -4,7 +4,7 @@
 // Node below 18 has no global fetch; check before anything else loads.
 require('./require-node')();
 
-require('../lib/cli')
+require('../lib/main')
   .run(process.argv.slice(2))
   .then((code) => {
     process.exitCode = code;

@@ -3,7 +3,6 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { installPlugin, uninstallPlugin, updateAll } from '../src/install.js';
 import { openManifest } from '../src/infrastructure/manifest-store.js';
 import * as paths from '../src/infrastructure/paths.js';
 import type { Deps } from '../src/types/ports.js';
@@ -13,11 +12,14 @@ import {
   brandFor,
   deps,
   flat,
+  installPlugin,
   machine,
   pluginSource,
   quietly,
   scriptedConfirm,
   tracking,
+  uninstallPlugin,
+  updateAll,
   withClaude,
   type Tracked,
 } from './install-fixture.js';

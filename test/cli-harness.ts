@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { run } from '../src/cli.js';
+import { run } from '../src/main.js';
 import { silenceConsole, tmpDir } from './helpers.js';
 
 // Drives a whole command through the real entry point against a manifest - and

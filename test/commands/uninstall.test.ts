@@ -4,13 +4,13 @@ import * as fs from 'node:fs';
 
 import { UninstallCommand } from '../../src/commands/uninstall.js';
 import * as paths from '../../src/infrastructure/paths.js';
-import { installPlugin } from '../../src/install.js';
 import type { Deps } from '../../src/types/ports.js';
 import { cleanupAll } from '../helpers.js';
 import {
   TARGETS,
   brandFor,
   deps,
+  installPlugin,
   machine,
   pluginSource,
   quietly,

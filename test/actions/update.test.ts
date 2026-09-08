@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert';
 import * as fs from 'node:fs';
 
-import { installPlugin, updateAll } from '../../src/install.js';
 import { openManifest, upsert } from '../../src/infrastructure/manifest-store.js';
 import * as paths from '../../src/infrastructure/paths.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
@@ -15,10 +14,12 @@ import {
   TARGETS,
   brandFor,
   deps,
+  installPlugin,
   machine,
   pluginSource,
   quietly,
   scriptedConfirm,
+  updateAll,
 } from '../install-fixture.js';
 
 test.after(cleanupAll);
