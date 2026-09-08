@@ -48,9 +48,11 @@ export interface DoctorRequest {
  * lets `--json` and the grid be the same run rendered two ways.
  */
 export class DoctorAction {
-  /** From `DoctorCommand`, for the same reason as `ListAction`: the checks are
-   * a report the command renders, so the progress lines the registry read
-   * produces are the only thing this action says, and it does not own them. */
+  /**
+   * From `DoctorCommand`, for the same reason as `ListAction`: the checks are a
+   * report the command renders, so the progress lines the registry read
+   * produces are the only thing this action says, and it does not own them.
+   */
   constructor(
     private readonly notify: MarketplaceListener,
     private readonly deps: Deps = {},
