@@ -1,7 +1,6 @@
 import { readRegistry } from '../infrastructure/github-registry-client.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
-import { announceMarketplace } from '../prompts/marketplace.js';
 import type { Brand } from '../types/brand.js';
 import type { PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';
@@ -10,6 +9,7 @@ import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Manifest } from '../types/installed-record.js';
 import type { Deps } from '../types/ports.js';
 import type { ListReport, ListResult } from '../types/reports.js';
+import type { MarketplaceListener } from '../types/session.js';
 import { nonEmptyString } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 
@@ -28,7 +28,14 @@ const NO_GAPS: Manifest = { version: 0, plugins: [], ignored: [], elided: [] };
  * first action that needs no bridge in front of it.
  */
 export class ListAction {
+  /**
+   * `notify` is required and comes from `ListCommand`: this action renders
+   * nothing itself - the command turns its report into a table - so the one
+   * thing it does say out loud has to arrive from the class that owns the
+   * words rather than be imported here.
+   */
   constructor(
+    private readonly notify: MarketplaceListener,
     private readonly deps: Deps = {},
     private readonly pathOpts?: PathOpts,
   ) {}
@@ -46,7 +53,7 @@ export class ListAction {
       repo: brand.repo,
       ref: brand.ref,
       deps: this.deps,
-      notify: announceMarketplace,
+      notify: this.notify,
     });
     if (!read.ok) return ActionResult.failed(nothing, read.error);
     const catalog = read.value;

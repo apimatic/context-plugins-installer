@@ -10,6 +10,7 @@ import * as paths from '../../src/infrastructure/paths.js';
 import type { DoctorCheck, DoctorReport } from '../../src/types/doctor.js';
 import type { Env, PathOpts } from '../../src/types/env.js';
 import type { Deps } from '../../src/types/ports.js';
+import { announceMarketplace } from '../../src/prompts/marketplace.js';
 import { cleanupAll, resolveBrand, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
@@ -20,7 +21,8 @@ const run = async (args: {
   deps?: Deps;
   pathOpts?: PathOpts;
 }): Promise<DoctorReport> =>
-  (await new DoctorAction(args.deps, args.pathOpts).execute(args.brand)).report;
+  (await new DoctorAction(announceMarketplace, args.deps, args.pathOpts).execute(args.brand))
+    .report;
 
 const REPO = 'context-plugins/plugin-marketplace';
 const brand = () =>

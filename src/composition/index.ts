@@ -7,7 +7,6 @@ import {
   setTelemetryEnabled,
   telemetryStatus,
 } from '../infrastructure/telemetry-service.js';
-import { announceMarketplace } from '../prompts/marketplace.js';
 import type { Services } from '../types/services.js';
 import { errorMessage } from '../types/util.js';
 import { readBrand } from './brand.js';
@@ -33,7 +32,7 @@ export const services = (): Services => ({
     setEnabled: (enabled) => setTelemetryEnabled(enabled),
   }),
 
-  session: (deps) => createSession({ deps, notify: announceMarketplace }),
+  session: (notify, deps) => createSession({ deps, notify }),
 
   sink: (telemetry, debug) => (event) => {
     try {

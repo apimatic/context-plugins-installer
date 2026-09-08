@@ -78,7 +78,7 @@ export async function run(argv: readonly string[], services: Services): Promise<
     switch (command) {
       case 'install': {
         if (!plugin) return noPlugin(`Usage: ${BIN} install <plugin>   (or set CP_PLUGIN)`);
-        const session = services.session();
+        const session = services.session(prompts.marketplaceListener);
         try {
           return answer(
             await new InstallCommand(sink).run(

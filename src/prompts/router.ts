@@ -1,5 +1,7 @@
 import type { Failure } from '../types/failure.js';
+import type { MarketplaceListener } from '../types/session.js';
 import type { TelemetryLine } from '../types/telemetry.js';
+import { announceMarketplace } from './marketplace.js';
 import { log } from './terminal.js';
 import { printTelemetryLines } from './telemetry.js';
 
@@ -10,6 +12,14 @@ import { printTelemetryLines } from './telemetry.js';
  * `--quiet` are flags the router reads and nothing below it should have to.
  */
 export class RouterPrompts {
+  /**
+   * Marketplace progress - the registry read, the clone, the marketplace add -
+   * rendered by the one function that owns those words. It hangs off the
+   * prompts class rather than being imported at the call site so that
+   * everything the router says is reachable from here.
+   */
+  readonly marketplaceListener: MarketplaceListener = announceMarketplace;
+
   configure(flags: { verbose?: boolean; quiet?: boolean }): void {
     log.setVerbose(flags.verbose);
     log.setQuiet(flags.quiet);

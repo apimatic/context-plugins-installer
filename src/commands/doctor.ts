@@ -15,7 +15,11 @@ export class DoctorCommand {
   constructor(private readonly prompts = new DoctorPrompts()) {}
 
   async run(args: DoctorArgs): Promise<ActionResult<DoctorReport>> {
-    const result = await new DoctorAction(args.deps, args.pathOpts).execute(args.brand);
+    const result = await new DoctorAction(
+      this.prompts.marketplaceListener,
+      args.deps,
+      args.pathOpts,
+    ).execute(args.brand);
     if (args.json) this.prompts.json(result.report);
     else this.prompts.render(result.report);
     return result;

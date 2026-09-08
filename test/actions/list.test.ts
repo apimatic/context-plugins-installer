@@ -9,6 +9,7 @@ import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import { upsert } from '../../src/infrastructure/manifest-store.js';
 import * as paths from '../../src/infrastructure/paths.js';
 import type { HarnessName } from '../../src/types/harness.js';
+import { announceMarketplace } from '../../src/prompts/marketplace.js';
 import { cleanupAll, resolveBrand, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
@@ -51,7 +52,7 @@ const record = (
   });
 
 const listing = async (m: ReturnType<typeof machine>, fetchImpl: ReturnType<typeof registry>) =>
-  new ListAction({ fetchImpl, env: {} }, m.pathOpts).execute(brand());
+  new ListAction(announceMarketplace, { fetchImpl, env: {} }, m.pathOpts).execute(brand());
 
 test('the marketplace name and every plugin it offers come from the registry', async () => {
   const m = machine();
@@ -139,9 +140,11 @@ test('the gaps in the read view travel with the listing', async () => {
 test('a registry with no marketplace file is a failure, not an empty listing', async () => {
   const m = machine();
 
-  const result = await new ListAction({ fetchImpl: stubFetch({}), env: {} }, m.pathOpts).execute(
-    brand(),
-  );
+  const result = await new ListAction(
+    announceMarketplace,
+    { fetchImpl: stubFetch({}), env: {} },
+    m.pathOpts,
+  ).execute(brand());
 
   assert.equal(result.isFailed(), true);
   assert.equal(result.exitCode(), 1);

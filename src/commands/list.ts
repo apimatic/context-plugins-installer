@@ -13,7 +13,11 @@ export class ListCommand {
   constructor(private readonly prompts = new ListPrompts()) {}
 
   async run(args: ListArgs): Promise<ActionResult<ListReport>> {
-    const result = await new ListAction(args.deps, args.pathOpts).execute(args.brand);
+    const result = await new ListAction(
+      this.prompts.marketplaceListener,
+      args.deps,
+      args.pathOpts,
+    ).execute(args.brand);
     if (result.isFailed()) return result;
     if (args.json) this.prompts.json(result.report);
     else this.prompts.render(result.report, args.long);

@@ -6,7 +6,7 @@ import type { Failure } from './failure.js';
 import type { ManifestContext } from './manifest-context.js';
 import type { Deps, Telemetry, TelemetrySettings } from './ports.js';
 import type { Result } from './result.js';
-import type { Session } from './session.js';
+import type { MarketplaceListener, Session } from './session.js';
 
 /**
  * What a run needs built. The router takes this rather than reaching for the
@@ -29,8 +29,12 @@ export interface Services {
   telemetry(brand: Brand, command: string | null): Telemetry;
   manifest(pathOpts?: PathOpts): ManifestContext;
   telemetrySettings(brand: Brand): TelemetrySettings;
-  /** Per-run shared work: one registry read, one clone, one marketplace add. */
-  session(deps?: Deps): Session;
+  /**
+   * Per-run shared work: one registry read, one clone, one marketplace add.
+   * `notify` comes from the caller's prompts class - the composition root
+   * builds the session but does not choose the words it says on the way.
+   */
+  session(notify: MarketplaceListener, deps?: Deps): Session;
   /**
    * Where events go. Wrapped so that a sink which throws cannot fail a run
    * that has already written its files - reporting is a courtesy, and this is

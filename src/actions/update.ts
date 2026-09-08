@@ -1,7 +1,6 @@
 import { harnesses } from '../harnesses/index.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
-import { announceMarketplace } from '../prompts/marketplace.js';
 import { createSession } from '../infrastructure/session.js';
 import type { UpdatePrompts } from '../prompts/update.js';
 import { MarketplaceLabel, type Brand } from '../types/brand.js';
@@ -64,7 +63,10 @@ export class UpdateAction {
 
     // One session for every row: three plugins from one marketplace read the
     // registry once and clone it once.
-    const session = createSession({ deps: this.deps, notify: announceMarketplace });
+    const session = createSession({
+      deps: this.deps,
+      notify: this.prompts.marketplaceListener,
+    });
     try {
       for (const entry of entries) {
         const entryBrand: Brand = Object.freeze({

@@ -1,4 +1,6 @@
 import type { DoctorReport, DoctorStatus } from '../types/doctor.js';
+import type { MarketplaceListener } from '../types/session.js';
+import { announceMarketplace } from './marketplace.js';
 import { log } from './terminal.js';
 
 const SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x' };
@@ -7,6 +9,14 @@ const SYMBOL: Record<DoctorStatus, string> = { ok: log.MARK, warn: '!', fail: 'x
 const LABEL_CAP = 22;
 
 export class DoctorPrompts {
+  /**
+   * Marketplace progress - the registry read, the clone, the marketplace add -
+   * rendered by the one function that owns those words. It hangs off the
+   * prompts class rather than being imported at the call site so that
+   * everything `doctor` says is reachable from here.
+   */
+  readonly marketplaceListener: MarketplaceListener = announceMarketplace;
+
   json(report: DoctorReport): void {
     log.payload(JSON.stringify(report, null, 2));
   }

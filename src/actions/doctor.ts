@@ -8,7 +8,6 @@ import * as paths from '../infrastructure/paths.js';
 import { run, which } from '../infrastructure/process-runner.js';
 import { telemetryStatus } from '../infrastructure/telemetry-service.js';
 import { format as f } from '../prompts/format.js';
-import { announceMarketplace } from '../prompts/marketplace.js';
 import { describeTelemetry } from '../prompts/telemetry.js';
 import { BIN, type Brand } from '../types/brand.js';
 import { REGISTRY_FILES } from '../types/catalog.js';
@@ -17,6 +16,7 @@ import type { PathOpts } from '../types/env.js';
 import { everyEditor } from '../types/harness.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
 import type { Deps, FetchLike } from '../types/ports.js';
+import type { MarketplaceListener } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 
@@ -48,7 +48,11 @@ export interface DoctorRequest {
  * lets `--json` and the grid be the same run rendered two ways.
  */
 export class DoctorAction {
+  /** From `DoctorCommand`, for the same reason as `ListAction`: the checks are
+   * a report the command renders, so the progress lines the registry read
+   * produces are the only thing this action says, and it does not own them. */
   constructor(
+    private readonly notify: MarketplaceListener,
     private readonly deps: Deps = {},
     private readonly pathOpts?: PathOpts,
   ) {}
@@ -139,7 +143,7 @@ export class DoctorAction {
       repo: brand.repo,
       ref: brand.ref,
       deps,
-      notify: announceMarketplace,
+      notify: this.notify,
     });
     if (!read.ok) {
       checks.push(fail('Reachable', read.error.message, read.error.hint));
