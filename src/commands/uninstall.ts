@@ -1,10 +1,13 @@
 import type { ActionResult } from '../actions/action-result.js';
 import { UninstallAction, type UninstallRequest } from '../actions/uninstall.js';
 import { UninstallPrompts } from '../prompts/uninstall.js';
-import { marketplaceLabel } from '../types/brand.js';
-import { PluginId } from '../types/ids/plugin-id.js';
+import { MarketplaceLabel } from '../types/brand.js';
+import type { EventSink } from '../types/events/domain-event.js';
+import { PluginUninstallFailedEvent } from '../types/events/plugin-uninstall-failed.js';
+import { PluginUninstalledEvent } from '../types/events/plugin-uninstalled.js';
+import type { PluginId } from '../types/ids/plugin-id.js';
 import type { UninstallResult } from '../types/reports.js';
-import { EVENTS, type TrackFn } from '../types/telemetry.js';
+import type { ErrorKind } from '../types/telemetry.js';
 
 /**
  * `uninstall` reports what it removed even when another editor failed - a
@@ -12,32 +15,31 @@ import { EVENTS, type TrackFn } from '../types/telemetry.js';
  * failure does. Nothing here decides anything: the action already has.
  */
 export class UninstallCommand {
-  constructor(private readonly track: TrackFn) {}
+  constructor(private readonly sink: EventSink) {}
 
   async run(req: UninstallRequest): Promise<ActionResult<UninstallResult>> {
     const prompts = new UninstallPrompts(req.pathOpts?.home);
-    const marketplace = marketplaceLabel(req.brand);
+    const marketplace = MarketplaceLabel.of(req.brand);
+    const action = new UninstallAction(prompts, req.deps, req.pathOpts);
     try {
-      const result = await new UninstallAction(prompts, req.deps, req.pathOpts).execute(req);
+      const result = await action.execute(req);
+      const { plugin, targets } = result.report;
       // Before the failure below, so a partial uninstall still reports what it did.
-      for (const harness of result.report.targets) {
-        this.track(EVENTS.uninstalled, { plugin: result.report.plugin, harness, marketplace });
+      if (plugin) {
+        for (const harness of targets) {
+          this.sink(new PluginUninstalledEvent(plugin, harness, marketplace));
+        }
       }
-      if (result.isFailed()) this.fireFailure(req.plugin, marketplace, 'user');
+      if (result.isFailed()) this.failed(plugin, marketplace, 'user');
       return result;
     } catch (err) {
       // A throw from here is a bug, not a problem the user can fix.
-      this.fireFailure(req.plugin, marketplace, 'unexpected');
+      this.failed(action.plugin, marketplace, 'unexpected');
       throw err;
     }
   }
 
-  private fireFailure(plugin: string, marketplace: string, kind: string): void {
-    this.track(EVENTS.uninstallFailed, {
-      plugin: PluginId.create(plugin)?.toString() ?? null,
-      marketplace,
-      stage: null,
-      error_kind: kind,
-    });
+  private failed(plugin: PluginId | null, marketplace: MarketplaceLabel, kind: ErrorKind): void {
+    this.sink(new PluginUninstallFailedEvent(plugin, marketplace, kind));
   }
 }

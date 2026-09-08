@@ -36,14 +36,21 @@ export interface InstallRequest {
  */
 export class InstallAction {
   /**
-   * How far this run got. An instance serves one run, and the command's catch
-   * reads it: an unexpected throw still has to say where it happened, which is
-   * what the old mutable `progress` object was threaded through for.
+   * How far this run got, and which plugin it was about. An instance serves one
+   * run, and the command's catch reads both: an unexpected throw still has to
+   * report where it happened and what it was doing, which is what the old
+   * mutable `progress` object was threaded through for.
    */
   private at: InstallStage = 'resolve';
 
+  private id: PluginId | null = null;
+
   get stage(): InstallStage {
     return this.at;
+  }
+
+  get plugin(): PluginId | null {
+    return this.id;
   }
 
   constructor(
@@ -58,8 +65,12 @@ export class InstallAction {
     const startedAt = Date.now();
     const ref = req.ref || brand.ref;
     const explicit = Array.isArray(req.targets) && req.targets.length > 0;
+    // Validated before the report exists rather than written into it after, so
+    // there is no arm on which the report holds the string the user typed.
+    const parsed = PluginId.parse(req.plugin);
+    if (parsed.ok) this.id = parsed.value;
     const report: Omit<InstallReport, 'stage' | 'durationMs'> = {
-      plugin: req.plugin,
+      plugin: this.id,
       targets: [],
       untouched: [],
       marketplace: '',
@@ -74,10 +85,8 @@ export class InstallAction {
     const failed = (failure: Failure): ActionResult<InstallReport> =>
       ActionResult.failed(done(), failure);
 
-    const id = PluginId.parse(req.plugin);
-    if (!id.ok) return failed(id.error);
-    const plugin = id.value.toString();
-    report.plugin = plugin;
+    if (!parsed.ok) return failed(parsed.error);
+    const plugin = parsed.value.toString();
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
 

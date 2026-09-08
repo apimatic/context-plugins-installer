@@ -7,22 +7,22 @@ import { UpdateCommand } from './commands/update.js';
 import { createSession } from './infrastructure/session.js';
 import { log } from './log.js';
 import { announceMarketplace } from './prompts/marketplace.js';
+import type { EventSink } from './types/events/domain-event.js';
 import type { Deps } from './types/ports.js';
 import type { InstallResult, UninstallResult, UpdateResult } from './types/reports.js';
 import type { Session } from './types/session.js';
-import type { TrackFn } from './types/telemetry.js';
 import { errorMessage, throwFailure } from './util.js';
 
-const noTrack: TrackFn = () => {};
+const noSink: EventSink = () => {};
 
 // A sink listens; it never takes part. Whatever it throws stays out of the run,
 // which has already written its files by the time the success events fire.
-function sinkOf(deps: Deps | undefined): TrackFn {
+function sinkOf(deps: Deps | undefined): EventSink {
   const track = deps?.track;
-  if (!track) return noTrack;
-  return (name, properties) => {
+  if (!track) return noSink;
+  return (event) => {
     try {
-      track(name, properties);
+      track(event);
     } catch (err) {
       log.debug(`telemetry: ${errorMessage(err)}`);
     }

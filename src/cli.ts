@@ -211,7 +211,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2)): Prom
     command: command === 'remove' ? 'uninstall' : command,
     version: packageVersion,
   });
-  const deps: Deps = { track: telemetry.track };
+  const deps: Deps = { track: telemetry.report };
 
   try {
     switch (command) {

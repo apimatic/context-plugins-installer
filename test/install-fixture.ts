@@ -2,9 +2,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { resolveBrand } from '../src/brand.js';
+import { harnesses } from '../src/harnesses/index.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
 import { DirectoryPath } from '../src/types/file/paths.js';
-import type { HarnessName } from '../src/types/harness.js';
+import type { EventSink } from '../src/types/events/domain-event.js';
+import type { Harness, HarnessName } from '../src/types/harness.js';
 import type { Deps } from '../src/types/ports.js';
 import { silenceConsole, stubFetch, tmpDir } from './helpers.js';
 
@@ -105,6 +107,64 @@ export async function quietly<T>(fn: () => Promise<T>): Promise<T> {
     con.restore();
   }
 }
+
+/**
+ * Runs `fn` with part of one editor's behaviour replaced, and puts the real
+ * thing back afterwards. A harness that misbehaves has no seam of its own - the
+ * registry hands out instances - and it is the only way to reach some arms:
+ * a throw out of `install` is what an `unexpected` failure event is made of,
+ * and a throw out of `uninstall` is what the action reads as `'failed'`.
+ */
+export async function withHarness<T>(
+  name: HarnessName,
+  patch: Partial<Harness>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const harness: Partial<Harness> = harnesses.byName(name);
+  const keys = Object.keys(patch) as (keyof Harness)[];
+  // What was there before, and whether it was the instance's own or the class's.
+  // A real implementation lives on the prototype, so restoring it means
+  // *deleting* the shadow rather than assigning the old value back - assigning
+  // one read through the prototype would have written undefined.
+  const saved = keys.map((key) => [key, Object.hasOwn(harness, key), harness[key]] as const);
+  Object.assign(harness, patch);
+  try {
+    return await fn();
+  } finally {
+    for (const [key, own, value] of saved) {
+      if (own) Object.assign(harness, { [key]: value });
+      else delete harness[key];
+    }
+  }
+}
+
+/** The one patch two tests want: an editor whose install is a bug. */
+export const throwsOnInstall = (message: string): Partial<Harness> => ({
+  install: async () => {
+    throw new Error(message);
+  },
+});
+
+/** One event as it left the command: the flat facts, which is what is sent. */
+export interface Tracked {
+  name: string;
+  properties: Record<string, unknown>;
+}
+
+/**
+ * The deps for an install, plus an event sink that collects into `events`. The
+ * sink takes a `DomainEvent`; what the tests read is what it declares, because
+ * that - and only that - is what leaves the machine.
+ */
+export function tracking(spec: DepsSpec, events: Tracked[]): Deps {
+  return { ...deps(spec), track: sinkInto(events) };
+}
+
+export const sinkInto =
+  (events: Tracked[]): EventSink =>
+  (event) => {
+    events.push({ name: event.name, properties: event.properties() });
+  };
 
 export type Confirm = NonNullable<Deps['confirm']> & { asked: string[] };
 

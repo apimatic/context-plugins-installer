@@ -15,3 +15,10 @@ export abstract class DomainEvent {
   /** Flat, primitive-only facts about what happened. */
   abstract properties(): Record<string, TelemetryValue>;
 }
+
+/**
+ * Where a command hands an event. The sink listens; it never takes part, so it
+ * answers nothing and whatever it throws is the sink's problem and not the
+ * run's - the files are already written by the time a success event is fired.
+ */
+export type EventSink = (event: DomainEvent) => void;

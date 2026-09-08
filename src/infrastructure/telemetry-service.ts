@@ -7,6 +7,7 @@ import { Failure } from '../types/failure.js';
 import type { FilePath } from '../types/file/paths.js';
 import type { Deps, FetchLike } from '../types/ports.js';
 import type { Result } from '../types/result.js';
+import type { DomainEvent } from '../types/events/domain-event.js';
 import {
   COLLECTED,
   type TelemetryEvent,
@@ -14,7 +15,6 @@ import {
   type TelemetryOptOut,
   type TelemetryStatus,
   type TelemetryValue,
-  type TrackFn,
 } from '../types/telemetry.js';
 import { ENV_OFF, envFlag, errorMessage } from '../util.js';
 import { isCi, isInteractive } from './environment.js';
@@ -108,7 +108,12 @@ export interface TelemetryOptions {
 }
 
 export interface Telemetry {
-  track: TrackFn;
+  /**
+   * Queue what happened. Takes the event rather than a name and a bag of
+   * properties, so the property names of the Mixpanel contract are declared by
+   * one class each and nothing here can misspell or widen them.
+   */
+  report(event: DomainEvent): void;
   /**
    * Sends everything tracked so far in one request; never throws, never
    * outlives the timeout. Returns the lines it would have printed, in the order
@@ -233,8 +238,8 @@ export function createTelemetry({
   }
 
   return {
-    track(name, properties = {}) {
-      queue.push({ name, properties });
+    report(event) {
+      queue.push({ name: event.name, properties: event.properties() });
     },
     async flush() {
       const lines: TelemetryLine[] = [];

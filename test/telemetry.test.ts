@@ -14,8 +14,9 @@ import {
   type TelemetryOptions,
 } from '../src/infrastructure/telemetry-service.js';
 import { describeTelemetry } from '../src/prompts/telemetry.js';
-import { marketplaceLabel } from '../src/types/brand.js';
-import { EVENTS, COLLECTED } from '../src/types/telemetry.js';
+import { MarketplaceLabel } from '../src/types/brand.js';
+import { DomainEvent } from '../src/types/events/domain-event.js';
+import { COLLECTED, type TelemetryValue } from '../src/types/telemetry.js';
 import type { Brand } from '../src/types/brand.js';
 import type { Env, PathOpts } from '../src/types/env.js';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
@@ -105,6 +106,32 @@ async function flushQuietly(t: Telemetry) {
 }
 
 /** Console lines rewrapped as one sentence: a phrase may straddle a wrap and an ANSI code. */
+/**
+ * A stand-in event. This file is about the sender - what one flush is, what
+ * rides on every event, which switch stops one - and not about what any real
+ * event says, which each class in `types/events/` declares and its own test
+ * pins. Being a `DomainEvent` and nothing more is also what lets the
+ * fixed-fields test below try to name the token.
+ */
+class TestEvent extends DomainEvent {
+  constructor(
+    readonly name: string,
+    private readonly props: Record<string, TelemetryValue> = {},
+  ) {
+    super();
+  }
+
+  properties(): Record<string, TelemetryValue> {
+    return this.props;
+  }
+}
+
+const installed = (props: Record<string, TelemetryValue> = {}): TestEvent =>
+  new TestEvent('Context Plugin Installed', props);
+
+const uninstalled = (props: Record<string, TelemetryValue> = {}): TestEvent =>
+  new TestEvent('Context Plugin Uninstalled', props);
+
 const flat = (lines: string[]): string =>
   lines
     .join(' ')
@@ -116,8 +143,8 @@ test('one flush is one request carrying the token, the anonymous id, and the run
   const m = machine();
   const mixpanel = sink();
   const t = telemetryFor(m, mixpanel);
-  t.track(EVENTS.installed, { plugin: 'my-sdk', harness: 'cursor' });
-  t.track(EVENTS.installed, { plugin: 'my-sdk', harness: 'vscode' });
+  t.report(installed({ plugin: 'my-sdk', harness: 'cursor' }));
+  t.report(installed({ plugin: 'my-sdk', harness: 'vscode' }));
   await flushQuietly(t);
 
   assert.equal(mixpanel.sent.length, 1, 'both events travel in one batch');
@@ -160,7 +187,7 @@ test('an event cannot rename the token or the identity', async () => {
   const m = machine();
   const mixpanel = sink();
   const t = telemetryFor(m, mixpanel);
-  t.track(EVENTS.installed, { token: 'evil', $device_id: 'someone-else', distinct_id: 'x' });
+  t.report(installed({ token: 'evil', $device_id: 'someone-else', distinct_id: 'x' }));
   await flushQuietly(t);
   const [e] = eventsIn(mixpanel.sent[0]);
   assert.equal(e?.properties.token, brand().telemetry.token);
@@ -171,11 +198,11 @@ test('the anonymous id survives across runs', async () => {
   const m = machine();
   const first = sink();
   const t1 = telemetryFor(m, first);
-  t1.track(EVENTS.installed, { plugin: 'a' });
+  t1.report(installed({ plugin: 'a' }));
   await flushQuietly(t1);
   const second = sink();
   const t2 = telemetryFor(m, second);
-  t2.track(EVENTS.installed, { plugin: 'b' });
+  t2.report(installed({ plugin: 'b' }));
   await flushQuietly(t2);
   assert.equal(
     eventsIn(second.sent[0])[0]?.properties.$device_id,
@@ -203,7 +230,7 @@ test('nothing tracked means nothing read, nothing sent, no id minted, and no not
 test('the notice is printed once, on stderr, says what is collected, and is then remembered', async () => {
   const m = machine();
   const t1 = telemetryFor(m, sink());
-  t1.track(EVENTS.installed, { plugin: 'a' });
+  t1.report(installed({ plugin: 'a' }));
   const first = await flushQuietly(t1);
   const notice = flat(first.err);
   assert.ok(notice.includes('collects anonymous usage data'), `got: ${notice}`);
@@ -215,7 +242,7 @@ test('the notice is printed once, on stderr, says what is collected, and is then
   assert.equal(readState(m.file).noticeShown, true);
 
   const t2 = telemetryFor(m, sink());
-  t2.track(EVENTS.installed, { plugin: 'b' });
+  t2.report(installed({ plugin: 'b' }));
   const second = await flushQuietly(t2);
   assert.deepEqual(second.lines, [], 'a second run says nothing');
 });
@@ -302,7 +329,7 @@ test('every opt-out switch wins on its own, names itself, and sends nothing', as
 
     const mixpanel = sink();
     const t = telemetryFor(m, mixpanel, { brand: b, deps: { env, fetchImpl: mixpanel } });
-    t.track(EVENTS.installed, { plugin: 'a' });
+    t.report(installed({ plugin: 'a' }));
     const con = await flushQuietly(t);
     assert.equal(mixpanel.sent.length, 0, `${c.label}: nothing sent`);
     assert.deepEqual(con.lines, [], `${c.label}: nothing said`);
@@ -352,7 +379,7 @@ test('a file that remembers the notice but has no id gets an id and keeps the fl
   fs.writeFileSync(m.file, JSON.stringify({ noticeShown: true }));
   const mixpanel = sink();
   const t = telemetryFor(m, mixpanel);
-  t.track(EVENTS.installed, { plugin: 'a' });
+  t.report(installed({ plugin: 'a' }));
   const con = await flushQuietly(t);
   assert.equal(mixpanel.sent.length, 1);
   assert.deepEqual(con.lines, [], 'the notice is not repeated');
@@ -369,7 +396,7 @@ test('CP_TELEMETRY=log prints the payload to stderr and sends nothing, whatever 
   const status = statusOf(m, env);
   assert.equal(status.mode, 'log');
   assert.equal(describeTelemetry(status, 'context-plugins'), 'log only (CP_TELEMETRY=log)');
-  t.track(EVENTS.uninstalled, { plugin: 'my-sdk', harness: 'cursor' });
+  t.report(uninstalled({ plugin: 'my-sdk', harness: 'cursor' }));
   const con = await flushQuietly(t);
   assert.equal(mixpanel.sent.length, 0);
   assert.deepEqual(con.out, []);
@@ -388,7 +415,7 @@ test('a failing, rejected, or hanging request never fails the run', async () => 
     }) as FetchLike,
   ]) {
     const t = telemetryFor(m, fetchImpl);
-    t.track(EVENTS.installed, { plugin: 'a' });
+    t.report(installed({ plugin: 'a' }));
     await flushQuietly(t);
   }
 
@@ -397,7 +424,7 @@ test('a failing, rejected, or hanging request never fails the run', async () => 
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
     });
   const t = telemetryFor(m, hanging, { timeoutMs: 20 });
-  t.track(EVENTS.installed, { plugin: 'a' });
+  t.report(installed({ plugin: 'a' }));
   let guard: NodeJS.Timeout | undefined;
   try {
     await Promise.race([
@@ -418,7 +445,7 @@ test('an unwritable state directory means nothing is sent, and nothing thrown', 
   const pathOpts = { env: { CP_STATE_DIR: path.join(blocker, 'state') }, home: m.root };
   const mixpanel = sink();
   const t = telemetryFor({ ...m, pathOpts }, mixpanel);
-  t.track(EVENTS.installed, { plugin: 'a' });
+  t.report(installed({ plugin: 'a' }));
   const con = await flushQuietly(t);
   assert.equal(mixpanel.sent.length, 0, 'no stable id, so no event');
   assert.deepEqual(con.lines, [], 'and no notice that would repeat every run');
@@ -431,7 +458,7 @@ test('a runtime without a global fetch sends nothing rather than crashing', asyn
   delete g.fetch;
   try {
     const t = telemetryFor(m, undefined as unknown as FetchLike, { deps: { env: {} } });
-    t.track(EVENTS.installed, { plugin: 'a' });
+    t.report(installed({ plugin: 'a' }));
     await flushQuietly(t);
   } finally {
     g.fetch = saved;
@@ -446,14 +473,17 @@ test('a version that cannot be read is reported as unknown, not as a failure', a
       throw new Error('no package.json');
     },
   });
-  t.track(EVENTS.installed, { plugin: 'a' });
+  t.report(installed({ plugin: 'a' }));
   await flushQuietly(t);
   assert.equal(eventsIn(mixpanel.sent[0])[0]?.properties.cli_version, 'unknown');
 });
 
 test('the marketplace is named only when it is the one this build ships with', () => {
-  assert.equal(marketplaceLabel(brand()), REPO);
-  assert.equal(marketplaceLabel(brand({ env: { CP_REPO: 'acme/plugin-marketplace' } })), 'custom');
+  assert.equal(MarketplaceLabel.of(brand()).toString(), REPO);
+  assert.equal(
+    MarketplaceLabel.of(brand({ env: { CP_REPO: 'acme/plugin-marketplace' } })).toString(),
+    'custom',
+  );
 });
 
 /**
@@ -464,7 +494,11 @@ test('the marketplace is named only when it is the one this build ships with', (
 test('the built-in marketplace counts however the user spelled it', () => {
   const cased = brand({ env: { CP_REPO: REPO.toUpperCase() } });
   assert.equal(cased.repo, REPO.toUpperCase(), 'the brand keeps the spelling');
-  assert.equal(marketplaceLabel(cased), REPO, 'and the event carries the built-in one');
+  assert.equal(
+    MarketplaceLabel.of(cased).toString(),
+    REPO,
+    'and the event carries the built-in one',
+  );
 });
 
 /**
@@ -476,7 +510,7 @@ test('the built-in marketplace counts however the user spelled it', () => {
 test('flush writes nothing itself and hands back the lines in order', async () => {
   const m = machine();
   const t = telemetryFor(m, sink());
-  t.track(EVENTS.installed, { plugin: 'my-sdk' });
+  t.report(installed({ plugin: 'my-sdk' }));
 
   const con = silenceConsole();
   let lines;
@@ -515,7 +549,7 @@ test('an unwritable state directory reports both lines, in order, and sends noth
 
   const fetchImpl = sink();
   const t = telemetryFor(machine(), fetchImpl, { pathOpts });
-  t.track(EVENTS.installed, { plugin: 'my-sdk' });
+  t.report(installed({ plugin: 'my-sdk' }));
   const lines = await t.flush();
 
   assert.deepEqual(

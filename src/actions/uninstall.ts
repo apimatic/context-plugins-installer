@@ -40,6 +40,17 @@ export interface UninstallRequest {
  *   over the outcomes, so the two cannot disagree about what happened.
  */
 export class UninstallAction {
+  /**
+   * Which plugin this run is about, once validated. The command's catch reads
+   * it: a throw still has to report what it was doing, and the report it would
+   * otherwise read is the one that never got built.
+   */
+  private id: PluginId | null = null;
+
+  get plugin(): PluginId | null {
+    return this.id;
+  }
+
   constructor(
     private readonly prompts: UninstallPrompts,
     private readonly deps: Deps = {},
@@ -80,10 +91,13 @@ export class UninstallAction {
 
   readonly execute = async (req: UninstallRequest): Promise<ActionResult<UninstallResult>> => {
     const { brand, force = false } = req;
-    const nothing: UninstallResult = { plugin: req.plugin, targets: [], failed: [] };
+    // A function, not a value: the arms after the id is validated report which
+    // plugin the run was about, and the one before it has nothing to report.
+    const nothing = (): UninstallResult => ({ plugin: this.id, targets: [], failed: [] });
 
     const id = PluginId.parse(req.plugin);
-    if (!id.ok) return ActionResult.failed(nothing, id.error);
+    if (!id.ok) return ActionResult.failed(nothing(), id.error);
+    this.id = id.value;
     const plugin = id.value.toString();
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
@@ -93,11 +107,11 @@ export class UninstallAction {
     const recorded = records.findRaw(key);
 
     const targets = resolveTargets(req.targets);
-    if (!targets.ok) return ActionResult.failed(nothing, targets.error);
+    if (!targets.ok) return ActionResult.failed(nothing(), targets.error);
     const want = targets.value;
 
     const found = await this.marketplaceFor(brand, plugin, recorded, want);
-    if ('failure' in found) return ActionResult.failed(nothing, found.failure);
+    if ('failure' in found) return ActionResult.failed(nothing(), found.failure);
 
     this.prompts.intro(plugin, brand, want);
 
@@ -135,7 +149,7 @@ export class UninstallAction {
     this.prompts.summary(uninstallLines(decision, { plugin, bin: BIN }));
 
     const report: UninstallResult = {
-      plugin,
+      plugin: id.value,
       targets: decision.removed,
       failed: decision.failed,
     };

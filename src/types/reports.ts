@@ -1,13 +1,20 @@
+import type { MarketplaceLabel } from './brand.js';
 import type { Failure } from './failure.js';
 import type { HarnessName } from './harness.js';
-import type { TelemetryStatus, TelemetryVerb } from './telemetry.js';
+import type { PluginId } from './ids/plugin-id.js';
+import type { ErrorKind, TelemetryStatus, TelemetryVerb } from './telemetry.js';
 import type { Manifest, ManifestEntry } from './installed-record.js';
 
 // What a command did, as facts rather than prose. A prompts class renders these;
 // a command reads them to decide which telemetry events to fire.
 
 export interface InstallResult {
-  plugin: string;
+  /**
+   * A `PluginId`, or null when the id never validated - which is the whole of
+   * the "only once validated" rule, as a type. A command builds its events from
+   * this field, so a raw argv string must not be able to reach it.
+   */
+  plugin: PluginId | null;
   targets: HarnessName[];
   /** Editors an earlier run installed into that this run left alone. */
   untouched?: HarnessName[];
@@ -31,7 +38,8 @@ export interface InstallReport extends InstallResult {
 }
 
 export interface UninstallResult {
-  plugin: string;
+  /** Null when the id never validated; see `InstallResult.plugin`. */
+  plugin: PluginId | null;
   /** Editors something was actually removed from - not editors whose record was corrected. */
   targets: HarnessName[];
   /** Editors that were asked and went wrong. Non-empty means the run failed. */
@@ -44,20 +52,41 @@ export interface UpdateResult {
 }
 
 /**
- * One recorded plugin as `update` left it. `report` is what the install action
- * answered, absent when no install ran - a row this build cannot read, a row
- * with no editor on this machine, or one whose install threw. `stage` survives
- * that last case, because a failure event still has to say where it happened.
+ * One recorded plugin as `update` left it, as four shapes rather than one with
+ * nullable fields - because which facts exist depends entirely on how far the
+ * row got, and a command that reports on it must not have to guess. `plugin` is
+ * on every arm because the grid prints one line per row whatever happened, and
+ * it is the id *as the record spells it*: an unreadable row may not have a
+ * valid one.
+ *
+ * - `updated`: an install ran and worked. One event per editor.
+ * - `failed`: an install ran and did not. One event, whose `errorKind` says
+ *   whether the action answered with a `Failure` (`user`) or threw
+ *   (`unexpected`) - the distinction telemetry exists to make, and the reason
+ *   this is not a boolean. `report` is absent for a throw; `stage` survives it.
+ * - `unreadable`: this build cannot read the row. A record problem, not an
+ *   install that failed, so it fails the run and reports nothing.
+ * - `skipped`: no editor for it on this machine. Nothing was asked of it.
  */
-export interface UpdatedRow {
-  plugin: string;
-  /** How telemetry may name this row's marketplace; null when it has no row. */
-  marketplace: string | null;
-  report: InstallReport | null;
-  stage: InstallStage | null;
-  error: string | null;
-  outcome: 'updated' | 'failed' | 'skipped';
-}
+export type UpdatedRow =
+  | {
+      outcome: 'updated';
+      plugin: string;
+      marketplace: MarketplaceLabel;
+      report: InstallReport;
+    }
+  | {
+      outcome: 'failed';
+      plugin: string;
+      id: PluginId | null;
+      marketplace: MarketplaceLabel;
+      report: InstallReport | null;
+      stage: InstallStage | null;
+      error: string;
+      errorKind: ErrorKind;
+    }
+  | { outcome: 'unreadable'; plugin: string; error: string }
+  | { outcome: 'skipped'; plugin: string };
 
 export interface UpdateReport extends UpdateResult {
   rows: UpdatedRow[];

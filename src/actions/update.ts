@@ -4,7 +4,7 @@ import * as paths from '../infrastructure/paths.js';
 import { announceMarketplace } from '../prompts/marketplace.js';
 import { createSession } from '../infrastructure/session.js';
 import type { UpdatePrompts } from '../prompts/update.js';
-import { marketplaceLabel, type Brand } from '../types/brand.js';
+import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { HarnessOpts } from '../types/harness.js';
 import type { Deps } from '../types/ports.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
@@ -51,8 +51,11 @@ export class UpdateAction {
 
     for (const skip of ignored) {
       const plugin = skip.plugin || '(unreadable entry)';
-      const error = `cannot update - ${skip.reason}`;
-      rows.push({ plugin, marketplace: null, report: null, stage: null, error, outcome: 'failed' });
+      // `unreadable`, not `failed`: the run still exits non-zero and the
+      // summary still names the row, but nothing is reported. A record this
+      // build cannot read is not an install that went wrong, and the old build
+      // sent nothing for one either - it never reached an install to report on.
+      rows.push({ outcome: 'unreadable', plugin, error: `cannot update - ${skip.reason}` });
       this.prompts.unreadable(plugin, skip.reason);
     }
     for (const row of elided) {
@@ -70,18 +73,11 @@ export class UpdateAction {
           ref: entry.ref || brand.ref,
           id: entry.marketplace || brand.id,
         });
-        const marketplace = marketplaceLabel(entryBrand);
+        const marketplace = MarketplaceLabel.of(entryBrand);
 
         const reachable = harnesses.detected(entry.targets, this.pathOpts);
         if (!reachable.length) {
-          rows.push({
-            plugin: entry.plugin,
-            marketplace,
-            report: null,
-            stage: null,
-            error: null,
-            outcome: 'skipped',
-          });
+          rows.push({ outcome: 'skipped', plugin: entry.plugin });
           this.prompts.noEditor(entry.plugin);
           continue;
         }
@@ -107,39 +103,46 @@ export class UpdateAction {
           );
           if (result.isFailed()) {
             const error = result.failure?.message ?? 'failed';
+            // The action answered rather than threw, so this is the user's to
+            // fix - the same reading the action's own `Failure` gets.
             rows.push({
+              outcome: 'failed',
               plugin: entry.plugin,
+              id: result.report.plugin,
               marketplace,
               report: result.report,
               stage: result.report.stage,
               error,
-              outcome: 'failed',
+              errorKind: 'user',
             });
             this.prompts.rowFailed(entry.plugin, error);
             continue;
           }
           rows.push({
+            outcome: 'updated',
             plugin: entry.plugin,
             marketplace,
             report: result.report,
-            stage: result.report.stage,
-            error: null,
-            outcome: 'updated',
           });
           this.prompts.updated(entry.plugin, result.report.targets);
         } catch (err) {
           // A bug in one row is not the other rows' business, and `update` has
-          // to be able to finish and say which one it was.
+          // to be able to finish and say which one it was. `unexpected`,
+          // because a throw out of an action is exactly that: catching it here
+          // rather than at the command is what once made every failed row read
+          // as the user's fault.
           const error = errorMessage(err);
-          // No report: the action never returned one. The stage is still
-          // readable, which is what the failure event needs.
+          // No report: the action never returned one. The stage and the id are
+          // still readable off the action, which is what the event needs.
           rows.push({
+            outcome: 'failed',
             plugin: entry.plugin,
+            id: install.plugin,
             marketplace,
             report: null,
             stage: install.stage,
             error,
-            outcome: 'failed',
+            errorKind: 'unexpected',
           });
           this.prompts.rowFailed(entry.plugin, error);
         }
@@ -149,9 +152,14 @@ export class UpdateAction {
     }
 
     const updated = rows.filter((r) => r.outcome === 'updated').map((r) => r.plugin);
+    // Both shapes that failed the run, in the order they happened: a row this
+    // build could not read is as much a reason to exit 1 as one whose install
+    // broke, and the summary names them together.
     const failed = rows
-      .filter((r) => r.outcome === 'failed')
-      .map((r) => ({ plugin: r.plugin, error: r.error ?? 'failed' }));
+      .filter((r): r is Extract<UpdatedRow, { error: string }> =>
+        ['failed', 'unreadable'].includes(r.outcome),
+      )
+      .map((r) => ({ plugin: r.plugin, error: r.error }));
     this.prompts.summary(updated.length, total, failed);
     return ActionResult.success({ updated, failed, rows });
   };

@@ -3,7 +3,8 @@ import type { DirectoryPath, FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
-import type { TelemetryStatus, TrackFn } from './telemetry.js';
+import type { EventSink } from './events/domain-event.js';
+import type { TelemetryStatus } from './telemetry.js';
 
 // The interfaces through which this program reaches anything outside itself: a
 // process, the network, a person at a terminal. Every one of them is the seam a
@@ -58,7 +59,7 @@ export interface Deps {
   which?: (cmd: string, env?: Env) => string | null;
   run?: RunCommand;
   /** Where install/uninstall report what they did; absent means nobody is listening. */
-  track?: TrackFn;
+  track?: EventSink;
 }
 
 /**

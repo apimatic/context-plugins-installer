@@ -13,12 +13,28 @@ export const BIN = 'context-plugins';
 
 /**
  * Which marketplace a run used, as telemetry may say it: the built-in one by
- * name, or `custom`. Never `brand.repo` - that is user input, and a
- * differently cased spelling of the built-in marketplace is still the built-in
- * one, so the spelling stays on this machine.
+ * name, or `custom`. Never `brand.repo` - that is user input, and a differently
+ * cased spelling of the built-in marketplace is still the built-in one, so the
+ * spelling stays on this machine.
+ *
+ * A class rather than the string it wraps, because an event constructor that
+ * took a `string` here would accept `brand.repo` from a caller in a hurry and
+ * nothing would fail. `of` is the only way to make one.
  */
-export const marketplaceLabel = (brand: Brand): string =>
-  RepoSlug.same(brand.repo, brand.telemetry.defaultRepo) ? brand.telemetry.defaultRepo : 'custom';
+export class MarketplaceLabel {
+  private constructor(private readonly label: string) {}
+
+  static of(brand: Pick<Brand, 'repo' | 'telemetry'>): MarketplaceLabel {
+    const { repo, telemetry } = brand;
+    return new MarketplaceLabel(
+      RepoSlug.same(repo, telemetry.defaultRepo) ? telemetry.defaultRepo : 'custom',
+    );
+  }
+
+  toString(): string {
+    return this.label;
+  }
+}
 
 export const DEFAULTS: Readonly<{
   id: string | null;

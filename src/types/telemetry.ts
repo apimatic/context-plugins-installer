@@ -10,7 +10,12 @@ export interface TelemetryEvent {
   properties: Record<string, TelemetryValue>;
 }
 
-export type TrackFn = (name: string, properties?: Record<string, TelemetryValue>) => void;
+/**
+ * Whose problem a failure was. A `Failure` an action returned is `user`: it has
+ * a sentence and a hint, and the run said them. A throw out of an action is
+ * `unexpected` - a bug, and the one thing a released build wants counted.
+ */
+export type ErrorKind = 'user' | 'unexpected';
 
 /** `log` prints what would be sent, to stderr, and sends nothing. */
 export type TelemetryMode = 'on' | 'off' | 'log';
@@ -24,26 +29,14 @@ export type TelemetryOptOut = 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'state' |
 /**
  * The one prose inventory of what leaves this machine. Printed by the one-time
  * notice and by `telemetry status`, so it lives where both can reach it - and
- * it has to stay in step with `common` in the service and the per-event
- * properties in install.ts.
+ * it has to stay in step with `common` in the service and the properties each
+ * event class in `types/events/` declares.
  */
 export const COLLECTED =
   'the plugin id, the editor it went into, the marketplace when it is the built-in one, ' +
   'the command, OS, CPU architecture, Node and CLI version, whether the run was interactive ' +
   'or in CI, how long it took, a random id for this machine, and an approximate location ' +
   '(city, region, country) that Mixpanel derives from the request address and then discards';
-
-/**
- * The four things this program reports. Names, not shapes: Phase 6 replaces the
- * per-event property objects with classes, and until then a command needs to be
- * able to name an event without reaching into infrastructure.
- */
-export const EVENTS = Object.freeze({
-  installed: 'Context Plugin Installed',
-  installFailed: 'Context Plugin Install Failed',
-  uninstalled: 'Context Plugin Uninstalled',
-  uninstallFailed: 'Context Plugin Uninstall Failed',
-});
 
 /** What `telemetry` was asked to do; nothing named reads as `status`. */
 export type TelemetryVerb = 'status' | 'enable' | 'disable';

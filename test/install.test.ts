@@ -17,8 +17,9 @@ import {
   pluginSource,
   quietly,
   scriptedConfirm,
+  tracking,
   withClaude,
-  type DepsSpec,
+  type Tracked,
 } from './install-fixture.js';
 import { cleanupAll, parseJsonc, silenceConsole, stubFetch } from './helpers.js';
 
@@ -1189,21 +1190,6 @@ test('a row mixing a known target with a foreign one keeps the foreign name', as
   assert.deepEqual(after.targets, [...TARGETS, 'zed'], 'known names canonical, foreign kept');
   assert.equal(after.pinned, true, 'and so is a field this build does not model');
 });
-
-interface Tracked {
-  name: string;
-  properties: Record<string, unknown>;
-}
-
-/** The deps for an install, plus a track seam that collects into `events`. */
-function tracking(spec: DepsSpec, events: Tracked[]): Deps {
-  return {
-    ...deps(spec),
-    track: (name, properties = {}) => {
-      events.push({ name, properties });
-    },
-  };
-}
 
 test('install reports one event per editor through the track seam, flat and without paths', async () => {
   const m = machine();
