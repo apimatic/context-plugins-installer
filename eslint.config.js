@@ -10,20 +10,28 @@ const tseslint = require('typescript-eslint');
 // importable by everything, importing nothing - and `composition/` is the top,
 // importable by nothing, which is what makes it the only route a service takes
 // to a command.
+//
+// Two spellings each, because a directory holding an `index.ts` is reachable
+// without naming it: `'../harnesses'` resolves the same as
+// `'../harnesses/index.js'` under this tsconfig, and a glob ending in `/**`
+// does not match it. Measured - the bare form type-checked and passed lint
+// before the second pattern was added.
+const dir = (name) => [`**/${name}/**`, `**/${name}`];
 const LAYER = {
-  actions: '**/actions/**',
-  application: '**/application/**',
-  commands: '**/commands/**',
-  harnesses: '**/harnesses/**',
-  infrastructure: '**/infrastructure/**',
-  prompts: '**/prompts/**',
+  actions: dir('actions'),
+  application: dir('application'),
+  commands: dir('commands'),
+  harnesses: dir('harnesses'),
+  infrastructure: dir('infrastructure'),
+  prompts: dir('prompts'),
 };
 
-// The two files above every layer: the composition root and the entry point.
-// Nothing in a layer may import either, so a service cannot be reached by
-// naming the thing that built it, and a new module at the root is unreachable
-// rather than unclassified.
-const ROOT = ['**/composition/**', '**/main.js'];
+// Above every layer: the composition root and the entry point. Nothing in a
+// layer may import either, so a service cannot be reached by naming the thing
+// that built it. `src/*.ts` gets a boundary of its own below, and
+// `test/layering.test.ts` asserts the root holds `main.ts` alone - between them
+// a module added up here is classified rather than a hole in all of this.
+const ROOT = [...dir('composition'), '**/main.js'];
 
 const TERMINAL = ['**/prompts/terminal.js'];
 
@@ -94,9 +102,9 @@ const boundary = (dir, patterns, { noIo = false } = {}) => {
   };
 };
 
-/** One file's import boundary, for the two that are not a directory. */
-const fileBoundary = (file, patterns) => ({
-  files: [`src/${file}`],
+/** The boundary for the files sitting directly at `src/` root. */
+const rootBoundary = (patterns) => ({
+  files: ['src/*.ts'],
   rules: { 'no-restricted-imports': ['error', { patterns }] },
 });
 
@@ -139,6 +147,26 @@ module.exports = [
     rules: { 'no-console': 'error' },
   },
   {
+    // `no-restricted-imports` reads static imports and re-exports only, so
+    // `await import('../infrastructure/x.js')` crossed every boundary below
+    // without a word. Measured, not assumed. Nothing in src/ imports
+    // dynamically, so the cheap and complete answer is that nothing may: a
+    // lazy load would have to add its own boundary case first, deliberately.
+    // (`require()` is already refused by @typescript-eslint/no-require-imports,
+    // though for its own reasons rather than this one.)
+    files: ['src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression',
+          message:
+            'Static imports only: the layer boundary rules cannot see a dynamic import, so one would cross them silently.',
+        },
+      ],
+    },
+  },
+  {
     // The one writer, and the reason the rule above can be absolute.
     files: ['src/prompts/terminal.ts'],
     rules: { 'no-console': 'off' },
@@ -147,7 +175,7 @@ module.exports = [
     'types',
     [
       {
-        group: [...Object.values(LAYER), ...ROOT],
+        group: [...Object.values(LAYER).flat(), ...ROOT],
         message: 'src/types is the bottom of the stack: it may import types/ and nothing else.',
       },
     ],
@@ -158,11 +186,11 @@ module.exports = [
     [
       {
         group: [
-          LAYER.actions,
-          LAYER.commands,
-          LAYER.harnesses,
-          LAYER.infrastructure,
-          LAYER.prompts,
+          ...LAYER.actions,
+          ...LAYER.commands,
+          ...LAYER.harnesses,
+          ...LAYER.infrastructure,
+          ...LAYER.prompts,
           ...ROOT,
         ],
         message: 'src/application is pure - data in, data out. It may import types/ only.',
@@ -172,7 +200,13 @@ module.exports = [
   ),
   boundary('infrastructure', [
     {
-      group: [LAYER.actions, LAYER.application, LAYER.commands, LAYER.harnesses, LAYER.prompts],
+      group: [
+        ...LAYER.actions,
+        ...LAYER.application,
+        ...LAYER.commands,
+        ...LAYER.harnesses,
+        ...LAYER.prompts,
+      ],
       message: 'src/infrastructure may import types/ and node builtins, nothing above it.',
     },
     { group: ROOT, message: ROOT_MESSAGE },
@@ -180,11 +214,11 @@ module.exports = [
   boundary('prompts', [
     {
       group: [
-        LAYER.actions,
-        LAYER.application,
-        LAYER.commands,
-        LAYER.harnesses,
-        LAYER.infrastructure,
+        ...LAYER.actions,
+        ...LAYER.application,
+        ...LAYER.commands,
+        ...LAYER.harnesses,
+        ...LAYER.infrastructure,
       ],
       message: 'src/prompts renders and asks; it may import types/ and prompts/ only.',
     },
@@ -192,7 +226,7 @@ module.exports = [
   ]),
   boundary('harnesses', [
     {
-      group: [LAYER.actions, LAYER.application, LAYER.commands, LAYER.prompts],
+      group: [...LAYER.actions, ...LAYER.application, ...LAYER.commands, ...LAYER.prompts],
       message:
         'src/harnesses may import infrastructure/ and types/. It emits events; a prompts class turns them into prose.',
     },
@@ -200,7 +234,7 @@ module.exports = [
   ]),
   boundary('actions', [
     {
-      group: [LAYER.commands],
+      group: [...LAYER.commands],
       message: 'src/actions is called by commands/, never the other way round.',
     },
     {
@@ -211,7 +245,7 @@ module.exports = [
   ]),
   boundary('commands', [
     {
-      group: [LAYER.application, LAYER.harnesses, LAYER.infrastructure],
+      group: [...LAYER.application, ...LAYER.harnesses, ...LAYER.infrastructure],
       message:
         'src/commands parses flags and calls an action; a service reaches it as a port from types/.',
     },
@@ -226,7 +260,7 @@ module.exports = [
   // router, and what a service says on the way past is the router's to render.
   boundary('composition', [
     {
-      group: [LAYER.actions, LAYER.commands],
+      group: [...LAYER.actions, ...LAYER.commands],
       message:
         'src/composition builds services; running a command is src/main.ts joining it to the router.',
     },
@@ -240,18 +274,20 @@ module.exports = [
     },
   ]),
   // The entry point: argv in, exit code out. It builds the services and hands
-  // them to the router, and may not reach past either.
-  fileBoundary('main.ts', [
+  // them to the router, and may not reach past either. Scoped to every direct
+  // child of `src/` rather than to `main.ts`, so a module added beside it
+  // inherits the restriction instead of arriving with none.
+  rootBoundary([
     {
       group: [
-        LAYER.actions,
-        LAYER.application,
-        LAYER.harnesses,
-        LAYER.infrastructure,
-        LAYER.prompts,
+        ...LAYER.actions,
+        ...LAYER.application,
+        ...LAYER.harnesses,
+        ...LAYER.infrastructure,
+        ...LAYER.prompts,
       ],
       message:
-        'src/main.ts may import commands/ and composition/ only: everything else is reached through one of those.',
+        'A file at src/ root may import commands/ and composition/ only: everything else is reached through one of those. And there should be one - see test/layering.test.ts.',
     },
   ]),
   {

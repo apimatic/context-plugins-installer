@@ -123,13 +123,31 @@ Two rules in that table are worth saying out loud, because both were argued
 with and both won. **`commands/` may not import `infrastructure/`** - that is
 what forces the composition root to exist, and a service reaches a command as a
 port from `types/` rather than by being fetched. And **nothing may import
-`composition/` or `main.ts`** - so a module added at the top is unreachable
-rather than unclassified, which is the hole the rules had while five modules
-still sat loose at `src/` root. It is worth reading the message when one of
+`composition/` or `main.ts`**, which is the hole the rules had while five
+modules sat loose at `src/` root. It is worth reading the message when one of
 these fires, because more than one of this refactor's decisions was made by that
 rule rather than by preference: the `Services` port sits in `types/` because a
 command naming the module that builds its services is exactly the crossing the
 rule refuses.
+
+Three things about that enforcement are worth knowing before trusting it,
+because each was a hole found by probing rather than by reading:
+
+- **Every glob has two spellings.** A directory holding an `index.ts` is
+  reachable without naming it - `'../harnesses'` resolves the same as
+  `'../harnesses/index.js'` under this tsconfig - and a pattern ending in `/**`
+  does not match the bare form. Both are listed for every layer.
+- **Dynamic `import()` is barred outright in `src/`**, by
+  `no-restricted-syntax` rather than by the boundary rules, because
+  `no-restricted-imports` reads static imports and re-exports only: an
+  `await import(...)` crossed every boundary here without a word. Nothing loads
+  lazily today, so nothing may; a lazy load has to add its own case first.
+- **The root is one file, and a test says so.** `src/*.ts` carries the entry
+  point's boundary, so a module added beside `main.ts` inherits the
+  restriction rather than arriving with none - but no glob can express "there
+  should not be a second one", so `test/layering.test.ts` asserts that the root
+  holds `main.ts` alone and that every directory under `src/` is a layer the
+  lint has a rule for.
 
 An action answers with an `ActionResult<R>`: success, failure or cancellation,
 each carrying the run's report, because a command fires telemetry from those
