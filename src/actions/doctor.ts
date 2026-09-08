@@ -17,7 +17,7 @@ import type { PathOpts } from '../types/env.js';
 import { everyEditor } from '../types/harness.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
 import type { Deps, FetchLike } from '../types/ports.js';
-import { isPlainObject, errorMessage } from '../util.js';
+import { isPlainObject, errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 
 export const MIN_NODE = 18;

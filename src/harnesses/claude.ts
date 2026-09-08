@@ -17,7 +17,7 @@ import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { RunResult } from '../types/ports.js';
 import { err, ok, type Result } from '../types/result.js';
 import type { Session } from '../types/session.js';
-import { isPlainObject, nonEmptyString } from '../util.js';
+import { isPlainObject, nonEmptyString } from '../types/util.js';
 
 /**
  * This harness's half of the listener: it only ever emits Claude events, so the

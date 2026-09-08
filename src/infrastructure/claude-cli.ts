@@ -1,7 +1,7 @@
 import type { Env } from '../types/env.js';
 import type { InstalledPlugin, MarketplaceListing } from '../types/harness.js';
 import type { RunCommand, RunResult } from '../types/ports.js';
-import { isPlainObject, nonEmptyString, stripBom } from '../util.js';
+import { isPlainObject, nonEmptyString, stripBom } from '../types/util.js';
 import { run, which } from './process-runner.js';
 
 /** null when the CLI is not on PATH, which every caller reads as "cannot ask". */

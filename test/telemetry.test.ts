@@ -3,14 +3,13 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import type { ResolveBrandOptions } from '../src/brand.js';
+import type { ResolveBrandOptions } from '../src/composition/brand.js';
 import * as paths from '../src/infrastructure/paths.js';
 import { printTelemetryLines } from '../src/prompts/telemetry.js';
 import {
   createTelemetry,
   setTelemetryEnabled,
   telemetryStatus,
-  type Telemetry,
   type TelemetryOptions,
 } from '../src/infrastructure/telemetry-service.js';
 import { describeTelemetry } from '../src/prompts/telemetry.js';
@@ -19,6 +18,7 @@ import { DomainEvent } from '../src/types/events/domain-event.js';
 import { COLLECTED, type TelemetryValue } from '../src/types/telemetry.js';
 import type { Brand } from '../src/types/brand.js';
 import type { Env, PathOpts } from '../src/types/env.js';
+import type { Telemetry } from '../src/types/ports.js';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
 import { cleanupAll, resolveBrand, silenceConsole, tmpDir } from './helpers.js';
 import {

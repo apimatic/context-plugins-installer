@@ -1,7 +1,7 @@
 import { Failure } from '../types/failure.js';
 import type { FetchLike } from '../types/ports.js';
 import { err, ok, type Result } from '../types/result.js';
-import { errorMessage } from '../util.js';
+import { errorMessage } from '../types/util.js';
 
 export interface TrackRequest {
   host: string;

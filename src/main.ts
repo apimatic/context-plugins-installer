@@ -1,5 +1,5 @@
 import { run as route } from './commands/router.js';
-import { services } from './composition.js';
+import { services } from './composition/index.js';
 
 /**
  * The process entry point, and the only thing `bin/cli.js` requires. It is its

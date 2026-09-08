@@ -1,9 +1,9 @@
 import type { ActionResult } from '../actions/action-result.js';
-import type { Services } from '../composition.js';
 import { RouterPrompts } from '../prompts/router.js';
 import { BIN } from '../types/brand.js';
 import { Failure } from '../types/failure.js';
-import { errorMessage } from '../util.js';
+import type { Services } from '../types/services.js';
+import { errorMessage } from '../types/util.js';
 import { TARGET_AWARE, parseArgs, parseTargets } from './args.js';
 import { DoctorCommand } from './doctor.js';
 import { helpText } from './help.js';

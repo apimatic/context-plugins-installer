@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import type { RcFile } from '../types/brand.js';
 import { Failure } from '../types/failure.js';
 import { err, ok, type Result } from '../types/result.js';
-import { errorCode, errorMessage, isPlainObject, stripBom } from '../util.js';
+import { errorCode, errorMessage, isPlainObject, stripBom } from '../types/util.js';
 
 export const RC_NAME = '.contextpluginsrc';
 

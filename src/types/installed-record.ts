@@ -1,6 +1,6 @@
 import { NAMES, isHarnessName, type HarnessName } from './harness.js';
 import { RepoSlug } from './ids/repo-slug.js';
-import { isPlainObject, nonEmptyString } from '../util.js';
+import { isPlainObject, nonEmptyString } from './util.js';
 
 // `~/.context-plugins/installed.json` as this build reads it, and every rule
 // about one of its rows in one place: what a row means, which of its target

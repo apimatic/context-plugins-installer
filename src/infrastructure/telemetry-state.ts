@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { Failure } from '../types/failure.js';
 import type { FilePath } from '../types/file/paths.js';
 import { err, ok, type Result } from '../types/result.js';
-import { errorCode, errorMessage, isPlainObject, nonEmptyString, stripBom } from '../util.js';
+import { errorCode, errorMessage, isPlainObject, nonEmptyString, stripBom } from '../types/util.js';
 import { writeFileAtomic } from './file-system.js';
 
 const NEWLINE = String.fromCharCode(10);

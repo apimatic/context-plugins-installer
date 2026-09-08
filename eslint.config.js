@@ -5,10 +5,11 @@ const sonarjs = require('eslint-plugin-sonarjs');
 const globals = require('globals');
 const tseslint = require('typescript-eslint');
 
-// The layering the refactor is moving to. Each directory may reach only the ones
-// its block allows, and the rules are scoped to those directories, so they bite
-// as code moves in rather than all at once at the end. `types/` sits at the
-// bottom: importable by everything, importing nothing.
+// The layering, now that every file in `src/` sits in one of these. Each
+// directory may reach only the ones its block allows. `types/` is the bottom -
+// importable by everything, importing nothing - and `composition/` is the top,
+// importable by nothing, which is what makes it the only route a service takes
+// to a command.
 const LAYER = {
   actions: '**/actions/**',
   application: '**/application/**',
@@ -18,10 +19,16 @@ const LAYER = {
   prompts: '**/prompts/**',
 };
 
-// `src/log.ts` is the migration shim in front of prompts/terminal.ts, so it is
-// no more importable from a layer than the writer it re-exports.
-const LOG_SHIM = '**/log.js';
-const TERMINAL = [LOG_SHIM, '**/prompts/terminal.js'];
+// The two files above every layer: the composition root and the entry point.
+// Nothing in a layer may import either, so a service cannot be reached by
+// naming the thing that built it, and a new module at the root is unreachable
+// rather than unclassified.
+const ROOT = ['**/composition/**', '**/main.js'];
+
+const TERMINAL = ['**/prompts/terminal.js'];
+
+const ROOT_MESSAGE =
+  'src/composition/ and src/main.ts sit above every layer; nothing in one may import them. A service arrives as a port from types/, built by the composition root.';
 
 // Everything a pure layer must not reach, in both spellings: `require('fs')` and
 // `require('node:fs')` are the same module, so a list naming one and not the
@@ -87,6 +94,12 @@ const boundary = (dir, patterns, { noIo = false } = {}) => {
   };
 };
 
+/** One file's import boundary, for the two that are not a directory. */
+const fileBoundary = (file, patterns) => ({
+  files: [`src/${file}`],
+  rules: { 'no-restricted-imports': ['error', { patterns }] },
+});
+
 module.exports = [
   { ignores: ['node_modules/', 'coverage/', 'lib/', '.claude/worktrees/'] },
   js.configs.recommended,
@@ -134,7 +147,7 @@ module.exports = [
     'types',
     [
       {
-        group: [...Object.values(LAYER), LOG_SHIM],
+        group: [...Object.values(LAYER), ...ROOT],
         message: 'src/types is the bottom of the stack: it may import types/ and nothing else.',
       },
     ],
@@ -150,7 +163,7 @@ module.exports = [
           LAYER.harnesses,
           LAYER.infrastructure,
           LAYER.prompts,
-          LOG_SHIM,
+          ...ROOT,
         ],
         message: 'src/application is pure - data in, data out. It may import types/ only.',
       },
@@ -162,10 +175,7 @@ module.exports = [
       group: [LAYER.actions, LAYER.application, LAYER.commands, LAYER.harnesses, LAYER.prompts],
       message: 'src/infrastructure may import types/ and node builtins, nothing above it.',
     },
-    {
-      group: [LOG_SHIM],
-      message: 'src/infrastructure never prints: return a Result and let the caller say so.',
-    },
+    { group: ROOT, message: ROOT_MESSAGE },
   ]),
   boundary('prompts', [
     {
@@ -178,7 +188,7 @@ module.exports = [
       ],
       message: 'src/prompts renders and asks; it may import types/ and prompts/ only.',
     },
-    { group: [LOG_SHIM], message: 'Import ./terminal.js directly, not the migration shim.' },
+    { group: ROOT, message: ROOT_MESSAGE },
   ]),
   boundary('harnesses', [
     {
@@ -186,7 +196,7 @@ module.exports = [
       message:
         'src/harnesses may import infrastructure/ and types/. It emits events; a prompts class turns them into prose.',
     },
-    { group: [LOG_SHIM], message: 'src/harnesses does not print: emit a HarnessEvent instead.' },
+    { group: ROOT, message: ROOT_MESSAGE },
   ]),
   boundary('actions', [
     {
@@ -197,14 +207,52 @@ module.exports = [
       group: TERMINAL,
       message: 'An action speaks only through its own prompts class, never to the terminal.',
     },
+    { group: ROOT, message: ROOT_MESSAGE },
   ]),
   boundary('commands', [
     {
       group: [LAYER.application, LAYER.harnesses, LAYER.infrastructure],
       message:
-        'src/commands parses flags and calls an action; services reach it through composition.ts.',
+        'src/commands parses flags and calls an action; a service reaches it as a port from types/.',
     },
-    { group: [LOG_SHIM], message: 'Import prompts/format.js, not the migration shim.' },
+    {
+      group: TERMINAL,
+      message: 'A command speaks only through a prompts class, never to the terminal.',
+    },
+    { group: ROOT, message: ROOT_MESSAGE },
+  ]),
+  // The top of the stack. It may name any service, which is the whole point of
+  // it, but it neither runs a command nor prints: `main.ts` joins it to the
+  // router, and what a service says on the way past is the router's to render.
+  boundary('composition', [
+    {
+      group: [LAYER.actions, LAYER.commands],
+      message:
+        'src/composition builds services; running a command is src/main.ts joining it to the router.',
+    },
+    {
+      group: TERMINAL,
+      message: 'The composition root wires the writer to a service; it does not write.',
+    },
+    {
+      group: ['**/main.js'],
+      message: 'src/main.ts imports the composition root, not the reverse.',
+    },
+  ]),
+  // The entry point: argv in, exit code out. It builds the services and hands
+  // them to the router, and may not reach past either.
+  fileBoundary('main.ts', [
+    {
+      group: [
+        LAYER.actions,
+        LAYER.application,
+        LAYER.harnesses,
+        LAYER.infrastructure,
+        LAYER.prompts,
+      ],
+      message:
+        'src/main.ts may import commands/ and composition/ only: everything else is reached through one of those.',
+    },
   ]),
   {
     // Repeated literals keep each test readable on its own.

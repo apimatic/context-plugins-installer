@@ -10,7 +10,7 @@ import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Manifest } from '../types/installed-record.js';
 import type { Deps } from '../types/ports.js';
 import type { ListReport, ListResult } from '../types/reports.js';
-import { nonEmptyString } from '../util.js';
+import { nonEmptyString } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 
 export interface ListRequest {

@@ -10,7 +10,7 @@ import { UninstallCommand } from '../src/commands/uninstall.js';
 import { UpdateCommand } from '../src/commands/update.js';
 import { harnesses } from '../src/harnesses/index.js';
 import { rawUrl } from '../src/infrastructure/github-registry-client.js';
-import { services } from '../src/composition.js';
+import { services } from '../src/composition/index.js';
 import { createSession } from '../src/infrastructure/session.js';
 import { announceMarketplace } from '../src/prompts/marketplace.js';
 import { log } from '../src/prompts/terminal.js';

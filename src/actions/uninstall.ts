@@ -17,7 +17,7 @@ import {
 import { PluginId } from '../types/ids/plugin-id.js';
 import type { Deps } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
-import { errorMessage, nonEmptyString } from '../util.js';
+import { errorMessage, nonEmptyString } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 
 export interface UninstallRequest {

@@ -5,7 +5,7 @@ import * as path from 'node:path';
 
 import { findRaw, readRaw, remove, upsert } from '../../src/infrastructure/manifest-store.js';
 import { MANIFEST_VERSION } from '../../src/types/installed-record.js';
-import { isPlainObject } from '../../src/util.js';
+import { isPlainObject } from '../../src/types/util.js';
 import { tmpDir, cleanupAll } from '../helpers.js';
 
 test.after(cleanupAll);

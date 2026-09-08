@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { stdin, stdout } from 'node:process';
 
 import type { Env } from '../types/env.js';
-import { envFlag, isPlainObject, stripBom } from '../util.js';
+import { envFlag, isPlainObject, stripBom } from '../types/util.js';
 
 // What this process can tell about the machine and the session it runs in.
 // Whether the *terminal* can render a glyph or a colour is a separate question,

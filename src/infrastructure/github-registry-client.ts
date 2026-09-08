@@ -7,7 +7,7 @@ import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Deps, FetchLike } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener } from '../types/session.js';
-import { isPlainObject, stripBom, errorMessage } from '../util.js';
+import { isPlainObject, stripBom, errorMessage } from '../types/util.js';
 
 export const rawUrl = (repo: string, ref: string, filePath: string): string =>
   new RepoSlug(repo).rawUrl(ref, filePath);

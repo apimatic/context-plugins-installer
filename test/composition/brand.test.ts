@@ -3,10 +3,10 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import type { ResolveBrandOptions } from '../src/brand.js';
-import { DEFAULTS } from '../src/types/brand.js';
+import type { ResolveBrandOptions } from '../../src/composition/brand.js';
+import { DEFAULTS } from '../../src/types/brand.js';
 
-import { FailureError, cleanupAll, resolveBrand, tmpDir } from './helpers.js';
+import { FailureError, cleanupAll, resolveBrand, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 

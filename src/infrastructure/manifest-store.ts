@@ -9,7 +9,7 @@ import {
 } from '../types/installed-record.js';
 import { ManifestContext } from '../types/manifest-context.js';
 import type { ManifestStore } from '../types/ports.js';
-import { isPlainObject, stripBom } from '../util.js';
+import { isPlainObject, stripBom } from '../types/util.js';
 import { writeFileAtomic } from './file-system.js';
 
 // `~/.context-plugins/installed.json` as bytes: read whole, written whole, with

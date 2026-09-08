@@ -7,13 +7,13 @@ import {
   type FileArg,
   type FilePath,
 } from '../types/file/paths.js';
+import { timestamp, stripBom } from '../types/util.js';
 import {
   KEY,
   toKey,
   type AddLocationResult,
   type RemoveLocationResult,
 } from '../types/vscode-settings.js';
-import { timestamp, stripBom } from '../util.js';
 import { ensureDirFor } from './file-system.js';
 
 // settings.json is JSONC and users care about its formatting, so every edit is

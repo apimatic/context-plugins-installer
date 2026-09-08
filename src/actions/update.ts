@@ -8,7 +8,7 @@ import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { HarnessOpts } from '../types/harness.js';
 import type { Deps } from '../types/ports.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
-import { errorMessage } from '../util.js';
+import { errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 import { InstallAction } from './install.js';
 

@@ -3,7 +3,7 @@ import { REGISTRY_FILES } from '../types/catalog.js';
 import { Failure } from '../types/failure.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
 import { err, ok, type Result } from '../types/result.js';
-import { isPlainObject, nonEmptyString } from '../util.js';
+import { isPlainObject, nonEmptyString } from '../types/util.js';
 
 // Which plugin a run is about, decided from the registry it was given. Pure: the
 // catalog arrives already read, `null` meaning the repo declares none, and every

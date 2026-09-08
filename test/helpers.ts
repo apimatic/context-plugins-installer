@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import type { FetchLike, FetchResponseLike } from '../src/types/ports.js';
 import type { Failure } from '../src/types/failure.js';
 import type { Result } from '../src/types/result.js';
-import { readBrand, type ResolveBrandOptions } from '../src/brand.js';
+import { readBrand, type ResolveBrandOptions } from '../src/composition/brand.js';
 import type { Brand } from '../src/types/brand.js';
 
 const dirs: string[] = [];

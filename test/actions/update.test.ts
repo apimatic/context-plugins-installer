@@ -6,7 +6,7 @@ import { openManifest, upsert } from '../../src/infrastructure/manifest-store.js
 import * as paths from '../../src/infrastructure/paths.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
 import type { Deps } from '../../src/types/ports.js';
-import { isPlainObject } from '../../src/util.js';
+import { isPlainObject } from '../../src/types/util.js';
 import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import { foreignTargets } from '../../src/types/installed-record.js';
 import { cleanupAll, silenceConsole, stubFetch } from '../helpers.js';

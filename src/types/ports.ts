@@ -3,7 +3,8 @@ import type { DirectoryPath, FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
-import type { TelemetryStatus } from './telemetry.js';
+import type { DomainEvent } from './events/domain-event.js';
+import type { TelemetryLine, TelemetryStatus } from './telemetry.js';
 
 // The interfaces through which this program reaches anything outside itself: a
 // process, the network, a person at a terminal. Every one of them is the seam a
@@ -91,6 +92,26 @@ export interface TelemetrySettings {
   readonly file: FilePath;
   status(): TelemetryStatus;
   setEnabled(enabled: boolean): Result<void, Failure>;
+}
+
+/**
+ * Where a run's events go. Queue then send once, because a command fires its
+ * events as it goes and the run should cost one request: the router owns the
+ * one instance and flushes it in a `finally`.
+ */
+export interface Telemetry {
+  /**
+   * Queue what happened. Takes the event rather than a name and a bag of
+   * properties, so the property names of the Mixpanel contract are declared by
+   * one class each and nothing here can misspell or widen them.
+   */
+  report(event: DomainEvent): void;
+  /**
+   * Sends everything tracked so far in one request; never throws, never
+   * outlives the timeout. Returns the lines it would have printed, in the order
+   * it produced them, for the caller to put on the terminal.
+   */
+  flush(): Promise<TelemetryLine[]>;
 }
 
 export interface Prompter {

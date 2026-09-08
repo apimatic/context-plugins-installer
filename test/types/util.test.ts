@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { timestamp, stripBom } from '../src/util.js';
-import { cleanupAll } from './helpers.js';
+import { timestamp, stripBom } from '../../src/types/util.js';
+import { cleanupAll } from '../helpers.js';
 
 test.after(cleanupAll);
 

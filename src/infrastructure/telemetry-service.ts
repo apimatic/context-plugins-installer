@@ -5,9 +5,8 @@ import { BIN, type Brand } from '../types/brand.js';
 import type { Env, PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';
 import type { FilePath } from '../types/file/paths.js';
-import type { Deps, FetchLike } from '../types/ports.js';
+import type { Deps, FetchLike, Telemetry } from '../types/ports.js';
 import type { Result } from '../types/result.js';
-import type { DomainEvent } from '../types/events/domain-event.js';
 import {
   COLLECTED,
   type TelemetryEvent,
@@ -16,7 +15,7 @@ import {
   type TelemetryStatus,
   type TelemetryValue,
 } from '../types/telemetry.js';
-import { ENV_OFF, envFlag, errorMessage } from '../util.js';
+import { ENV_OFF, envFlag, errorMessage } from '../types/util.js';
 import { isCi, isInteractive } from './environment.js';
 import { track as postToMixpanel } from './mixpanel-client.js';
 import {
@@ -93,21 +92,6 @@ export interface TelemetryOptions {
   timeoutMs?: number;
   now?: () => number;
   newId?: () => string;
-}
-
-export interface Telemetry {
-  /**
-   * Queue what happened. Takes the event rather than a name and a bag of
-   * properties, so the property names of the Mixpanel contract are declared by
-   * one class each and nothing here can misspell or widen them.
-   */
-  report(event: DomainEvent): void;
-  /**
-   * Sends everything tracked so far in one request; never throws, never
-   * outlives the timeout. Returns the lines it would have printed, in the order
-   * it produced them, for the caller to put on the terminal.
-   */
-  flush(): Promise<TelemetryLine[]>;
 }
 
 // Construction does no I/O. The mode, the state file, the version and the fetch

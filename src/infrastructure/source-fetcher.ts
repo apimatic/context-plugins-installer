@@ -9,7 +9,7 @@ import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { Deps, FetchLike, MaterializedSource, RunResult } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle } from '../types/session.js';
-import { isPlainObject, errorMessage } from '../util.js';
+import { isPlainObject, errorMessage } from '../types/util.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
 import { ghHeaders } from './github-registry-client.js';
 import { run, which } from './process-runner.js';

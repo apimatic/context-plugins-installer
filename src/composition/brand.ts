@@ -1,12 +1,12 @@
 import * as os from 'node:os';
 
-import { resolveBrand as decideBrand } from './application/brand-resolution.js';
-import { readRc } from './infrastructure/rc-file.js';
-import type { Flags } from './types/args.js';
-import type { Brand } from './types/brand.js';
-import type { Env } from './types/env.js';
-import type { Failure } from './types/failure.js';
-import type { Result } from './types/result.js';
+import { resolveBrand as decideBrand } from '../application/brand-resolution.js';
+import { readRc } from '../infrastructure/rc-file.js';
+import type { Flags } from '../types/args.js';
+import type { Brand } from '../types/brand.js';
+import type { Env } from '../types/env.js';
+import type { Failure } from '../types/failure.js';
+import type { Result } from '../types/result.js';
 
 export interface ResolveBrandOptions {
   flags?: Flags;

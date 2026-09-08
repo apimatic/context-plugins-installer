@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { BIN } from '../../src/types/brand.js';
-import { isPlainObject } from '../../src/util.js';
+import { isPlainObject } from '../../src/types/util.js';
 
 // Every hint that tells the user to run something interpolates BIN, so a drift
 // from the installed command name would make all of them wrong.

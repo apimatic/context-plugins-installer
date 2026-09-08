@@ -1,4 +1,4 @@
-import { isPlainObject, nonEmptyString } from '../util.js';
+import { isPlainObject, nonEmptyString } from './util.js';
 
 // A marketplace registry as this build reads it, and one plugin resolved out of
 // it. The reader in infrastructure fetches the bytes; `normalize` below is the
