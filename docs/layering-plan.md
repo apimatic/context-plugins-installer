@@ -1135,11 +1135,88 @@ returning `false` with a thrown `UserError` for a failure. These two are this ph
 - **`InstallRequest` carries two fields the action ignores.** `deps` and `pathOpts` are
   read by the command, which passes them to the constructor; the action itself only ever
   reads its own. Harmless while both callers pass the same values twice, and a trap for a
-  caller who passes one thing and expects the other. It goes when the request stops
-  carrying services at all, which is the `Deps` conversion above.
+  caller who passes one thing and expects the other. **Moved to the `Deps` PR** rather
+  than done here: the plan already said it goes when the request stops carrying services
+  at all, and fixing the field list first and the shape second would be two edits to the
+  same signature.
 
 **Exit:** `npm run lint` fails on any import that crosses a boundary. A new contributor can
 scaffold a command from the skill without reading this document.
+
+**Landed, in four commits.** Structure and lint, the listener, `CLAUDE.md`, the skills.
+Both exits met: every crossing import is refused (fifteen of them probed one at a time,
+each by writing the import and running eslint on it), and there is a skill per shape.
+The suite is 498, from 490 at the end of Phase 6.
+
+**Corrections, each with what forced it.**
+
+- **`src/composition/` is a directory, not two root modules.** The rule can only name a
+  directory: `no-restricted-imports` matches the specifier string, and no basename glob
+  can tell `src/brand.js` from `src/types/brand.js`. That collision is what decided the
+  shape - `src/brand.ts` and `src/composition.ts` are `composition/brand.ts` and
+  `composition/index.ts`, and `src/` root is `main.ts` alone.
+- **`src/util.ts` is `types/util.ts`.** It is a leaf with no imports of its own, and
+  `types/` imports it, so the bottom of the stack is the only place it can sit without a
+  hole in the rule above it. The plan had its pieces distributed to four layers in Phase
+  3; what survived that is a coherent module of pure helpers, and splitting it further
+  would be churn for a shape that reads fine.
+- **`Telemetry` and `Services` are ports in `types/`.** This one was forced by the lint
+  and is the best example of the rule making the decision: the router takes a `Services`,
+  and once nothing in a layer may import the root, a command naming the module that
+  builds its services is exactly the crossing the rule exists to refuse. So the port
+  moved down and the composition root implements it - the same inversion `types/ports.ts`
+  already held `Deps` and `TelemetrySettings` for. `Telemetry` went with it because
+  `Services` names it.
+- **`commands/` may not import the terminal writer either.** `actions/` was already
+  barred; the same reasoning applies one layer up and it cost nothing, because every
+  command already spoke through a prompts class. Measured before adding, not after.
+- **The listener rule is "whoever owns the call".** The review finding offered two
+  routes; neither was quite it. `list` and `doctor` have no prompts class inside the
+  action at all - their command renders the report - so the listener arrives as a
+  required constructor argument from the command. The router owns the install session, so
+  the session's `notify` is its. The composition root now names no prompts function.
+- **`src/log.ts` was already unreferenced.** Nothing imported it, so the shim Phase 0
+  introduced for this phase to remove had been dead since Phase 5's last mover. Worth
+  recording because it is the good case: a named shim with a named removal phase went
+  quiet on its own rather than growing callers.
+- **The README needed nothing.** The `run.js` embedding sentence the phase was to remove
+  is not there - Phase 0 took it with the file.
+- **No `import/order` rule.** The plan proposed one under "Rules that hold for every
+  phase" and this was the phase to add it. Measured first: seven files are out of order
+  today, one of which this phase caused (fixed), and the rest predate it. But the
+  builtin block in the test files is not alphabetised - `node:test` before `node:assert`,
+  in about sixty files - so the obvious config would either churn every test file or need
+  weakening until it stopped meaning much. Left undone deliberately, with the measurement
+  recorded so the next person decides rather than rediscovers.
+
+**A finding of its own, fixed here.** No-opping all five marketplace listeners left the
+suite green at 490. `prompts/marketplace.ts` had no test, and the install fixture built
+its session with its own copy of the production wiring - which is precisely the shape of
+the Phase 6 finding about the event sink, found twice now in two phases. So
+`test/prompts/marketplace.test.ts` pins one row per event kind (keyed by
+`MarketplaceEvent['kind']`, so a new kind without a row does not compile), that every
+prompts class's listener is still the renderer, and that the composition root forwards
+the listener it was handed. The lesson is worth stating as a rule: **a fixture that
+reimplements production wiring silently uncovers it.** When a test needs the wiring, it
+should call the thing that ships.
+
+**Verification.** The fifteen boundary probes above; the three listener probes (a
+no-opped listener, a dropped `notify`, one changed word), each breaking exactly one test
+and no others; a word-count diff of the old `CLAUDE.md` Architecture section against the
+new one, where the only words that lost an occurrence were in the four paragraphs
+deliberately replaced; and seventeen command shapes compared against a Phase 6 build of
+the same tree, all identical, exit 2 on an unparseable rc file included - with the
+harness shown to see a one-character change to `--version` before the result was
+believed.
+
+**And one thing that comparison does _not_ cover, which is worth writing down.** No-opping
+`ListPrompts.marketplaceListener` leaves `list --verbose` byte-identical, because a
+registry read that succeeds against a repo with git present emits no marketplace event at
+all: `no-git` and the clone lines come from the source fetch, which only `install` and
+`update` reach. So the listener rewiring is covered by the three unit probes and not by
+the CLI comparison, and reaching it end to end would mean a real install against the
+network. Measured rather than assumed - the same check on `doctor --verbose` is vacuous
+for the same reason.
 
 ## Rules that hold for every phase
 
@@ -1167,12 +1244,19 @@ scaffold a command from the skill without reading this document.
   what the CLI prints, and an invalid `--marketplace` reaching `claude` argv through the
   uninstall short-circuit, still open. Neither belongs inside a move.
 - **Nothing enforces import order.** Six of the imports Phase 1 added landed out of
-  position and were caught by review rather than by lint. Worth an `import/order` rule
-  before the phases that move imports by the dozen.
+  position and were caught by review rather than by lint. Phase 7 was to add an
+  `import/order` rule and decided against it, having measured what it would cost: seven
+  files are out of order today, and the builtin block in about sixty test files is not
+  alphabetised (`node:test` before `node:assert`), so the obvious config churns every
+  test file and a config that does not is weak enough to be worth little. Still open,
+  now with a number attached: whoever takes it should expect a large mechanical commit
+  and should land it on its own.
 - **The API download calls `mkdirSync` once per blob**, where once per directory would
-  do. Phase 2a noted it and Phase 4 was to take the chance while typing the source
-  directory; it has nothing to do with harnesses, so it is here instead. A memo keyed on
-  the parent directory, inside `downloadPath` in `infrastructure/source-fetcher.ts`.
+  do. Phase 2a noted it, Phase 4 was to take the chance while typing the source
+  directory, and Phase 7 declined it for a reason that should have been obvious earlier:
+  it is a `perf:` change, so it would publish a release from a branch whose whole promise
+  is that nothing releases. A memo keyed on the parent directory, inside `downloadPath`
+  in `infrastructure/source-fetcher.ts`, as its own `perf:` commit after this lands.
 - **`materialize` in `source-fetcher.ts` has no production caller.** `session.source`
   either calls the injected `deps.materialize` - the test seam - or `openRepo`, so the
   real one is reached only from `test/infrastructure/source-fetcher.test.ts`. Found while
@@ -1180,7 +1264,13 @@ scaffold a command from the skill without reading this document.
   phase: Phase 2b added the caching `openRepo` beside it and nothing moved over. Either
   the session should use it for the one-shot path or it should go with its four tests,
   which is the "kept alive by its own test" shape Phase 3 settled three of by deletion.
-  Decide it in Phase 6, where the session is composed.
+  Phase 6 did not decide it and Phase 7 measured why it is not the one-liner it looks
+  like: `openRepo` re-implements the same git-or-API decision that `materialize` makes,
+  so there are two of them and a fix to one would miss the other - and four of the six
+  `source-fetcher` tests enter through `materialize` while two enter through `openRepo`,
+  so deleting it either re-points those four or quietly drops the coverage of `viaGit`'s
+  failure paths. It belongs to the `Deps` PR: `session.source` branching on
+  `deps.materialize` is exactly the code that decides whether the real one has a caller.
 
 ## Risks and how each is held
 
