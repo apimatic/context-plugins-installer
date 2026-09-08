@@ -80,11 +80,19 @@ export class ThingPrompts {
 ## Tests
 
 - `test/prompts/harness.test.ts` and `test/prompts/marketplace.test.ts` are the
-  tables where the words are pinned: one row per event kind, keyed so a missing
-  row does not compile, asserting the message **and** its level (`ok` / `info` /
-  `warn` / `debug`). Record at `log`, not at the console - the glyph, the
-  wrapping and whether `debug` shows at all are `terminal.ts`'s and have their
-  own tests.
+  tables where the words are pinned: one row per event, asserting the message
+  **and** its level (`ok` / `info` / `warn` / `debug`). Record at `log`, not at
+  the console - the glyph, the wrapping and whether `debug` shows at all are
+  `terminal.ts`'s and have their own tests.
+- Their completeness guards differ, and it is worth knowing which you are
+  under. `marketplace.test.ts` keys its table by `MarketplaceEvent['kind']`, so
+  a new kind with no row does not compile. `harness.test.ts` cannot: a
+  `HarnessEvent` is discriminated by editor _and_ kind, so its table is an
+  array with a runtime test that every editor in `NAMES` appears at least once.
+  That catches a new editor saying nothing; it does **not** catch a new kind
+  added to an editor that already has rows. The kind cannot go _unspoken_ - the
+  renderer's `never` default fails to compile without a case for it - but it can
+  go untested, so add that row yourself.
 - `test/prompts/terminal.test.ts` covers the writer itself; `format.test.ts` the
   path shortening; `prompter.test.ts` the question flow, including that Ctrl-C
   comes back as `'cancelled'` rather than exiting.

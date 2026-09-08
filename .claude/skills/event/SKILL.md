@@ -80,10 +80,14 @@ appears exactly where it always did.
 - **Add the type to the union and the case to the renderer.** Both renderers end
   in a `never` default, so a new kind without a line fails to compile rather
   than going silently unreported.
-- **Then add its row to the prompts test.** `test/prompts/harness.test.ts` and
-  `test/prompts/marketplace.test.ts` are keyed so a missing row does not
-  compile; they are where the words are pinned, and the level (`ok` / `info` /
-  `warn` / `debug`) is part of what they assert.
+- **Then add its row to the prompts test** - where the words are pinned, level
+  (`ok` / `info` / `warn` / `debug`) included. `test/prompts/marketplace.test.ts`
+  keys its table by `MarketplaceEvent['kind']`, so a new marketplace kind with
+  no row does not compile. `test/prompts/harness.test.ts` cannot do that - a
+  `HarnessEvent` is discriminated by editor and kind together - so it is an
+  array plus a runtime check that every editor says something, which will
+  **not** notice a new kind added to an editor that already has rows. On that
+  side the row is yours to remember.
 
 ## Review checklist
 

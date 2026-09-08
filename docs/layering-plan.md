@@ -1209,6 +1209,40 @@ the same tree, all identical, exit 2 on an unparseable rc file included - with t
 harness shown to see a one-character change to `--version` before the result was
 believed.
 
+**Review round on Phase 7.** Four findings, all in this phase's own work, and three
+of them in the guard it exists to install. The lesson is the one Phase 6 and Phase 7 had
+already learned twice, in a third costume: **a guard is worth what its probes are worth**,
+and the fifteen probes of the first round all used the spelling the rule was written for.
+
+- **A bare directory specifier bypassed every layer glob.** `'../harnesses'` resolves the
+  same as `'../harnesses/index.js'` under this tsconfig, and a pattern ending in `/**`
+  does not match it. It type-checked and passed lint. Three directories hold an
+  `index.ts` and were reachable this way, `composition/` among them - so `src/types`
+  could have imported the thing that builds its own services. Every glob has both
+  spellings now.
+- **Dynamic `import()` bypassed the rules entirely.** `no-restricted-imports` reads
+  static imports and re-exports (both of which it does handle - `export * from` was
+  probed too), and nothing else. `no-restricted-syntax` now bars `ImportExpression` in
+  `src/` outright, which is cheap and complete because nothing loads lazily today.
+- **A new module at `src/` root would have had no boundary at all**, the rule being
+  scoped to `src/main.ts` exactly - and no basename glob can name it, so no layer would
+  have been barred from importing it either. That is the exact hole this phase claimed to
+  close, so `CLAUDE.md` asserted something false. The boundary is `src/*.ts` now, and
+  because no glob can say "there should not be a second one",
+  `test/layering.test.ts` asserts the root holds `main.ts` alone and that every directory
+  under `src/` is a layer with a rule. Both proved by breaking them.
+- **Two skills over-generalised a completeness guarantee.** They said both prompts tables
+  are keyed so a missing row does not compile. Only `marketplace.test.ts` is;
+  `harness.test.ts` cannot be, because a `HarnessEvent` is discriminated by editor _and_
+  kind, so it is an array plus a runtime check that every editor says something - which
+  does not notice a new kind on an editor that already has rows. Measured by adding a
+  kind: the renderer's `never` default fails the typecheck, so the words cannot go
+  unspoken, but the table passed unchanged, so they can go untested. Both skills now say
+  which guard is which.
+
+Seventeen crossings were probed after the fixes, the three holes among them: every one
+refused, by the rule that should own it.
+
 **And one thing that comparison does _not_ cover, which is worth writing down.** No-opping
 `ListPrompts.marketplaceListener` leaves `list --verbose` byte-identical, because a
 registry read that succeeds against a repo with git present emits no marketplace event at
