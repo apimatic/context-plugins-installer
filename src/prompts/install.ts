@@ -71,6 +71,15 @@ export class InstallPrompts {
     log.info('Non-interactive shell - using every detected harness (--targets to choose).');
   }
 
+  /**
+   * Whether anyone is here to answer. Asked by the action, because the decision
+   * is application's and the TTY is infrastructure's - but the answerer itself
+   * lives here and nowhere else, which is what keeps the two from disagreeing.
+   */
+  hasAnswerer(): boolean {
+    return Boolean(this.confirm);
+  }
+
   /** One question per detected editor, through whoever is answering. */
   async askHarnesses(available: readonly HarnessName[]): Promise<HarnessName[] | 'cancelled'> {
     if (this.confirm) return this.each(available, this.confirm);

@@ -41,10 +41,11 @@ export const COLLECTED =
 /** What `telemetry` was asked to do; nothing named reads as `status`. */
 export type TelemetryVerb = 'status' | 'enable' | 'disable';
 
-export const asTelemetryVerb = (value: string | undefined): TelemetryVerb | null =>
-  value === undefined || value === 'status' || value === 'enable' || value === 'disable'
-    ? ((value ?? 'status') as TelemetryVerb)
-    : null;
+export function asTelemetryVerb(value: string | undefined): TelemetryVerb | null {
+  if (value === undefined || value === 'status') return 'status';
+  if (value === 'enable' || value === 'disable') return value;
+  return null;
+}
 
 export interface TelemetryStatus {
   mode: TelemetryMode;

@@ -17,8 +17,10 @@ export class InstalledAction {
   constructor(private readonly manifest: ManifestContext) {}
 
   readonly execute = (req: InstalledRequest): ActionResult<InstalledReport> => {
-    // Read before the flag is checked, so a bad `--targets` still reports the
-    // gaps in a file the user can see - and so the order matches what it was.
+    // Read before the flag is checked, so the report carries the gaps whichever
+    // way the run goes - and so the order matches what it always was. Nothing
+    // renders them on the failed arm: the command answers with the `Failure`
+    // and stops, exactly as the throw here used to.
     const gaps = this.manifest.read();
     const nothing: InstalledReport = { entries: [], want: [], scoped: false, gaps };
 

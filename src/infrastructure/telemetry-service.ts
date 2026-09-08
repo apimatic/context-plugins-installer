@@ -27,15 +27,10 @@ import {
   type TelemetryState,
 } from './telemetry-state.js';
 
-// Title case with a product prefix, the convention of the Mixpanel project
-// these land in.
 /** The request is a courtesy to the run, so it never gets to hold the exit. */
 export const FLUSH_TIMEOUT_MS = 1500;
 
-/**
- * What an event may carry, in the words the notice and `telemetry status` use.
- * Keep it in step with `common` below and the properties install.ts sends.
- */
+/** Which switch turned telemetry off, from broadest to narrowest. */
 function optOutOf(brand: Brand, env: Env, read: StateRead): TelemetryOptOut | null {
   if (envFlag(env.DO_NOT_TRACK)) return 'DO_NOT_TRACK';
   if (ENV_OFF.has((env.CP_TELEMETRY || '').toLowerCase())) return 'CP_TELEMETRY';
@@ -78,7 +73,6 @@ export const telemetryStatus = ({
   pathOpts,
 }: StatusOptions): TelemetryStatus => resolve(brand, env, pathOpts).status;
 
-/** One phrase for `doctor` and `telemetry status`, naming the switch that is in effect. */
 /** `telemetry enable|disable`; the Failure names the file that could not be written. */
 export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Result<void, Failure> {
   const file = paths.telemetryPath(pathOpts);
@@ -88,12 +82,6 @@ export function setTelemetryEnabled(enabled: boolean, pathOpts?: PathOpts): Resu
   return writeState(file, { ...withId(base, randomUUID), enabled });
 }
 
-/**
- * The marketplace as an event property: named only when it is the one this
- * build ships with, and then by the built-in constant rather than by what the
- * user typed - `--repo` is user input, and a differently cased spelling of the
- * built-in repo is still not ours to send.
- */
 export interface TelemetryOptions {
   brand: Brand;
   /** The CLI command this run is for; rides on every event. */

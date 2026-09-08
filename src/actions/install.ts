@@ -210,7 +210,8 @@ export class InstallAction {
       detected: available.length,
       explicit,
       assumeYes,
-      canAsk: Boolean(this.deps.confirm) || isInteractive(),
+      // The prompts own the answerer; this only adds what they cannot see.
+      canAsk: this.prompts.hasAnswerer() || isInteractive(),
     });
     if (choice === 'take-all') return available;
     if (choice === 'cannot-ask') {
