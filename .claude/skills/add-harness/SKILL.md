@@ -23,7 +23,7 @@ matches, not a fresh design.
 | loads plugins from a folder on disk                | `src/harnesses/cursor.ts` (plain copy) or `src/harnesses/vscode.ts` (copy + registers the path in a settings file) | `true`        |
 | has its own CLI that installs from the marketplace | `src/harnesses/claude.ts`                                                                                          | `false`       |
 
-`needsSource: true` means `install.ts` clones or downloads the plugin folder first and
+`needsSource: true` means `actions/install.ts` clones or downloads the plugin folder first and
 hands the harness `ctx.srcDir`, a `DirectoryPath` - so ask it for `srcDir.file(...)`
 rather than reaching for `node:path`. `false` means the harness never sees the files and
 must not ask for them.
@@ -64,9 +64,14 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      `DirectoryPath` it looked at, which the caller prints as "not installed (looked in
      ...)" and `doctor` shows. Do not shorten it here: a harness cannot reach
      `prompts/format.ts`, and eslint refuses the import.
-   - `install` returns `false` to mean "skipped, and said why" - not installed, nothing to
-     do. A failure the user can fix is a thrown `UserError` with a `hint`. Never throw a
-     bare `Error` for a predictable condition.
+   - `install` returns `Result<InstallOutcome, Failure>`: `ok('installed')`,
+     `ok('skipped')` for "not installed, nothing to do, and said why", and
+     `err(new Failure(message, hint))` for an editor that looked and could not. Never
+     throw for any of the three. A throw out of a harness is a bug by definition - the
+     run reports it as `error_kind: 'unexpected'` and prints a stack under `--verbose` -
+     while a returned `Failure` is the user's to fix and is counted as `user`. Both
+     outcomes are truthy strings inside a truthy object, so nothing may test the result
+     for truth: read the arm, then the value.
    - `uninstall` returns `'removed' | 'absent' | 'skipped' | 'failed'`, never a
      boolean, and the difference decides whether the manifest row survives AND whether
      the command fails. `absent` means the harness LOOKED and established there is
@@ -121,23 +126,29 @@ Work in this order: the type goes first so the compiler enumerates the rest.
      words a user reads are pinned, and its own test refuses an editor that appears in
      `NAMES` with no case there.
    - A file-based harness joins the sandboxed machine: add its `CP_<EDITOR>_DIR` to
-     `machine()` in **both** `test/install.test.ts` and `test/doctor.test.ts` (each has
-     its own), and to `TARGETS` in `install.test.ts`. Leave `claude` out of `TARGETS` -
-     it shells out to whatever `claude` is on the test runner's PATH. Check the
-     "no editor at all" tests in both files still remove every editor directory.
+     `machine()` in **both** `test/install-fixture.ts` (shared by every install-shaped
+     test) and `test/actions/doctor.test.ts` (which has its own), and to `TARGETS` in the
+     fixture. Leave `claude` out of `TARGETS` - it shells out to whatever `claude` is on
+     the test runner's PATH. Check the "no editor at all" tests in both files still
+     remove every editor directory.
    - The claude harness stays in every `NAMES`-driven expectation
-     (`test/cli.test.ts`, "targets resolve to canonical order"); update those lists.
+     (`test/commands/router.test.ts`, "targets resolve to canonical order"); update those
+     lists.
 
 7. **The hand-written editor lists.** These are prose, so nothing enforces them; the
    compiler is silent and the old text simply stays wrong. Update every one:
-   - `src/install.ts`, `src/cli.ts` and `src/doctor.ts` need nothing: their editor lists
-     all come from `everyEditor()` / `titlesOf()` in `types/harness.ts`. Do not hand-write
-     a new one anywhere - `install.ts` alone has two summary functions (`summarize` and
-     `summarizeUninstall`), and a list added to one would silently go stale in the other.
+   - The code needs nothing: every editor list in `commands/help.ts`, the prompts
+     classes, `actions/doctor.ts` and the uninstall decision comes from `everyEditor()` /
+     `titlesOf()` in `types/harness.ts`. Do not hand-write a new one anywhere - the
+     install summary and the uninstall summary are separate functions in separate files,
+     and a list added to one would silently go stale in the other.
    - `CLAUDE.md` - the "What this is" paragraph.
    - `package.json` - `description` and, if the editor has a well-known name, `keywords`.
-   - To find the code and config sites (six today), run
+   - To find every remaining hand-written list, run
      `grep -rnE "Claude Code, Cursor|Cursor, (and|or) VS Code|Cursor / VS Code" src CLAUDE.md package.json`.
+     Two today, both prose - `CLAUDE.md` and the `package.json` description - because the
+     code's lists are all derived now. If that grep ever finds one under `src/`, it is a
+     hand-written list that will go stale: replace it with `everyEditor()`.
      It does **not** find the README - its editor names are bold-wrapped and backticked -
      so work the README by eye, all five places:
      - the intro sentence;

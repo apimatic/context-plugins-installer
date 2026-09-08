@@ -1118,6 +1118,26 @@ instead.
 - README: remove the one sentence that mentions embedding via `run.js`, if any. Nothing else
   in the README changes.
 
+**Carried in from the Phase 6 review.** Two of that review's findings were fixed where they
+were found - the composition root's event sink had no test of its own (the one that claimed
+to cover it exercised a copy of the guard in the test fixture, and the suite stayed green
+with the shipped guard deleted), and the `add-harness` skill still described `install` as
+returning `false` with a thrown `UserError` for a failure. These two are this phase's:
+
+- **One listener, wired three ways.** `announceMarketplace` reaches the code from
+  `composition.ts` and `actions/update.ts` (as a session's `notify`), from
+  `actions/doctor.ts` and `actions/list.ts` (imported straight into a `readRegistry` call),
+  and from `actions/uninstall.ts` through its own prompts class. Three actions importing a
+  prompts _function_ is against the rule this file and `CLAUDE.md` both state - an action
+  speaks through its own prompts class - and the boundary lint cannot see it, because what
+  it bars is the other direction. Pick the prompts-class route for all of them, or make the
+  listener something composition hands down; either way it should be one.
+- **`InstallRequest` carries two fields the action ignores.** `deps` and `pathOpts` are
+  read by the command, which passes them to the constructor; the action itself only ever
+  reads its own. Harmless while both callers pass the same values twice, and a trap for a
+  caller who passes one thing and expects the other. It goes when the request stops
+  carrying services at all, which is the `Deps` conversion above.
+
 **Exit:** `npm run lint` fails on any import that crosses a boundary. A new contributor can
 scaffold a command from the skill without reading this document.
 
