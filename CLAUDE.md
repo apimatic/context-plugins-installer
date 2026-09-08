@@ -68,9 +68,10 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   routing key, not a secret; the project is US-resident, so the host stays
   `api.mixpanel.com`. Properties are
   primitives only, and `COLLECTED` in `telemetry.ts` is the one prose inventory the
-  notice and `telemetry status` print; keep it, `common`, and install.ts's per-event
-  properties (`plugin` once validated, `harness`, `marketplace` as the built-in repo or
-  `custom`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step. Never send
+  notice and `telemetry status` print; keep it, `common`, and the properties each event
+  class in `types/events/` declares (`plugin` once validated, `harness`, `marketplace` as
+  the built-in repo or `custom`, `stage`, `error_kind`, `targets_explicit`,
+  `duration_ms`) in step. Never send
   a path, hostname, username, error message, env var, or a user-supplied `--repo`
   - which is why `marketplaceLabel` answers with the built-in constant or
     `custom` and never with `brand.repo`: a differently cased spelling of the
@@ -90,8 +91,9 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
 
 ## Architecture
 
-Every command flows `bin/cli.js` → `src/cli.ts` (arg parsing and dispatch) →
-`src/commands/<cmd>.ts` (flags in, telemetry out) → `src/actions/<cmd>.ts` (the
+Every command flows `bin/cli.js` → `src/main.ts` (builds the services, once) →
+`src/commands/router.ts` (parse, brand, dispatch, exit code) →
+`src/commands/<cmd>.ts` (flags in, events out) → `src/actions/<cmd>.ts` (the
 whole flow of one command) → the harness that owns each editor, with every
 user-visible string in `src/prompts/<cmd>.ts`. `src/types/` is the type model
 for the whole surface; keep it in sync when behavior changes.
@@ -112,14 +114,41 @@ made by that rule rather than by preference.
 An action answers with an `ActionResult<R>`: success, failure or cancellation,
 each carrying the run's report, because a command fires telemetry from those
 facts whether the run worked or not. A `failure` is optional on the failed arm -
-`doctor` prints its own checks and its own summary, so there is no sentence left
-for a caller to add. `src/cli.ts` is still the router and the composition root;
-`src/install.ts` is three shims over the commands, and `src/catalog.ts` is the
-`orThrow` bridge two callers still use. Phase 6 takes all of them.
+`doctor` prints its own checks and its own summary, and `update` its grid, so
+there is no sentence left for the router to add - and the exit code comes off
+the arm: 0, 1, or 130 for a cancel. Exit 2 is the router's own, for a command
+line it could not read, which includes an rc file it could not parse.
+
+**Nothing throws for a problem the user can fix.** There is no `UserError`: a
+problem the user can fix is a `Failure` on the failed arm, which the router
+prints as its message and its hint and telemetry counts as `user`. A throw that
+reaches the router is a bug - it prints the stack under `--verbose`, exits 1,
+and is counted as `unexpected`. That distinction is the whole reason both
+values exist, so a new "expected" failure must never be a throw: return it.
+The same rule made Ctrl-C an answer rather than an exit, since
+`process.exit(130)` inside the prompter took the run's own cleanup with it.
+
+`src/composition.ts` is the composition root: it builds the version reader, the
+telemetry instance, the manifest context, the telemetry settings, the per-run
+session and the event sink, and `src/main.ts` hands them to the router. That
+indirection is not ceremony - `src/commands/` may not import
+`src/infrastructure/` at all, so a service reaches a command only this way.
+Everything below still takes the `Deps` seam (`fetchImpl`, `env`, `materialize`,
+`confirm`, `which`, `run`); turning those into constructor services is the one
+piece of the plan's Phase 6 that has not landed.
 
 - **Harnesses** (`src/harnesses/`): one class per editor implementing the `Harness`
   interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
-  `needsSource`). None of them prints. Each reports what it did as a
+  `needsSource`). None of them prints, and none of them throws for anything the
+  user could fix: `install` answers with a `Result<InstallOutcome, Failure>` -
+  `installed` or `skipped` on the ok arm, and a `Failure` for an editor that
+  looked and could not. Only the Claude path has one of those (a marketplace
+  name another repository already holds, and `claude plugin install` failing),
+  and it is a returned failure precisely so telemetry reads it as `user`:
+  when those two were throws, the command's catch could not tell them from a
+  bug. `installed`/`skipped` are named for the same reason the uninstall
+  outcomes are - `false` invited being read as failure when it means the editor
+  was not there. Each reports what it did as a
   `HarnessEvent` on `ctx.listener`, and `src/prompts/harness/` turns each one
   into the line it has always been - which is what lets Claude Code's install
   report five shell-outs without a silent stretch, and what keeps each line
@@ -211,8 +240,13 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   and not three. Reporting from the returned value instead put it at the caller
   and said it once per plugin; that is a real regression this rule prevents.
 - **The test seam is dependency injection, everywhere.** `Deps` carries
-  `fetchImpl` / `run` / `materialize` / `confirm`; `PathOpts` carries
-  `platform` / `env` / `home`. The command options take `HarnessOpts`, not
+  `fetchImpl` / `run` / `materialize` / `confirm` / `which` / `env`; `PathOpts` carries
+  `platform` / `env` / `home`. It no longer carries `track`: events reach the
+  sink the composition root builds, and a test passes its own sink to the
+  command. `test/install-fixture.ts` holds the three convenience wrappers the
+  suite drives (`installPlugin`, `uninstallPlugin`, `updateAll`) - they were
+  `src/install.ts` until the router became the only caller a released build
+  has. The command options take `HarnessOpts`, not
   `PathOpts`, because that value is forwarded straight to the harnesses — which
   is what lets a test drive the Claude Code path with a fake `claude` rather than
   excluding it. Tests build a sandboxed "machine" from env overrides
@@ -291,9 +325,9 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   stays covered. Editor names in prose come from `everyEditor()`, never a
   literal. `titlesOf` and `everyEditor` live in `types/harness.ts`, derived from
   `TITLES` - a `Record<HarnessName, string>`, so a name added without a title does
-  not compile - and `install.ts`, `cli.ts`, `doctor.ts` and the uninstall decision
-  all use them, so adding a harness leaves only `CLAUDE.md` and `package.json` to
-  edit by hand.
+  not compile - and the install prompts, the help text, `actions/doctor.ts` and the
+  uninstall decision all use them, so adding a harness leaves only `CLAUDE.md` and
+  `package.json` to edit by hand.
   Resolving a marketplace name never blocks correcting a record: `uninstall`
   degrades a failed lookup to a warning when there _is_ a row (so `--force`
   works offline, and after an upstream rename), and still throws when there is
@@ -305,7 +339,7 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   merely documented, because reading the raw row and rebuilding it happen inside
   the two methods that own the write. Every command that
   renders that view says what it left out: `installed` and `list` share
-  `gapWarnings` in `cli.ts`, `update` prints its own grid line, `doctor` counts them
+  `gapWarnings` in `prompts/gaps.ts`, `update` prints its own grid line, `doctor` counts them
   as a check — on stderr under `--json` so the payload stays parseable, and
   silenced by `--quiet` like any other warning. `list` scopes its warnings to the
   marketplace it is listing, which is why both gap types carry `repo`.
@@ -337,17 +371,21 @@ marketplace` is Claude's own subcommand wording. All of that policy lives in the
   the id file and `mixpanel-client.ts` for the POST): `createTelemetry` queues, `flush`
   sends once and returns the lines it would have printed, which `prompts/telemetry.ts`
   renders - infrastructure never writes to the terminal.
-  `install.ts` reports through the `deps.track` seam, so a
-  test captures events with an array. `cli.run` owns the one instance per process and
-  flushes in a `finally`, which makes a whole `update` one request. `telemetryStatus`
+  Each command builds the events it fires and hands them to an
+  `EventSink` the composition root wrapped, so a sink that throws cannot fail a run that
+  has already written its files; a test passes its own sink and collects them in an array.
+  The router owns the one instance per process and flushes in a `finally`, which makes a
+  whole `update` one request. `telemetryStatus`
   and `describeTelemetry` back both `doctor` and `telemetry status`; the id file is
   minted lazily, so read-only commands leave nothing behind.
 
 ## Decisions already made
 
 - No zod or any runtime validation library: validators are hand-rolled.
-- No oclif, no clack: the parser is a typed flag table in `cli.ts` and the prompt flow
-  is `prompt.ts`; both were weighed against the org's apimatic-cli stack and rejected
-  to keep the package dependency-free.
-- `--help` and `doctor` still resolve the brand before running, so a broken rc file
-  blocks them; `--version` does not. Restructuring that is open work.
+- No oclif, no clack: the parser is a typed flag table in `commands/args.ts` and the
+  prompt flow is `prompts/prompter.ts`; both were weighed against the org's apimatic-cli
+  stack and rejected to keep the package dependency-free.
+- `--help` and `doctor` resolve the brand before running, so a broken rc file blocks
+  them and exits 2; `--version` answers first, and deliberately. That order is the
+  router's, in one readable sequence, which is what makes it a decision rather than an
+  accident of where the code sat.

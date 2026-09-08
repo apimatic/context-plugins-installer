@@ -1047,6 +1047,59 @@ anyway:
 gone. The flushed-payload test pins both values of `error_kind`, and every command that
 fires an event has a test under `test/commands/`.
 
+**Landed, in three commits.** Typed events first, then the router and the composition
+root, then the last of the throwing. Every exit grep above is empty; `src/cli.ts`,
+`src/install.ts`, `src/catalog.ts` and `src/prompt.ts` are gone, the last of them into
+`prompts/prompter.ts` where the tree already said it belonged. The suite is 489, from 469
+at the end of Phase 5.
+
+**Not landed, and named rather than quietly dropped:** the `Deps` type. `deps.track` is
+gone - production reports through the composition root's sink, and a test passes its own -
+but `fetchImpl`, `env`, `materialize`, `confirm`, `which` and `run` are still one bag
+threaded through the actions rather than services taken in a constructor. Converting them
+is mechanical and large: it touches every action, the session, both fetchers, `doctor`, and
+roughly twenty test files, and it replaces the test strategy `CLAUDE.md` documents. It buys
+no behaviour and the boundary lint already holds the layering without it, so it is its own
+PR rather than the tail of this one.
+
+**Corrections, each with what forced it.**
+
+- **`commands/` may not import `infrastructure/`**, which is why `composition.ts` exists at
+  all and why every member of `Services` is a function: the version, the telemetry
+  instance, the manifest, the telemetry file, the session and the sink are all
+  infrastructure, and none of them may run before the command line is understood -
+  `--version` has to answer even when the rc file beside it is broken.
+- **`parseArgs` answers with a `Result`.** Exit 2 is read off the shape of the answer
+  rather than the class of an exception, which is what let `UserError` go.
+- **`update` fails through its result**, with no `Failure` attached, the way `doctor` does.
+  The router's dispatch is then one line per command with no special case, and the grid has
+  already named every row that failed.
+- **`Harness.install` returns a `Result<InstallOutcome, Failure>`.** Two throws in the
+  Claude harness were real user failures - a marketplace name another repository holds, and
+  `claude plugin install` failing - and typing the events had quietly turned them from
+  `user` into `unexpected`, because a command's catch cannot tell a harness's user error
+  from a bug. Returning them fixes that by construction. The outcome is named rather than
+  boolean for the reason the uninstall outcomes are.
+- **Ctrl-C is an answer, not an exit.** `process.exit(130)` inside the prompter took the
+  run's own cleanup with it: no temp directory removed, nothing flushed. `'cancelled'`
+  travels back through the prompts and the action as `ActionResult.cancelled`, and the
+  router answers 130 with everything in between still finishing.
+- **A partial install still reports nothing.** When one editor installs and the next fails,
+  the run stops with the failure and no `installed` events - which is what the old build
+  did too, because its throw skipped them. Worth knowing rather than fixing here: the same
+  path leaves the record unwritten, and both are older than this phase.
+
+**Verification.** All seven commands compared against a build of the phase-5 tip - 87
+command shapes over 1943 lines, plus the 7-shape Claude Code path through a fake `claude` -
+every one identical, exit codes included, with the comparison shown to catch both a
+reworded summary line and a changed exit code. The event stream is pinned in three places
+rather than one: `test/types/events/` for what each event says, `test/commands/` for which
+events a run fires, and `test/commands/router.test.ts` for the flushed request itself,
+URL and body, on both failure arms. There is no end-to-end test of a _successful_ install's
+flushed payload, and there cannot be one through the real entry point: it has no deps seam,
+so the install would have to reach GitHub. The three assertions above meet in the middle
+instead.
+
 ### Phase 7 · Enforcement and documentation (1 PR, small)
 
 - Tighten the boundary lint to cover all of `src/`; delete `src/log.ts`.
