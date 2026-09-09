@@ -52,6 +52,49 @@ test('a 403 comes back as a failure suggesting a token, not as a throw', async (
   assert.match(result.ok ? '' : (result.error.hint ?? ''), /GITHUB_TOKEN/);
 });
 
+/**
+ * A 5xx is the far end failing, and the response is not the user's to read. A
+ * real one from GitHub's raw CDN is an HTML Varnish page whose status line says
+ * "Backend.max_conn reached" - repeating any of that reads as though the
+ * marketplace, the token or the network were at fault, when the only useful
+ * answer is "wait". So the sentence is ours, and the only thing kept from the
+ * response is the code.
+ */
+test('a 5xx says the far end is down, and repeats nothing the far end said', async () => {
+  const shouted = 'Backend.max_conn reached';
+  const page = `<html><body><h1>Error 503 ${shouted}</h1><p>Varnish cache server</p></body></html>`;
+  const fetchImpl = async (): Promise<FetchResponseLike> => ({
+    ok: false,
+    status: 503,
+    statusText: shouted,
+    text: async () => page,
+    json: async () => ({}),
+    arrayBuffer: async () => new ArrayBuffer(0),
+  });
+
+  const result = await readRegistry({ repo: REPO, ref: 'main' }, portsFor(fetchImpl));
+
+  assert.equal(result.ok, false);
+  const { message, hint } = result.ok ? { message: '', hint: '' } : result.error;
+  assert.match(message, /raw\.githubusercontent\.com is temporarily unavailable \(HTTP 503\)/);
+  assert.match(hint ?? '', /outage at GitHub, not a problem with your marketplace/);
+  // The three things a generic message exists to keep out.
+  assert.ok(!message.includes(shouted) && !(hint ?? '').includes(shouted), 'no status text');
+  assert.ok(!message.includes('Varnish') && !message.includes('<html>'), 'no response body');
+  assert.ok(!message.includes('marketplace.json'), 'no URL path');
+});
+
+/**
+ * And the control: a 4xx is still reported exactly, because those are the ones
+ * a user can do something about - a 403 is a token, a 401 is a bad one.
+ */
+test('a 4xx still names the request, so an actionable failure stays actionable', async () => {
+  const result = await read({ [CLAUDE_REG]: { status: 401 } });
+  assert.equal(result.ok, false);
+  assert.match(result.ok ? '' : result.error.message, /returned 401/);
+  assert.match(result.ok ? '' : result.error.message, /marketplace\.json/);
+});
+
 test('an unusable repo fails before anything is fetched', async () => {
   const result = await readRegistry({ repo: 'not a repo', ref: 'main' }, ports({}));
   assert.equal(result.ok, false);

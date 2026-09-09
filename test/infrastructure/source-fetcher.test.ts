@@ -246,16 +246,55 @@ test('a failed download is a failure, not a throw', async () => {
   const blob = 'plugins/alpha/plugin.json';
   const fetchImpl = stubFetch({
     [TREE_URL]: { body: { tree: [{ type: 'blob', path: blob }] } },
-    [rawFile(blob)]: { status: 500 },
+    // A 4xx, so this stays a test of the specific message; a 5xx is generic and
+    // has its own test below.
+    [rawFile(blob)]: { status: 403 },
   });
 
   const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
   try {
     const dir = await handle.checkout('plugins/alpha');
     assert.equal(dir.ok, false);
-    assert.match(dir.ok ? '' : dir.error.message, /Download failed \(500\)/);
+    assert.match(dir.ok ? '' : dir.error.message, /Download failed \(403\)/);
   } finally {
     handle.cleanup();
+  }
+});
+
+// Both halves of the API route reach GitHub, so both answer a 5xx the same way.
+test('a 5xx on the tree, and on a blob, both say the far end is down', async () => {
+  const blob = 'plugins/alpha/plugin.json';
+
+  const onTree = await openRepo(
+    { repo: REPO, ref: 'main' },
+    portsFor(stubFetch({ [TREE_URL]: { status: 502 } }), NO_GIT),
+  );
+  try {
+    const dir = await onTree.checkout('plugins/alpha');
+    assert.equal(dir.ok, false);
+    assert.match(dir.ok ? '' : dir.error.message, /temporarily unavailable \(HTTP 502\)/);
+    assert.ok(!(dir.ok ? '' : dir.error.message).includes('git/trees'), 'no URL path');
+  } finally {
+    onTree.cleanup();
+  }
+
+  const onBlob = await openRepo(
+    { repo: REPO, ref: 'main' },
+    portsFor(
+      stubFetch({
+        [TREE_URL]: { body: { tree: [{ type: 'blob', path: blob }] } },
+        [rawFile(blob)]: { status: 503 },
+      }),
+      NO_GIT,
+    ),
+  );
+  try {
+    const dir = await onBlob.checkout('plugins/alpha');
+    assert.equal(dir.ok, false);
+    assert.match(dir.ok ? '' : dir.error.message, /temporarily unavailable \(HTTP 503\)/);
+    assert.ok(!(dir.ok ? '' : dir.error.message).includes(blob), 'no file path either');
+  } finally {
+    onBlob.cleanup();
   }
 });
 

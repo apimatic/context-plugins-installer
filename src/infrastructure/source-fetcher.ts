@@ -17,7 +17,7 @@ import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
-import { ghHeaders } from './github-registry-client.js';
+import { ghHeaders, isUpstreamOutage, upstreamFailure } from './github-registry-client.js';
 
 export const DOWNLOAD_CONCURRENCY = 8;
 
@@ -177,6 +177,7 @@ export async function fetchTree(
   let body: unknown;
   try {
     const res = await fetchImpl(treeUrl, { headers: ghHeaders(env) });
+    if (isUpstreamOutage(res.status)) return err(upstreamFailure(treeUrl, res.status));
     if (!res.ok) {
       return err(
         new Failure(
@@ -239,7 +240,11 @@ export async function downloadPath(
     const raw = slug.rawUrl(ref, blob.path);
     const res = await fetchImpl(raw, { headers: ghHeaders(env) });
     if (!res.ok) {
-      failures.push(new Failure(`Download failed (${res.status}): ${blob.path}`));
+      failures.push(
+        isUpstreamOutage(res.status)
+          ? upstreamFailure(raw, res.status)
+          : new Failure(`Download failed (${res.status}): ${blob.path}`),
+      );
       return;
     }
     fs.writeFileSync(target.toString(), Buffer.from(await res.arrayBuffer()));
