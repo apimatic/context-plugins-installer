@@ -136,7 +136,12 @@ because each was a hole found by probing rather than by reading:
 - **Every glob has two spellings.** A directory holding an `index.ts` is
   reachable without naming it - `'../harnesses'` resolves the same as
   `'../harnesses/index.js'` under this tsconfig - and a pattern ending in `/**`
-  does not match the bare form. Both are listed for every layer.
+  does not match the bare form. Both are listed for every layer, by `dir()`.
+  The same is true of a pattern that names a **file**, which is subtler and was
+  a real hole: the rule matches the specifier as written, so dropping `.js` from
+  `'../prompts/terminal.js'` type-checked, emitted a working `require`, and
+  walked an action straight past the writer boundary. `file()` spells those
+  both ways too, and no pattern in the config names one spelling only.
 - **Dynamic `import()` is barred outright in `src/`**, by
   `no-restricted-syntax` rather than by the boundary rules, because
   `no-restricted-imports` reads static imports and re-exports only: an
@@ -169,9 +174,12 @@ The same rule made Ctrl-C an answer rather than an exit, since
 ### `src/types/` - the model everything else is written in
 
 The bottom of the stack: importable by everything, importing nothing, and doing
-no I/O - `no-restricted-imports` bars every node builtin here, `node:crypto`
-included, because a decision that mints a UUID is not a decision that can be
-tested twice. It is not a folder of `interface`s. Rules live on the type that
+no I/O - `no-restricted-imports` bars the node builtins that touch the world or
+the clock, `node:crypto` included, because a decision that mints a UUID is not a
+decision that can be tested twice, and `node:module` because `createRequire`
+reaches every other entry on that list. It is a denylist rather than "every
+builtin": `node:path` is on neither side of it, because `types/file/paths.ts`
+needs `path.win32` and `path.posix` to carry a target platform's rules. It is not a folder of `interface`s. Rules live on the type that
 owns them, and most of this file's invariants are enforced from here. It is the
 model for the whole surface, so keep it in sync when behavior changes: a rule
 that ends up somewhere else is a rule two callers can disagree about.

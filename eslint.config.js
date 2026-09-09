@@ -17,6 +17,14 @@ const tseslint = require('typescript-eslint');
 // does not match it. Measured - the bare form type-checked and passed lint
 // before the second pattern was added.
 const dir = (name) => [`**/${name}/**`, `**/${name}`];
+
+// And the same for a pattern that names a *file*, for the same reason one
+// spelling was not enough for a directory: the rule matches the specifier as
+// written, and `'../prompts/terminal'` resolves to the same module as
+// `'../prompts/terminal.js'` under this tsconfig - it type-checks, and it emits
+// a `require` Node resolves. Measured: before the second spelling was added,
+// dropping four characters walked an action straight past the writer boundary.
+const file = (name) => [`**/${name}.js`, `**/${name}`];
 const LAYER = {
   actions: dir('actions'),
   application: dir('application'),
@@ -31,9 +39,9 @@ const LAYER = {
 // that built it. `src/*.ts` gets a boundary of its own below, and
 // `test/layering.test.ts` asserts the root holds `main.ts` alone - between them
 // a module added up here is classified rather than a hole in all of this.
-const ROOT = [...dir('composition'), '**/main.js'];
+const ROOT = [...dir('composition'), ...file('main')];
 
-const TERMINAL = ['**/prompts/terminal.js'];
+const TERMINAL = file('prompts/terminal');
 
 const ROOT_MESSAGE =
   'src/composition/ and src/main.ts sit above every layer; nothing in one may import them. A service arrives as a port from types/, built by the composition root.';
@@ -85,6 +93,10 @@ const NODE_IO = [
   'node:readline/promises',
   'process',
   'node:process',
+  // Last, and the reason the rest of this list means anything: `createRequire`
+  // reaches every entry above it. Nothing in `src/` imports it.
+  'module',
+  'node:module',
 ];
 
 /** One directory's import boundary. `noIo` also bars the node builtins above. */
@@ -269,7 +281,7 @@ module.exports = [
       message: 'The composition root wires the writer to a service; it does not write.',
     },
     {
-      group: ['**/main.js'],
+      group: file('main'),
       message: 'src/main.ts imports the composition root, not the reverse.',
     },
   ]),
