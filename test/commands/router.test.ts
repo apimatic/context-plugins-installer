@@ -5,11 +5,16 @@ import * as path from 'node:path';
 
 import { parseArgs, parseTargets } from '../../src/commands/args.js';
 import { helpText } from '../../src/commands/help.js';
+import { services } from '../../src/composition/index.js';
+import { openManifest } from '../../src/infrastructure/manifest-store.js';
+import { createSession } from '../../src/infrastructure/session.js';
 import { run } from '../../src/main.js';
-import { runCli } from '../cli-harness.js';
+import { runCli, runRouter } from '../cli-harness.js';
+import { type Wiring, pluginSource, registryOnly, wiring } from '../install-fixture.js';
 import { cleanupAll, orThrow, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
 import { rawUrl } from '../../src/infrastructure/github-registry-client.js';
 import type { FetchLike } from '../../src/types/ports.js';
+import type { Services } from '../../src/types/services.js';
 
 // The router, through the real entry point: which exit code a command line
 // answers with, and which of them never reaches a command at all. `orThrow`
@@ -267,4 +272,214 @@ test('remove is reported as uninstall, and an id that failed validation is not e
   } finally {
     globalThis.fetch = saved;
   }
+});
+
+// ---- the flags the router forwards --------------------------------------
+//
+// Everything above enters at `run()` and so builds the real services, which
+// reach the network and whatever `claude` sits on PATH - which is why no test
+// used to drive a *successful* install, uninstall or update through the entry
+// point at all. The three commands were always entered at the command instead,
+// past the request literal the router builds, so `--targets`, `--force` and
+// `--yes` could be replaced with constants there and the whole suite stayed
+// green. These drive the real router over a stubbed marketplace instead.
+
+/** The real composition root with only the two network services swapped out. */
+const routerServices = (w: Wiring): Services => ({
+  ...services(),
+  registry: () => w.registry,
+  session: (notify) => createSession({ registry: w.registry, fetcher: w.fetcher, notify }),
+});
+
+/**
+ * Two editors present and no `claude`. The empty PATH is what keeps a real
+ * `claude` binary on the developer's machine out of the run, and `inSandbox`
+ * restores it afterwards.
+ */
+function editors(root: string): Record<string, string> {
+  const cursor = path.join(root, '.cursor');
+  const code = path.join(root, 'code-user');
+  fs.mkdirSync(cursor, { recursive: true });
+  fs.mkdirSync(code, { recursive: true });
+  return { CP_CURSOR_DIR: cursor, CP_VSCODE_USER_DIR: code, PATH: '', PATHEXT: '' };
+}
+
+const installedInto = (env: Record<string, string>) => ({
+  cursor: fs.existsSync(path.join(env.CP_CURSOR_DIR as string, 'plugins', 'local', 'my-sdk')),
+  vscode: fs.existsSync(
+    path.join(path.dirname(env.CP_CURSOR_DIR as string), 'state', 'vscode', 'my-sdk'),
+  ),
+});
+
+test('the router forwards --targets, and it narrows the run', async () => {
+  const root = tmpDir('cp-cli-');
+  const env = editors(root);
+  const w = wiring({ repo: REPO, srcDir: pluginSource() });
+
+  const { code } = await runRouter(
+    ['install', 'my-sdk', '--targets', 'cursor'],
+    routerServices(w),
+    NO_PLUGINS,
+    env,
+    root,
+  );
+
+  assert.equal(code, 0);
+  const into = installedInto(env);
+  assert.ok(into.cursor, 'Cursor was asked for and got the plugin');
+  assert.ok(!into.vscode, '--targets reached the action: VS Code was left out');
+  assert.deepEqual(openManifest(path.join(root, 'state', 'installed.json')).list()[0]?.targets, [
+    'cursor',
+  ]);
+});
+
+test('the router forwards --yes, and it takes every editor without asking', async () => {
+  const root = tmpDir('cp-cli-');
+  const env = editors(root);
+  const w = wiring({ repo: REPO, srcDir: pluginSource() });
+
+  const { code, text } = await runRouter(
+    ['install', 'my-sdk', '--yes'],
+    routerServices(w),
+    NO_PLUGINS,
+    env,
+    root,
+  );
+
+  assert.equal(code, 0);
+  const into = installedInto(env);
+  assert.ok(into.cursor && into.vscode, 'both detected editors were taken');
+  assert.ok(
+    !text.includes('Non-interactive shell'),
+    '--yes reached the action, so it never fell back to "nobody to ask"',
+  );
+});
+
+/**
+ * The control for the two above, and the reason they are not vacuous: with
+ * neither flag the same run reports that it had nobody to ask. If `--yes` ever
+ * stops being forwarded, that line comes back and the test above fails.
+ */
+test('with neither flag the same install says it had nobody to ask', async () => {
+  const root = tmpDir('cp-cli-');
+  const env = editors(root);
+  const w = wiring({ repo: REPO, srcDir: pluginSource() });
+
+  const { code, text } = await runRouter(
+    ['install', 'my-sdk'],
+    routerServices(w),
+    NO_PLUGINS,
+    env,
+    root,
+  );
+
+  assert.equal(code, 0);
+  const into = installedInto(env);
+  assert.ok(into.cursor && into.vscode, 'nobody to ask means take everything detected');
+  assert.ok(text.includes('Non-interactive shell'), text);
+});
+
+test('the router forwards install --force, which is what overrides a marketplace clash', async () => {
+  const clash = {
+    version: 1,
+    plugins: [
+      { plugin: 'my-sdk', repo: 'acme/marketplace', marketplace: 'acme', targets: ['cursor'] },
+    ],
+  };
+  const w = () => wiring({ repo: REPO, srcDir: pluginSource() });
+
+  // The same plugin id, recorded from another marketplace: refused, with a hint
+  // naming the flag that gets past it.
+  const blocked = tmpDir('cp-cli-');
+  const first = await runRouter(
+    ['install', 'my-sdk', '--targets', 'cursor'],
+    routerServices(w()),
+    clash,
+    editors(blocked),
+    blocked,
+  );
+  assert.equal(first.code, 1);
+  // The sentence goes to stderr and the hint to stdout, so a `--json` payload
+  // stays parseable; this is about the flag, so read both.
+  assert.match(first.err, /already installed from a different marketplace/);
+  assert.match(first.text, /re-run with --force/);
+
+  // And with the flag, it replaces it - so `--force` reached the action.
+  const forced = tmpDir('cp-cli-');
+  const second = await runRouter(
+    ['install', 'my-sdk', '--targets', 'cursor', '--force'],
+    routerServices(w()),
+    clash,
+    editors(forced),
+    forced,
+  );
+  assert.equal(second.code, 0, second.text);
+  assert.ok(
+    fs.existsSync(path.join(forced, '.cursor', 'plugins', 'local', 'my-sdk')),
+    '--force reached the action',
+  );
+});
+
+test('the router forwards --targets to uninstall, so the other editor keeps its row', async () => {
+  const doc = {
+    version: 1,
+    plugins: [
+      {
+        plugin: 'my-sdk',
+        repo: REPO,
+        marketplace: 'context-plugins',
+        targets: ['cursor', 'vscode'],
+      },
+    ],
+  };
+  const w = registryOnly(stubFetch({}));
+  const rowsIn = (root: string) =>
+    JSON.parse(fs.readFileSync(path.join(root, 'state', 'installed.json'), 'utf8')).plugins;
+
+  // Named one editor, so the record keeps the other - an `absent` answer clears
+  // a target too, which is why this is about which editors were asked at all.
+  // Both editors have to be *detectable*, or Cursor answers `skipped` - "could
+  // not look" - which keeps the target on the record for a different reason.
+  const one = tmpDir('cp-cli-');
+  await runRouter(
+    ['uninstall', 'my-sdk', '--targets', 'cursor'],
+    routerServices(w),
+    doc,
+    editors(one),
+    one,
+  );
+  assert.equal(rowsIn(one).length, 1, 'the row survives: VS Code was never asked');
+  assert.deepEqual(rowsIn(one)[0].targets, ['vscode'], '--targets reached the action');
+
+  // Named none, so every editor is asked and nothing is left to record. This is
+  // the control: without it, a `--targets` that stopped being forwarded would
+  // look the same as one that was.
+  const all = tmpDir('cp-cli-');
+  await runRouter(['uninstall', 'my-sdk'], routerServices(w), doc, editors(all), all);
+  assert.deepEqual(rowsIn(all), [], 'no --targets means every editor, so the row goes');
+});
+
+test('the router forwards --force, which is the only thing that drops a foreign row', async () => {
+  const root = tmpDir('cp-cli-');
+  const row = { plugin: 'zed-sdk', repo: REPO, marketplace: 'context-plugins', targets: ['zed'] };
+  const doc = { version: 1, plugins: [row] };
+  const file = path.join(root, 'state', 'installed.json');
+  const w = registryOnly(stubFetch({}));
+
+  // Without it, a target list this build cannot read is never inferred away.
+  await runRouter(['uninstall', 'zed-sdk'], routerServices(w), doc, { PATH: '' }, root);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(file, 'utf8')).plugins,
+    [row],
+    "another tool's list is not dropped on an inference",
+  );
+
+  // With it, the row goes - so the flag reached the action.
+  const root2 = tmpDir('cp-cli-');
+  await runRouter(['uninstall', 'zed-sdk', '--force'], routerServices(w), doc, { PATH: '' }, root2);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(root2, 'state', 'installed.json'), 'utf8')).plugins,
+    [],
+    '--force reached the action',
+  );
 });

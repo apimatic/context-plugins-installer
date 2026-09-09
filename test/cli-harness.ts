@@ -1,7 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { run as route } from '../src/commands/router.js';
 import { run } from '../src/main.js';
+import type { Services } from '../src/types/services.js';
 import { silenceConsole, tmpDir } from './helpers.js';
 
 // Drives a whole command through the real entry point against a manifest - and
@@ -32,17 +34,21 @@ export interface CliRun {
   err: string;
 }
 
-export async function runCli(
-  args: string[],
+async function inSandbox(
   manifestDoc: unknown,
-  env: Record<string, string> = {},
-  root = tmpDir('cp-cli-'),
+  env: Record<string, string>,
+  root: string,
+  drive: () => Promise<number>,
 ): Promise<CliRun> {
   const state = path.join(root, 'state');
   fs.mkdirSync(state, { recursive: true });
   fs.writeFileSync(path.join(state, 'installed.json'), JSON.stringify(manifestDoc), 'utf8');
 
-  const saved = AMBIENT.map((k) => [k, process.env[k]] as const);
+  // The caller's own keys are saved too, not just the ambient ones: a test that
+  // stubs `PATH` to keep a real `claude` out of the run would otherwise leave it
+  // stubbed for every test that follows.
+  const pinned = [...new Set([...AMBIENT, ...Object.keys(env)])];
+  const saved = pinned.map((k) => [k, process.env[k]] as const);
   const prevCwd = process.cwd();
   for (const key of AMBIENT) delete process.env[key];
   // os.homedir() reads USERPROFILE on Windows and HOME elsewhere; a developer's
@@ -59,7 +65,7 @@ export async function runCli(
 
   const con = silenceConsole();
   try {
-    const code = await run(args);
+    const code = await drive();
     const flatten = (lines: string[]) =>
       noAnsi(lines.join(' ')).split(' ').filter(Boolean).join(' ');
     return {
@@ -78,3 +84,29 @@ export async function runCli(
     }
   }
 }
+
+/** The whole run, through the real entry point and the real composition root. */
+export const runCli = (
+  args: string[],
+  manifestDoc: unknown,
+  env: Record<string, string> = {},
+  root = tmpDir('cp-cli-'),
+): Promise<CliRun> => inSandbox(manifestDoc, env, root, () => run(args));
+
+/**
+ * The same sandbox, with the router handed its services. `runCli` builds the
+ * real ones, which reach the network and whatever `claude` is on PATH, so
+ * `install`, `uninstall` and `update` cannot be driven through it - and this is
+ * the only seam that reaches the router's own flag-to-request translation.
+ * Every other test of those three commands enters at the command, past the
+ * object literal the router builds, which is how five forwarded flags came to
+ * be pinned by nothing: replacing `targets`, `force` and `assumeYes` with
+ * constants there left the whole suite green.
+ */
+export const runRouter = (
+  args: string[],
+  services: Services,
+  manifestDoc: unknown,
+  env: Record<string, string> = {},
+  root = tmpDir('cp-cli-'),
+): Promise<CliRun> => inSandbox(manifestDoc, env, root, () => route(args, services));

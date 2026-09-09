@@ -940,6 +940,62 @@ test('the user is asked once per detected harness', async () => {
   assert.deepEqual(result.targets, ['cursor', 'vscode']);
 });
 
+/**
+ * The two guards this file lost. Nine tests were deleted from it during the
+ * refactor; `--targets is a decision, so it skips the prompt` and `--yes skips
+ * the prompt` had no replacement, and `test/application/target-selection.test.ts`
+ * covers only the pure `chooseTargets`, not the caller that feeds it. Measured
+ * rather than assumed: calling `chooseTargets` with `explicit: false,
+ * assumeYes: false` left all 502 tests green here, where the same mutation
+ * failed three tests on `origin/main`.
+ *
+ * The test above is what makes these two mean something. It proves the injected
+ * answerer *is* asked when nobody opted out, so an empty `asked` here is the
+ * opt-out being read - not a confirm that was never wired to anything.
+ */
+test('--targets is a decision, so it skips the prompt', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const confirm = scriptedConfirm([]);
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: ['cursor'],
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(confirm.asked, [], 'a target list the user typed is not a question');
+  assert.deepEqual(result.targets, ['cursor']);
+});
+
+test('--yes skips the prompt', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const confirm = scriptedConfirm([]);
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null, // no --targets, so only --yes can settle it
+      assumeYes: true,
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(confirm.asked, [], '--yes is the answer, so there is nothing to ask');
+  assert.deepEqual(result.targets, ['cursor', 'vscode']);
+});
+
 test('a declined harness is not touched', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
