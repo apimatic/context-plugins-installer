@@ -267,7 +267,7 @@ export class ClaudeHarness implements Harness {
         new Failure(
           `claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim(),
           LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
-            ? `'${plugin}' is not in marketplace '${known}'. Run \`${BIN} list\` to see what it offers.`
+            ? `'${plugin}' is not in marketplace '${known}'. Run \`npx ${BIN} list\` to see what it offers.`
             : undefined,
         ),
       );

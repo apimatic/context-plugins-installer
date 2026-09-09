@@ -248,7 +248,11 @@ test('a genuinely missing plugin still fails, with the marketplace named', async
 
   const result = await claude.install({ ...CTX, plugin: 'nope' }, opts(run));
   assert.equal(result.ok, false);
-  assert.match(result.ok ? '' : result.error.hint || '', /not in marketplace 'context-plugins'/);
+  const hint = result.ok ? '' : result.error.hint || '';
+  assert.match(hint, /not in marketplace 'context-plugins'/);
+  // Nothing is installed globally - README: "`npx` runs the CLI from a cache" -
+  // so a hint that suggests a command has to suggest one the reader can run.
+  assert.match(hint, /Run `npx context-plugins list`/, 'the command is runnable as printed');
 });
 
 test('uninstall targets the name Claude knows the marketplace by', async () => {
