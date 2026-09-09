@@ -4,6 +4,7 @@ import assert from 'node:assert';
 import {
   getJson,
   ghHeaders,
+  isUpstreamOutage,
   rawUrl,
   readRegistry,
 } from '../../src/infrastructure/github-registry-client.js';
@@ -77,7 +78,7 @@ test('a 5xx says the far end is down, and repeats nothing the far end said', asy
   assert.equal(result.ok, false);
   const { message, hint } = result.ok ? { message: '', hint: '' } : result.error;
   assert.match(message, /raw\.githubusercontent\.com is temporarily unavailable \(HTTP 503\)/);
-  assert.match(hint ?? '', /outage at GitHub, not a problem with your marketplace/);
+  assert.match(hint ?? '', /Usually an outage at GitHub rather than a problem with your setup/);
   // The three things a generic message exists to keep out.
   assert.ok(!message.includes(shouted) && !(hint ?? '').includes(shouted), 'no status text');
   assert.ok(!message.includes('Varnish') && !message.includes('<html>'), 'no response body');
@@ -88,6 +89,21 @@ test('a 5xx says the far end is down, and repeats nothing the far end said', asy
  * And the control: a 4xx is still reported exactly, because those are the ones
  * a user can do something about - a 403 is a token, a 401 is a bad one.
  */
+/**
+ * The boundary as a value, because every site-level test below picks one status
+ * on each side and none of them pins where the line is: `>= 500` widened to
+ * `> 500` sends a plain HTTP 500 - the one GitHub emits most - back down the
+ * verbatim path at all three call sites with the suite green.
+ */
+test('the outage boundary is 500, and every 4xx is on the other side of it', () => {
+  for (const status of [500, 501, 502, 503, 504, 599]) {
+    assert.equal(isUpstreamOutage(status), true, `${status} is the far end failing`);
+  }
+  for (const status of [200, 400, 401, 403, 404, 429, 499]) {
+    assert.equal(isUpstreamOutage(status), false, `${status} is not an outage`);
+  }
+});
+
 test('a 4xx still names the request, so an actionable failure stays actionable', async () => {
   const result = await read({ [CLAUDE_REG]: { status: 401 } });
   assert.equal(result.ok, false);

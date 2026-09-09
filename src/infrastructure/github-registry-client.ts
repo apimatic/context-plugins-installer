@@ -56,7 +56,12 @@ export const isUpstreamOutage = (status: number): boolean => status >= 500;
 export const upstreamFailure = (url: string, status: number): Failure =>
   new Failure(
     `${hostOf(url)} is temporarily unavailable (HTTP ${status}).`,
-    'That is an outage at GitHub, not a problem with your marketplace or your setup. Try again in a moment.',
+    // "Usually", not "is": a status is the only evidence here, and a proxy, a
+    // captive portal or an enterprise mirror that cannot reach upstream answers
+    // 502 of its own. Telling that user their setup is fine is the one way this
+    // sentence can be actively wrong, so it points at the other possibility
+    // instead of ruling it out.
+    `Usually an outage at GitHub rather than a problem with your setup - try again in a moment. If it persists, check whether a proxy is answering for ${hostOf(url)}.`,
   );
 
 /** A successful `null` on 404, so a missing registry is not an error. */

@@ -261,24 +261,31 @@ test('a failed download is a failure, not a throw', async () => {
   }
 });
 
-// Both halves of the API route reach GitHub, so both answer a 5xx the same way.
-test('a 5xx on the tree, and on a blob, both say the far end is down', async () => {
-  const blob = 'plugins/alpha/plugin.json';
-
-  const onTree = await openRepo(
+/**
+ * Both halves of the API route reach GitHub, and they reach different hosts, so
+ * each pins its own: the host is the half of the sentence that survives on
+ * purpose - a user behind a proxy needs to know which one failed - so a blank or
+ * wrong one has to fail a test rather than only the status. One of the two uses
+ * HTTP 500 itself, the status GitHub emits most and the literal in the code.
+ */
+test('a 5xx on the tree names api.github.com and says the far end is down', async () => {
+  const handle = await openRepo(
     { repo: REPO, ref: 'main' },
-    portsFor(stubFetch({ [TREE_URL]: { status: 502 } }), NO_GIT),
+    portsFor(stubFetch({ [TREE_URL]: { status: 500 } }), NO_GIT),
   );
   try {
-    const dir = await onTree.checkout('plugins/alpha');
+    const dir = await handle.checkout('plugins/alpha');
     assert.equal(dir.ok, false);
-    assert.match(dir.ok ? '' : dir.error.message, /temporarily unavailable \(HTTP 502\)/);
-    assert.ok(!(dir.ok ? '' : dir.error.message).includes('git/trees'), 'no URL path');
+    const message = dir.ok ? '' : dir.error.message;
+    assert.equal(message, 'api.github.com is temporarily unavailable (HTTP 500).');
   } finally {
-    onTree.cleanup();
+    handle.cleanup();
   }
+});
 
-  const onBlob = await openRepo(
+test('a 5xx on a blob names raw.githubusercontent.com, and not the file', async () => {
+  const blob = 'plugins/alpha/plugin.json';
+  const handle = await openRepo(
     { repo: REPO, ref: 'main' },
     portsFor(
       stubFetch({
@@ -289,12 +296,34 @@ test('a 5xx on the tree, and on a blob, both say the far end is down', async () 
     ),
   );
   try {
-    const dir = await onBlob.checkout('plugins/alpha');
+    const dir = await handle.checkout('plugins/alpha');
     assert.equal(dir.ok, false);
-    assert.match(dir.ok ? '' : dir.error.message, /temporarily unavailable \(HTTP 503\)/);
-    assert.ok(!(dir.ok ? '' : dir.error.message).includes(blob), 'no file path either');
+    const message = dir.ok ? '' : dir.error.message;
+    assert.equal(message, 'raw.githubusercontent.com is temporarily unavailable (HTTP 503).');
+    assert.ok(!message.includes(blob), 'the file path stays out of it');
   } finally {
-    onBlob.cleanup();
+    handle.cleanup();
+  }
+});
+
+/**
+ * And the control this site was missing. The commit that added the 5xx guard
+ * above this branch claimed a test pinned the 4xx one; that was true of the
+ * registry read and of a blob download, and false here - so the guard could
+ * have widened over the `GITHUB_TOKEN` hint unnoticed.
+ */
+test('a 4xx on the tree still names the request and the token that fixes it', async () => {
+  const handle = await openRepo(
+    { repo: REPO, ref: 'main' },
+    portsFor(stubFetch({ [TREE_URL]: { status: 403 } }), NO_GIT),
+  );
+  try {
+    const dir = await handle.checkout('plugins/alpha');
+    assert.equal(dir.ok, false);
+    assert.match(dir.ok ? '' : dir.error.message, /GitHub API request failed \(403/);
+    assert.match(dir.ok ? '' : (dir.error.hint ?? ''), /GITHUB_TOKEN/);
+  } finally {
+    handle.cleanup();
   }
 });
 
