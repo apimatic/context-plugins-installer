@@ -119,6 +119,44 @@ test('a row spelled in another case still marks the listing', async () => {
   assert.equal(result.report.result.plugins[0]?.installed, true);
 });
 
+/**
+ * `RepoSlug.same` means one repo can match more than one row: a manifest an
+ * older build wrote can hold both spellings, which is the state fix 01e578d
+ * describes a `--force` run producing. `foldRows` is this program's answer to
+ * that everywhere else - a later row wins a field both set, and target lists
+ * are unioned - so the marks have to fold too, or `list` says a plugin is in
+ * one editor while `uninstall` removes it from two.
+ */
+test('two spellings of one repo are one row, and their editors are unioned', async () => {
+  const m = machine();
+  const file = paths.manifestPath(m.pathOpts).toString();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const row = (repo: string, targets: HarnessName[]) => ({
+    plugin: 'alpha',
+    repo,
+    ref: 'main',
+    marketplace: 'context-plugins',
+    targets,
+    installedAt: '2026-01-01T00:00:00.000Z',
+  });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      plugins: [row('Context-Plugins/Plugin-Marketplace', ['claude']), row(REPO, ['cursor'])],
+    }),
+  );
+
+  const result = await listing(m, registry([{ name: 'alpha' }]));
+
+  assert.equal(result.report.result.plugins[0]?.installed, true);
+  assert.deepEqual(
+    result.report.result.plugins[0]?.targets,
+    ['claude', 'cursor'],
+    'both rows count - the last one does not simply win',
+  );
+});
+
 test('the gaps in the read view travel with the listing', async () => {
   const m = machine();
   record(m, 'alpha', ['cursor']);

@@ -67,11 +67,18 @@ export class ListAction {
     // One read for both the installed marks and what the view left out. Reading
     // the file twice was how those two came to be able to disagree.
     const gaps = openManifest(paths.manifestPath(this.pathOpts)).read();
-    const targetsByPlugin = new Map(
-      gaps.plugins
-        .filter((p) => RepoSlug.same(p.repo, brand.repo))
-        .map((p): [string, HarnessName[]] => [p.plugin, p.targets]),
-    );
+    // Folded, not overwritten: `RepoSlug.same` matches more than one row when a
+    // manifest holds two spellings of one repository, and a Map keyed on the
+    // plugin would keep whichever came last. `foldRows` unions the target lists
+    // for every other reader of that state, so this one does too - a mark that
+    // named fewer editors than `uninstall` removes from is the disagreement the
+    // case-folding was introduced to end.
+    const targetsByPlugin = new Map<string, HarnessName[]>();
+    for (const p of gaps.plugins) {
+      if (!RepoSlug.same(p.repo, brand.repo)) continue;
+      const held = targetsByPlugin.get(p.plugin) ?? [];
+      targetsByPlugin.set(p.plugin, [...held, ...p.targets.filter((t) => !held.includes(t))]);
+    }
 
     return ActionResult.success({
       gaps,
