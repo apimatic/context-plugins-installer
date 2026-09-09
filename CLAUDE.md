@@ -258,6 +258,39 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   and not three. Reporting from the returned value instead put it at the caller
   and said it once per plugin; that is a real regression this rule prevents.
 
+- **Two hosts, one file** (`fetchRepoFile` in `infrastructure/github-registry-client.ts`):
+  every file read by URL - the registry, and every blob of a plugin on the
+  no-git path - is asked of `raw.githubusercontent.com` first and of the API's
+  contents endpoint second (`RepoSlug.contentsUrl`, with
+  `Accept: application/vnd.github.raw`, so the body is the file itself and not a
+  base64 envelope of it). They are separate services, and the raw CDN's own 503
+  was the most common way an install failed for no reason. Only
+  `isUpstreamOutage` falls back: a 404 is the answer to the question the registry
+  read asks twice, a 403 is a rate limit, a 401 a bad token, and a request that
+  never arrived is the network - a second host improves none of those and its
+  answer would replace a message the user can act on. When the fallback fails
+  too, the _CDN's_ answer is the one reported: it recovered nothing, and reading
+  the API's 404 as "this repo has no registry" would send the user off to check
+  their `--repo` in the middle of a GitHub outage. Nor does a 200 that is not
+  the file: asked with anything but that media type, the contents endpoint
+  answers an envelope _about_ the file whose `name` is the file's own name, so
+  `normalize` would read one as a marketplace called `marketplace.json` holding
+  no plugins and `downloadPath` would write it over a plugin file byte for byte.
+  A proxy that rewrites `Accept` is how one arrives, so `carriesJson` checks the
+  content type and refuses it rather than decoding it - anchored on
+  `application/json`, because `application/vnd.github.raw+json` is a spelling of
+  the raw type itself and a search for "json" refuses the file it just asked
+  for. A response this program cannot ask (a stub) counts as the file. That
+  guard is also what makes the media type safe to be wrong about: if GitHub ever
+  drops the spelling we send, the fallback degrades to reporting the outage
+  rather than to writing envelopes. No token is needed for either host; one is
+  sent when the environment has it, because the anonymous API budget is 60
+  requests an hour. The retry announces itself as a `raw-outage` event before
+  the second request rather than after it - `test/infrastructure` pins that
+  order, since the events alone do not - and on stderr, so a `--json` payload
+  stays parseable; `downloadPath` folds it to one line per folder rather than
+  one per blob in flight.
+
 - **`src/infrastructure/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
   `path.posix` chosen by the `platform` override, not the host), so Windows paths are
   exactly assertable from Linux CI.

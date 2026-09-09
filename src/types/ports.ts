@@ -37,6 +37,12 @@ export interface FetchResponseLike {
   ok: boolean;
   status: number;
   statusText?: string;
+  /**
+   * A real response always has these; a stub may omit them, so a reader has to
+   * cope with not knowing rather than assume. Narrow, because the one thing
+   * this program asks a response about is what it is carrying.
+   */
+  headers?: { get(name: string): string | null };
   json(): Promise<unknown>;
   text(): Promise<string>;
   arrayBuffer(): Promise<ArrayBuffer>;

@@ -22,9 +22,9 @@ import { portsFor, stubFetch } from '../helpers.js';
 // the message and its level belong here, the glyph and the wrapping to
 // terminal.ts.
 
-type Line = [level: 'ok' | 'info' | 'warn' | 'debug', text: string];
+type Line = [level: 'ok' | 'info' | 'warn' | 'warnStderr' | 'debug', text: string];
 
-const LEVELS = ['ok', 'info', 'warn', 'debug'] as const;
+const LEVELS = ['ok', 'info', 'warn', 'warnStderr', 'debug'] as const;
 
 /** What one event says through `listener`, in order, as (level, message) pairs. */
 function said(event: MarketplaceEvent, listener: MarketplaceListener): Line[] {
@@ -48,6 +48,18 @@ const CASES: Record<MarketplaceEvent['kind'], [MarketplaceEvent, Line[]]> = {
   'registry-skipped': [
     { kind: 'registry-skipped', file: '.claude-plugin/marketplace.json', repo: 'acme/m' },
     [['debug', '.claude-plugin/marketplace.json in acme/m is not a JSON object - skipping it.']],
+  ],
+  // The other warning that explains a slow path before it happens - and the
+  // one that has to reach stderr, because a registry read is what `list --json`
+  // does and this line would otherwise land in the payload.
+  'raw-outage': [
+    { kind: 'raw-outage', host: 'raw.githubusercontent.com', status: 503 },
+    [
+      [
+        'warnStderr',
+        'raw.githubusercontent.com is unavailable (HTTP 503) - retrying through the GitHub API.',
+      ],
+    ],
   ],
   // A warning that explains the slow path, which is why it is emitted before
   // the fallback rather than reported from its result.

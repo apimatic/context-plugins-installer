@@ -17,7 +17,12 @@ import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
-import { ghHeaders, isUpstreamOutage, upstreamFailure } from './github-registry-client.js';
+import {
+  fetchRepoFile,
+  ghHeaders,
+  isUpstreamOutage,
+  upstreamFailure,
+} from './github-registry-client.js';
 
 export const DOWNLOAD_CONCURRENCY = 8;
 
@@ -207,7 +212,7 @@ interface DownloadRequest {
 
 export async function downloadPath(
   { tree, repo, ref, sourcePath, work, notify = nothing }: DownloadRequest,
-  { fetch: fetchImpl, env }: HttpPorts,
+  ports: HttpPorts,
 ): Promise<Result<string, Failure>> {
   // Mirrors the repository layout so two plugins never share a destination.
   const dest = new DirectoryPath(ensureDir(path.join(work, 'files', ...sourcePath.split('/'))));
@@ -223,6 +228,15 @@ export async function downloadPath(
   const made = new Set<string>();
   const slug = new RepoSlug(repo);
   const failures: Failure[] = [];
+  // A folder is fetched a file at a time, eight at once, and each of them can
+  // meet the same outage - so the line explaining the fallback is said once per
+  // folder rather than once per blob.
+  const said = new Set<string>();
+  const once: MarketplaceListener = (event) => {
+    if (said.has(event.kind)) return;
+    said.add(event.kind);
+    notify(event);
+  };
   await pool(blobs, DOWNLOAD_CONCURRENCY, async (blob) => {
     if (failures.length) return;
     const rel = blob.path.slice(prefix.length);
@@ -237,12 +251,16 @@ export async function downloadPath(
       ensureDir(parent);
       made.add(parent);
     }
-    const raw = slug.rawUrl(ref, blob.path);
-    const res = await fetchImpl(raw, { headers: ghHeaders(env) });
+    const got = await fetchRepoFile({ repo: slug, ref, filePath: blob.path, notify: once }, ports);
+    if (!got.ok) {
+      failures.push(got.error);
+      return;
+    }
+    const { url, res } = got.value;
     if (!res.ok) {
       failures.push(
         isUpstreamOutage(res.status)
-          ? upstreamFailure(raw, res.status)
+          ? upstreamFailure(url, res.status)
           : new Failure(`Download failed (${res.status}): ${blob.path}`),
       );
       return;

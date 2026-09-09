@@ -19,6 +19,7 @@ import type { Result } from './result.js';
  */
 export type MarketplaceEvent =
   | { kind: 'registry-skipped'; file: string; repo: string }
+  | { kind: 'raw-outage'; host: string; status: number }
   | { kind: 'no-git' }
   | { kind: 'cloning'; url: string; ref: string }
   | { kind: 'checked-out'; files: number }

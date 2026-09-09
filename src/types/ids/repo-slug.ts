@@ -48,6 +48,20 @@ export class RepoSlug {
     return `https://raw.githubusercontent.com/${this.slug}/${ref}/${filePath}`;
   }
 
+  /**
+   * The API's view of the file `rawUrl` names, for when the raw CDN is having
+   * an outage of its own. Asked for with the raw media type it serves the
+   * bytes verbatim, so a caller reads the same body from either host.
+   *
+   * Encoded, unlike `rawUrl`: here the path is a segment of an API route and
+   * the ref is a query parameter, so a space or a `#` in either has to arrive
+   * as an escape rather than as punctuation.
+   */
+  contentsUrl(ref: string, filePath: string): string {
+    const encoded = filePath.split('/').map(encodeURIComponent).join('/');
+    return `https://api.github.com/repos/${this.slug}/contents/${encoded}?ref=${encodeURIComponent(ref)}`;
+  }
+
   treeUrl(ref: string): string {
     return `https://api.github.com/repos/${this.slug}/git/trees/${ref}?recursive=1`;
   }

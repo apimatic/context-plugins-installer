@@ -11,6 +11,7 @@ import {
   type GitTree,
 } from '../../src/infrastructure/source-fetcher.js';
 import type { Env } from '../../src/types/env.js';
+import { RepoSlug } from '../../src/types/ids/repo-slug.js';
 import type { FetchResponseLike } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
 import { cleanupAll, portsFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
@@ -20,6 +21,8 @@ test.after(cleanupAll);
 const REPO = 'acme/marketplace';
 const TREE_URL = `https://api.github.com/repos/${REPO}/git/trees/main?recursive=1`;
 const rawFile = (p: string): string => `https://raw.githubusercontent.com/${REPO}/main/${p}`;
+/** The same file at the API, which is where a raw outage sends the download. */
+const apiFile = (p: string): string => new RepoSlug(REPO).contentsUrl('main', p);
 
 /** An empty PATH is how a test forces the API route without touching the host. */
 const NO_GIT: Env = { PATH: '', PATHEXT: '' };
@@ -134,6 +137,80 @@ test('a well-formed tree lands under the checkout', async () => {
     '# plugins/x/skills/b.md',
   );
   assert.ok(fs.existsSync(path.join(dest.value, 'plugin.json')));
+});
+
+/**
+ * The same fallback the registry read has, at the other place this program
+ * fetches a file by URL: a plugin is downloaded a blob at a time, and a 503
+ * from the CDN on any one of them used to fail the whole install.
+ */
+test('a blob the raw CDN 503s on is downloaded from the GitHub API instead', async () => {
+  const work = tmpDir('cp-work-');
+  const blob = 'plugins/x/skills/a.md';
+  const tree: GitTree = { truncated: false, tree: [{ type: 'blob', path: blob }] };
+  const fetchImpl = stubFetch({
+    [rawFile(blob)]: { status: 503 },
+    [apiFile(blob)]: { body: '# from the API' },
+  });
+  const seen = recorder();
+
+  const dest = await downloadPath(
+    { tree, repo: REPO, ref: 'main', sourcePath: 'plugins/x', work, notify: seen.notify },
+    portsFor(fetchImpl),
+  );
+
+  assert.ok(dest.ok);
+  assert.equal(fs.readFileSync(path.join(dest.value, 'skills', 'a.md'), 'utf8'), '# from the API');
+  assert.deepEqual(fetchImpl.calls, [rawFile(blob), apiFile(blob)]);
+  assert.deepEqual(seen.events, [
+    { kind: 'raw-outage', host: 'raw.githubusercontent.com', status: 503 },
+    { kind: 'downloaded', files: 1 },
+  ]);
+});
+
+/**
+ * One outage, one line. The fallback is per file and eight of them are in
+ * flight at once, so a listener that heard about each would print the same
+ * sentence once per blob in the plugin - which is how a folder of forty files
+ * turns an explanation into a wall.
+ */
+test('a folder that falls back on every file says so once, not once per file', async () => {
+  const work = tmpDir('cp-work-');
+  const files = ['plugins/x/a.md', 'plugins/x/b.md', 'plugins/x/c.md'];
+  const tree: GitTree = { truncated: false, tree: files.map((p) => ({ type: 'blob', path: p })) };
+  const fetchImpl = stubFetch(
+    Object.fromEntries([
+      ...files.map((p) => [rawFile(p), { status: 503 }]),
+      ...files.map((p) => [apiFile(p), { body: `# ${p}` }]),
+    ]),
+  );
+  const seen = recorder();
+
+  const dest = await downloadPath(
+    { tree, repo: REPO, ref: 'main', sourcePath: 'plugins/x', work, notify: seen.notify },
+    portsFor(fetchImpl),
+  );
+
+  assert.ok(dest.ok);
+  assert.equal(fs.readFileSync(path.join(dest.value, 'c.md'), 'utf8'), '# plugins/x/c.md');
+  assert.equal(seen.events.filter((e) => e.kind === 'raw-outage').length, 1);
+  assert.equal(fetchImpl.calls.length, files.length * 2, 'every file still asked both hosts');
+});
+
+/** A blob that neither host will serve is the CDN's outage, not the API's 404. */
+test('a blob the API cannot serve either keeps the outage the CDN reported', async () => {
+  const work = tmpDir('cp-work-');
+  const blob = 'plugins/x/a.md';
+  const tree: GitTree = { truncated: false, tree: [{ type: 'blob', path: blob }] };
+
+  const dest = await downloadPath(
+    { tree, repo: REPO, ref: 'main', sourcePath: 'plugins/x', work },
+    portsFor(stubFetch({ [rawFile(blob)]: { status: 503 } })),
+  );
+
+  assert.equal(dest.ok, false);
+  const message = dest.ok ? '' : dest.error.message;
+  assert.equal(message, 'raw.githubusercontent.com is temporarily unavailable (HTTP 503).');
 });
 
 test('one repo handle fetches the API tree once and serves every plugin from it', async () => {

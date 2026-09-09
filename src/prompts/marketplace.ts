@@ -11,6 +11,13 @@ export function announceMarketplace(event: MarketplaceEvent): void {
     case 'registry-skipped':
       log.debug(`${event.file} in ${event.repo} is not a JSON object - skipping it.`);
       return;
+    case 'raw-outage':
+      // On stderr, because a registry read is one of the things `list --json`
+      // does and a warning on stdout would land inside the payload.
+      log.warnStderr(
+        `${event.host} is unavailable (HTTP ${event.status}) - retrying through the GitHub API.`,
+      );
+      return;
     case 'no-git':
       log.warn(
         'git not found - falling back to the GitHub API (60 requests/hour unauthenticated).',

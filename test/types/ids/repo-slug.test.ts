@@ -21,7 +21,7 @@ test('parse says what was wrong and what was expected', () => {
 });
 
 /**
- * These three strings are a wire contract: GitHub serves them, and the fetch
+ * These four strings are a wire contract: GitHub serves them, and the fetch
  * stubs in the suite key off the raw one. They are asserted in full rather than
  * by shape, because a silent change to any of them is a broken install.
  */
@@ -33,8 +33,26 @@ test('the URLs built from a slug are exactly what GitHub serves', () => {
     `https://raw.githubusercontent.com/${REPO}/main/.claude-plugin/marketplace.json`,
   );
   assert.equal(
+    slug.contentsUrl('main', '.claude-plugin/marketplace.json'),
+    `https://api.github.com/repos/${REPO}/contents/.claude-plugin/marketplace.json?ref=main`,
+  );
+  assert.equal(
     slug.treeUrl('v1.2.0'),
     `https://api.github.com/repos/${REPO}/git/trees/v1.2.0?recursive=1`,
+  );
+});
+
+/**
+ * The one that is not a straight interpolation. A plugin folder is named by
+ * whoever wrote the registry, and on this endpoint the path is part of an API
+ * route and the ref is a query parameter - so a space has to arrive as an
+ * escape, and the separators between segments must survive as separators.
+ */
+test('a contents URL escapes what it interpolates, without escaping the path itself', () => {
+  const slug = new RepoSlug(REPO);
+  assert.equal(
+    slug.contentsUrl('release/1.0', 'plugins/my sdk/plugin.json'),
+    `https://api.github.com/repos/${REPO}/contents/plugins/my%20sdk/plugin.json?ref=release%2F1.0`,
   );
 });
 
