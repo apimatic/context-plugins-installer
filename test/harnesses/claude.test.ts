@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import type { Env } from '../../src/types/env.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
+import { RepoMarketplace } from '../../src/types/marketplace-origin.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
 import { cleanupAll, outcome, runnerFor, tmpDir } from '../helpers.js';
 
@@ -21,10 +22,12 @@ const REPO = 'apimatic/context-plugins';
  */
 const CTX: HarnessContext = {
   plugin: 'xero-sdk',
-  marketplace: 'context-plugins',
-  repo: REPO,
+  marketplace: new RepoMarketplace(REPO, 'context-plugins'),
   listener: () => {},
 };
+
+/** The same repository with no name recorded for it: what an offline uninstall holds. */
+const NAMELESS = new RepoMarketplace(REPO);
 
 /** A context that keeps what the harness reported, in order. */
 function recording(over: Partial<HarnessContext> = {}) {
@@ -586,13 +589,13 @@ test('no claude on PATH is said once, for either verb', async () => {
 test('with no marketplace name each verb says which one it could not do', async () => {
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
 
-  const installing = recording({ marketplace: null });
+  const installing = recording({ marketplace: NAMELESS });
   assert.equal(outcome(await claude.install(installing.ctx, opts(run))), 'skipped');
   assert.deepEqual(installing.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'install' },
   ]);
 
-  const uninstalling = recording({ marketplace: null });
+  const uninstalling = recording({ marketplace: NAMELESS });
   assert.equal(await claude.uninstall(uninstalling.ctx, opts(run)), 'skipped');
   assert.deepEqual(uninstalling.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' },

@@ -210,6 +210,23 @@ that ends up somewhere else is a rule two callers can disagree about.
 - **`types/harness.ts`** - the names and titles of the editors as static
   knowledge, so a pure decision can say "Cursor" without importing the code
   that installs into it, and the `Harness` contract itself.
+- **`types/marketplace-origin.ts`** - where the marketplace a run installs from
+  lives, in the vocabulary `claude plugin marketplace list --json` answers in.
+  One value rather than the marketplace name and its repo as two fields, which
+  travelled side by side from the resolver through two contexts to the harness
+  with nothing stopping a caller from pairing a name with the wrong repository.
+  `name` is nullable because an offline uninstall genuinely has none - the
+  harness asks the CLI - and `key()` is the session's memo key, case-folded on
+  the repo so two spellings register once. It is a discriminated union with one
+  arm today; the discriminant is there from the start so a second kind is one
+  line here and a compile error at each site that has to learn about it.
+  `NamedMarketplace` is the same value with the name known, and the reason
+  registering a marketplace takes one value rather than an origin and a name
+  side by side - which would have been the very pairing this type removed.
+  `RepoMarketplace.named` and `hasName` are the only ways to hold one, so
+  `ResolvedPlugin` states "the name is always known here" as a type rather than
+  as a promise in a comment, and a nameless origin cannot reach the code that
+  needs a name.
 - **`types/installed-record.ts`** and **`types/manifest-context.ts`** - every
   rule about a manifest row, and the file as a domain object. See **State**.
 - **`types/util.ts`** - the pure helpers, and the reason they sit here: `types/`
@@ -387,8 +404,14 @@ pure decision can say "Cursor" without importing the code that installs into
 it - and a caller that only wants a title should read `TITLES` rather than
 reach for a harness. `byName` is total over `HarnessName` - narrow a string
 with `isHarnessName` first. Claude Code installs
-through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
-and VS Code copy files and need the fetched source. To add an editor, use the
+through the `claude` CLI from the marketplace itself, so its `needsSource`
+answers `false`; Cursor and VS Code copy files and need the fetched source.
+`needsSource` is a method over the `MarketplaceOrigin` rather than a constant,
+because the answer depends on where the marketplace is and not only on which
+editor is asking: an editor needs the files whenever the marketplace it
+installs from is one whose contents this tool has to produce. An
+implementation that cannot depend on the origin takes no argument, which says
+so more strongly than a comment could. To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
 editor names and CI steps the compiler cannot flag.
 

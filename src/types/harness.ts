@@ -2,6 +2,7 @@ import type { PathOpts } from './env.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { DirectoryPath, FilePath } from './file/paths.js';
+import type { MarketplaceOrigin } from './marketplace-origin.js';
 import type { ProcessRunner } from './ports.js';
 import type { Session } from './session.js';
 
@@ -154,8 +155,12 @@ export type HarnessListener = (event: HarnessEvent) => void;
 
 export interface HarnessContext {
   plugin: string;
-  marketplace: string | null;
-  repo: string;
+  /**
+   * Where the plugin's marketplace lives, and what Claude Code addresses it by.
+   * One value rather than the name and the repo as two fields: they travelled
+   * together through every layer, and nothing stopped the two from disagreeing.
+   */
+  marketplace: MarketplaceOrigin;
   /** Where the plugin's files are, for a harness whose install is a copy. */
   srcDir?: DirectoryPath | null;
   session?: Session;
@@ -186,8 +191,13 @@ export type InstallOutcome = 'installed' | 'skipped';
 export interface Harness {
   name: HarnessName;
   title: string;
-  /** Whether install needs the plugin files on disk (Claude installs from the marketplace itself). */
-  needsSource: boolean;
+  /**
+   * Whether install needs the plugin files on disk. A method over the origin
+   * rather than a constant, because the answer genuinely depends on where the
+   * marketplace is: a file-copying editor always needs them, and Claude Code
+   * needs none for a marketplace it can fetch itself.
+   */
+  needsSource(marketplace: MarketplaceOrigin): boolean;
   detect(opts?: HarnessOpts): boolean;
   /**
    * Where detect looked, for "not installed (looked in ...)": a path for an

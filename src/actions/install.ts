@@ -100,7 +100,9 @@ export class InstallAction {
     });
     if (!found.ok) return failed(found.error);
     const resolved = found.value;
-    report.marketplace = resolved.marketplace;
+    const { origin } = resolved;
+    const marketplace = origin.name;
+    report.marketplace = marketplace;
 
     this.at = 'harnesses';
     const targets = resolveTargets(req.targets);
@@ -111,7 +113,7 @@ export class InstallAction {
     if (conflict) return failed(conflict);
     const recorded = records.find({ plugin, repo: brand.repo });
 
-    this.prompts.intro(plugin, brand, ref, resolved.marketplace, resolved.description);
+    this.prompts.intro(plugin, brand, ref, marketplace, resolved.description);
 
     const available = harnesses.detected(requested, this.pathOpts);
     const missing = requested.filter((name) => !available.includes(name));
@@ -140,7 +142,7 @@ export class InstallAction {
     report.untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
 
     let srcDir: DirectoryPath | null = null;
-    if (want.some((name) => harnesses.byName(name).needsSource)) {
+    if (want.some((name) => harnesses.byName(name).needsSource(origin))) {
       this.at = 'fetch';
       this.prompts.fetching();
       const source = await this.session.source({
@@ -160,13 +162,12 @@ export class InstallAction {
       this.prompts.beginHarness(harness.title);
       const ctx: HarnessContext = {
         plugin,
-        marketplace: resolved.marketplace,
-        repo: brand.repo,
+        marketplace: origin,
         srcDir,
         session: this.session,
         listener: this.prompts.harnessListener,
       };
-      if (harness.needsSource && !ctx.srcDir) {
+      if (harness.needsSource(origin) && !ctx.srcDir) {
         this.prompts.noSource(harness.title);
         continue;
       }
@@ -183,7 +184,7 @@ export class InstallAction {
       records.recordInstall({
         plugin,
         repo: brand.repo,
-        marketplace: resolved.marketplace,
+        marketplace,
         ref,
         installed,
         untouched: report.untouched,

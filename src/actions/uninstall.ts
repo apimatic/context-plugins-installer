@@ -14,6 +14,7 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
+import { RepoMarketplace, type MarketplaceOrigin } from '../types/marketplace-origin.js';
 import type { RegistryClient } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
 import { errorMessage, nonEmptyString } from '../types/util.js';
@@ -56,19 +57,24 @@ export class UninstallAction {
   ) {}
 
   /**
-   * The name Claude Code knows the marketplace by. A row's own recorded name is
-   * what keeps this offline; a lookup is only needed when there is none, and
-   * with a row to correct a failed lookup must not block cleaning it up.
+   * Where the marketplace lives and what Claude Code knows it by. The repo is
+   * always the run's; only the name has to be found, and a row's own recorded
+   * name is what keeps this offline. A lookup is needed only when there is
+   * none - and with a row to correct, a failed lookup must not block cleaning
+   * it up, so the origin comes back nameless and the harness asks the CLI.
    */
   private async marketplaceFor(
     brand: Brand,
     plugin: string,
     recorded: Record<string, unknown> | null,
     want: readonly HarnessName[],
-  ): Promise<{ marketplace: string | null } | { failure: Failure }> {
+  ): Promise<{ origin: MarketplaceOrigin } | { failure: Failure }> {
+    const at = (name: string | null): { origin: MarketplaceOrigin } => ({
+      origin: new RepoMarketplace(brand.repo, name),
+    });
     const known =
       brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
-    if (known || !want.includes('claude')) return { marketplace: known };
+    if (known || !want.includes('claude')) return at(known);
 
     const read = await this.registry.readRegistry({
       repo: brand.repo,
@@ -78,12 +84,12 @@ export class UninstallAction {
     const resolved = read.ok
       ? resolvePlugin(read.value, { plugin, repo: brand.repo, ref: brand.ref })
       : read;
-    if (resolved.ok) return { marketplace: resolved.value.marketplace };
+    if (resolved.ok) return { origin: resolved.value.origin };
     // With no record there is nothing to correct, so the lookup error and its
     // suggestion are the useful answer.
     if (!recorded) return { failure: resolved.error };
     this.prompts.marketplaceUnknown(plugin, resolved.error);
-    return { marketplace: null };
+    return at(null);
   }
 
   readonly execute = async (req: UninstallRequest): Promise<ActionResult<UninstallResult>> => {
@@ -124,8 +130,7 @@ export class UninstallAction {
           await harness.uninstall(
             {
               plugin,
-              marketplace: found.marketplace,
-              repo: brand.repo,
+              marketplace: found.origin,
               listener: this.prompts.harnessListener,
             },
             this.pathOpts,

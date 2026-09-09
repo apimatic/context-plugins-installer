@@ -1,3 +1,4 @@
+import type { NamedMarketplace } from './marketplace-origin.js';
 import { isPlainObject, nonEmptyString } from './util.js';
 
 // A marketplace registry as this build reads it, and one plugin resolved out of
@@ -23,9 +24,13 @@ export interface Catalog {
 
 export interface ResolvedPlugin {
   plugin: string;
-  repo: string;
+  /**
+   * Where its marketplace lives, and what Claude Code addresses it by. Named,
+   * as a type rather than as a promise in a comment: `resolvePlugin` fails
+   * before it can answer without a name, so no reader has to allow for one.
+   */
+  origin: NamedMarketplace;
   ref: string;
-  marketplace: string;
   sourcePath: string;
   description: string;
   catalogFound: boolean;

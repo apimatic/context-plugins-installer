@@ -5,6 +5,7 @@ import * as path from 'node:path';
 
 import { VscodeHarness } from '../../src/harnesses/vscode.js';
 import { DirectoryPath } from '../../src/types/file/paths.js';
+import { RepoMarketplace } from '../../src/types/marketplace-origin.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
 import { toKey } from '../../src/types/vscode-settings.js';
 import { cleanupAll, outcome, parseJsonc, plainly, tmpDir } from '../helpers.js';
@@ -55,8 +56,7 @@ function machine({ installed = true, settings = null, copied = false }: MachineS
   const events: HarnessEvent[] = [];
   const ctx: HarnessContext = {
     plugin: PLUGIN,
-    marketplace: 'context-plugins',
-    repo: 'apimatic/context-plugins',
+    marketplace: new RepoMarketplace('apimatic/context-plugins', 'context-plugins'),
     srcDir: new DirectoryPath(src),
     listener: (e) => events.push(e),
   };
@@ -243,5 +243,5 @@ test("detect and location answer about VS Code's user directory", () => {
   assert.equal(vscode.detect(here.opts), true);
   assert.equal(vscode.detect(gone.opts), false);
   assert.match(vscode.location(here.opts).toString(), /code-user$/);
-  assert.equal(vscode.needsSource, true, 'VS Code installs from files, so it needs them');
+  assert.equal(vscode.needsSource(), true, 'VS Code installs from files, so it needs them');
 });

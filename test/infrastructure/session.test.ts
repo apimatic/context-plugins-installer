@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { sourceFetcher } from '../../src/infrastructure/source-fetcher.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
+import { RepoMarketplace } from '../../src/types/marketplace-origin.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
 import type { HarnessEvent } from '../../src/types/harness.js';
@@ -115,7 +116,7 @@ test('a marketplace spelled two ways is registered with Claude once', async () =
     for (const repo of ['Acme/M', 'acme/m']) {
       await new ClaudeHarness().ensureMarketplaceOnce(
         claudeCli('claude', runnerFor(exec)),
-        { marketplace: 'acme', repo },
+        RepoMarketplace.named(repo, 'acme'),
         session,
         () => {},
       );
@@ -282,7 +283,7 @@ test('the Claude marketplace is registered once per session, and said once', asy
   for (const _plugin of ['alpha', 'beta', 'gamma']) {
     await new ClaudeHarness().ensureMarketplaceOnce(
       claudeCli('claude', runnerFor(exec)),
-      { marketplace: 'acme', repo },
+      RepoMarketplace.named(repo, 'acme'),
       session,
       (e) => events.push(e),
     );
@@ -301,8 +302,9 @@ test('without a session the marketplace is registered per call, as before', asyn
   await quietly(async () => {
     const cli = claudeCli('claude', runnerFor(exec));
     const harness = new ClaudeHarness();
-    await harness.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null, () => {});
-    await harness.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null, () => {});
+    const origin = RepoMarketplace.named(repo, 'acme');
+    await harness.ensureMarketplaceOnce(cli, origin, null, () => {});
+    await harness.ensureMarketplaceOnce(cli, origin, null, () => {});
   });
 
   assert.equal(calls.filter((c) => c === `plugin marketplace add ${repo}`).length, 2);

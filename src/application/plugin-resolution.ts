@@ -2,6 +2,7 @@ import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from '../types/catal
 import { REGISTRY_FILES } from '../types/catalog.js';
 import { Failure } from '../types/failure.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
+import { RepoMarketplace } from '../types/marketplace-origin.js';
 import { err, ok, type Result } from '../types/result.js';
 import { isPlainObject, nonEmptyString } from '../types/util.js';
 
@@ -97,9 +98,11 @@ export function resolvePlugin(
 
   return ok({
     plugin,
-    repo,
+    // Both halves of the address in one value: every check above has already
+    // run, so this is the one point at which a name and its repository are
+    // known together and can stop being two fields that travel side by side.
+    origin: RepoMarketplace.named(repo, resolvedMarketplace),
     ref,
-    marketplace: resolvedMarketplace,
     sourcePath: sourcePath.value,
     description: isPlainObject(entry) && nonEmptyString(entry.description) ? entry.description : '',
     catalogFound: Boolean(catalog),

@@ -22,7 +22,6 @@ import {
 export class CursorHarness implements Harness {
   readonly name: HarnessName = 'cursor';
   readonly title = TITLES.cursor;
-  readonly needsSource = true;
 
   detect(opts?: HarnessOpts): boolean {
     return exists(paths.cursorRoot(opts));
@@ -30,6 +29,11 @@ export class CursorHarness implements Harness {
 
   location(opts?: HarnessOpts): DirectoryPath {
     return paths.cursorRoot(opts);
+  }
+
+  /** Its install is a directory copy, so the files are needed whatever the origin. */
+  needsSource(): boolean {
+    return true;
   }
 
   private destFor(plugin: string, opts?: HarnessOpts): DirectoryPath {
