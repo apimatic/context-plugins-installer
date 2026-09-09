@@ -25,6 +25,7 @@ import type { AddLocationResult, RemoveLocationResult } from '../types/vscode-se
 export class VscodeHarness implements Harness {
   readonly name: HarnessName = 'vscode';
   readonly title = TITLES.vscode;
+  readonly needsSource = true;
 
   detect(opts?: HarnessOpts): boolean {
     return exists(paths.vscodeUserDir(opts));
@@ -32,11 +33,6 @@ export class VscodeHarness implements Harness {
 
   location(opts?: HarnessOpts): DirectoryPath {
     return paths.vscodeUserDir(opts);
-  }
-
-  /** Its install is a directory copy, so the files are needed whatever the origin. */
-  needsSource(): boolean {
-    return true;
   }
 
   private destFor(plugin: string, opts?: HarnessOpts): DirectoryPath {

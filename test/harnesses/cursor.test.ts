@@ -44,7 +44,7 @@ function machine({ installed = true, hasPluginJson = true, copied = false } = {}
   const events: HarnessEvent[] = [];
   const ctx: HarnessContext = {
     plugin: PLUGIN,
-    marketplace: new RepoMarketplace('apimatic/context-plugins', 'context-plugins'),
+    origin: new RepoMarketplace('apimatic/context-plugins', 'context-plugins'),
     srcDir: new DirectoryPath(src),
     listener: (e) => events.push(e),
   };
@@ -147,5 +147,5 @@ test("detect and location answer about Cursor's own root", () => {
   assert.equal(cursor.detect(here.opts), true);
   assert.equal(cursor.detect(gone.opts), false);
   assert.match(cursor.location(here.opts).toString(), /[/\\]\.cursor$/);
-  assert.equal(cursor.needsSource(), true, 'Cursor installs from files, so it needs them');
+  assert.equal(cursor.needsSource, true, 'Cursor installs from files, so it needs them');
 });

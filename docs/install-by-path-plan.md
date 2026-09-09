@@ -82,12 +82,12 @@ The four stages below are not a diagram invented for this document: they are
 the first one forks. Everything after it is told _where the files are_ and _what
 marketplace name to address_, and neither of those has to know how the answer was reached.
 
-| Stage       | What changes                                                                                                                        |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `resolve`   | **Forks here.** A marketplace id reads the registry as today. A path or repo reads the plugin's own manifest instead.               |
-| `harnesses` | Unchanged, except that `needsSource` now depends on the marketplace kind rather than being a constant per editor.                   |
-| `fetch`     | A local source skips it - the files are already on disk. A github source reuses the session's clone, with a new root-checkout case. |
-| `install`   | Cursor and VS Code copy, as always. Claude Code installs from a marketplace - the one we generated, when there is no registry.      |
+| Stage       | What changes                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolve`   | **Forks here.** A marketplace id reads the registry as today. A path or repo reads the plugin's own manifest instead.                 |
+| `harnesses` | Unchanged, except that something has to answer whether the files must be staged locally - see the open item on where that fact lives. |
+| `fetch`     | A local source skips it - the files are already on disk. A github source reuses the session's clone, with a new root-checkout case.   |
+| `install`   | Cursor and VS Code copy, as always. Claude Code installs from a marketplace - the one we generated, when there is no registry.        |
 
 ## The two new value objects
 
@@ -178,11 +178,10 @@ registry path keeps today's argv exactly.
 
 What else the harness has to learn:
 
-- `needsSource` becomes `needsSource(marketplace)`: `true` for Cursor and VS Code, and
-  `marketplace.kind === 'directory'` for Claude Code. An honest signature - whether the
-  files are needed genuinely depends on where the marketplace is - and it keeps the
-  special case out of the action.
-- `isSameRepo` gains a directory arm: match `source === 'directory'` and `path` against
+- Somewhere has to answer "must the files be staged locally?". Phase 1 tried
+  `needsSource(origin)` on every harness and backed it out, so phase 2 decides this with
+  its first caller in hand - see the open item below.
+- `isSameOrigin` gains a directory arm: match `source === 'directory'` and `path` against
   our generated dir. The existing `repoOf` already answers `null` for such a row, so
   today's fallback would compare it by JSON substring - correct by luck, and worth making
   deliberate.
@@ -272,26 +271,26 @@ withheld for a local source - that prose is what the one-time notice and
 Every new module sits in a layer the lint already has a rule for, so
 `test/layering.test.ts` needs no change. Nothing goes under `dependencies`.
 
-| File                                                              | Change | What for                                                                               |
-| ----------------------------------------------------------------- | ------ | -------------------------------------------------------------------------------------- |
-| `types/marketplace-origin.ts`                                     | new    | Repo or directory, in Claude's own vocabulary. Phase 1.                                |
-| `types/plugin-source.ts`                                          | new    | The union, the parser, `key`/`restore`, `reportableId`. Phase 2.                       |
-| `types/plugin-manifest.ts`                                        | new    | One reader for `plugin.json`, shared by both boundaries. Phase 2.                      |
-| `infrastructure/local-plugin.ts`                                  | new    | Probe a directory, validate it, guard the overlap.                                     |
-| `infrastructure/local-marketplace.ts`                             | new    | Stage and unstage the generated registry, atomically.                                  |
-| `types/harness.ts`                                                | edit   | `HarnessContext` takes a `MarketplaceOrigin`; `needsSource` becomes a method. Phase 1. |
-| `types/session.ts`, `infrastructure/session.ts`                   | edit   | A memoized `manifest()` read beside `catalog()`; `checkout` accepts `null`.            |
-| `types/catalog.ts`, `application/plugin-resolution.ts`            | edit   | `ResolvedPlugin` carries a source and an origin instead of a repo and a ref.           |
-| `types/reports.ts`                                                | edit   | The `unavailable` row; `ref` becomes nullable for a local install.                     |
-| `types/telemetry.ts`, `types/events/*.ts`                         | edit   | `source_kind`, a nullable `plugin`, and the `COLLECTED` prose.                         |
-| `types/env.ts`                                                    | edit   | `cwd` on `PathOpts`.                                                                   |
-| `infrastructure/paths.ts`                                         | edit   | `localMarketplaceDir` under `stateDir`, so `CP_STATE_DIR` sandboxes it.                |
-| `infrastructure/source-fetcher.ts`                                | edit   | Root checkout in both the git and the API arm.                                         |
-| `infrastructure/github-registry-client.ts`                        | edit   | `readPluginManifest`, over the same two-host fallback.                                 |
-| `harnesses/claude.ts`                                             | edit   | The directory-marketplace arm, and uninstall-before-install for it.                    |
-| `actions/install.ts`, `update.ts`, `uninstall.ts`                 | edit   | Parse the spec, branch per kind, confirm the source once.                              |
-| `prompts/install.ts`, `uninstall.ts`, `update.ts`, `installed.ts` | edit   | The trust question, the source in the intro and summary, the origin in the table.      |
-| `commands/help.ts`, `README.md`                                   | edit   | The new spellings, and the examples.                                                   |
+| File                                                              | Change | What for                                                                          |
+| ----------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------- |
+| `types/marketplace-origin.ts`                                     | new    | Repo or directory, in Claude's own vocabulary. Phase 1.                           |
+| `types/plugin-source.ts`                                          | new    | The union, the parser, `key`/`restore`, `reportableId`. Phase 2.                  |
+| `types/plugin-manifest.ts`                                        | new    | One reader for `plugin.json`, shared by both boundaries. Phase 2.                 |
+| `infrastructure/local-plugin.ts`                                  | new    | Probe a directory, validate it, guard the overlap.                                |
+| `infrastructure/local-marketplace.ts`                             | new    | Stage and unstage the generated registry, atomically.                             |
+| `types/harness.ts`                                                | edit   | `HarnessContext` carries a `MarketplaceOrigin` as `origin`. Phase 1.              |
+| `types/session.ts`, `infrastructure/session.ts`                   | edit   | A memoized `manifest()` read beside `catalog()`; `checkout` accepts `null`.       |
+| `types/catalog.ts`, `application/plugin-resolution.ts`            | edit   | `ResolvedPlugin` carries a source and an origin instead of a repo and a ref.      |
+| `types/reports.ts`                                                | edit   | The `unavailable` row; `ref` becomes nullable for a local install.                |
+| `types/telemetry.ts`, `types/events/*.ts`                         | edit   | `source_kind`, a nullable `plugin`, and the `COLLECTED` prose.                    |
+| `types/env.ts`                                                    | edit   | `cwd` on `PathOpts`.                                                              |
+| `infrastructure/paths.ts`                                         | edit   | `localMarketplaceDir` under `stateDir`, so `CP_STATE_DIR` sandboxes it.           |
+| `infrastructure/source-fetcher.ts`                                | edit   | Root checkout in both the git and the API arm.                                    |
+| `infrastructure/github-registry-client.ts`                        | edit   | `readPluginManifest`, over the same two-host fallback.                            |
+| `harnesses/claude.ts`                                             | edit   | The directory-marketplace arm, and uninstall-before-install for it.               |
+| `actions/install.ts`, `update.ts`, `uninstall.ts`                 | edit   | Parse the spec, branch per kind, confirm the source once.                         |
+| `prompts/install.ts`, `uninstall.ts`, `update.ts`, `installed.ts` | edit   | The trust question, the source in the intro and summary, the origin in the table. |
+| `commands/help.ts`, `README.md`                                   | edit   | The new spellings, and the examples.                                              |
 
 ## Test map
 
@@ -311,13 +310,13 @@ Every new module sits in a layer the lint already has a rule for, so
 Commit types are release decisions here, so the groundwork is deliberately separated from
 the feature.
 
-| #   | Phase                                      | Commit      | What it leaves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --- | ------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Route today's flow through the new types   | `refactor:` | `MarketplaceOrigin` on `HarnessContext` and `ResolvedPlugin`, and `needsSource` as a method over it. Done: 539 tests pass with no assertion changed - only the `HarnessContext` literals a test builds. `plugin-source.ts` and `plugin-manifest.ts` moved to phase 2, where their first callers are: a `PluginSource` whose only reachable arm is `marketplace` keys the manifest by the string that column already holds, so introducing it a phase early buys a type with nothing to decide. |
-| 2   | Install from a local directory             | `feat:`     | The parser's local arm, `local-plugin.ts`, `local-marketplace.ts`, the Claude directory arm, the trust prompt, the manifest key, `installed` rendering, `source_kind`.                                                                                                                                                                                                                                                                                                                         |
-| 3   | Install from a GitHub repo or subdirectory | `feat:`     | The parser's github arm, `readPluginManifest`, the root checkout in both fetch arms, the marketplace-not-a-plugin hint.                                                                                                                                                                                                                                                                                                                                                                        |
-| 4   | Re-sync path plugins on update             | `feat:`     | The `restore` branch per row and the `unavailable` arm. Held back so phases 2 and 3 ship without `update` having to know about either yet.                                                                                                                                                                                                                                                                                                                                                     |
-| 5   | Document the new sources                   | `docs:`     | README examples and the `--help` block. Contributor and agent knowledge goes to `CLAUDE.md` as each phase lands, not here.                                                                                                                                                                                                                                                                                                                                                                     |
+| #   | Phase                                      | Commit      | What it leaves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Route today's flow through the new types   | `refactor:` | `MarketplaceOrigin` on `HarnessContext` (as `origin`) and `ResolvedPlugin`, with `NamedMarketplace` for the resolved case. Done: 544 tests pass and behaviour is unchanged. Assertions did move - three in `plugin-resolution.test.ts` from `.marketplace` to `.origin.name` - and one was added for `ClaudeHarness.needsSource`, which nothing had pinned. Three things were cut from this phase after review: `plugin-source.ts` and `plugin-manifest.ts` (phase 2, where their first callers are - a `PluginSource` whose only reachable arm is `marketplace` keys the manifest by the string that column already holds), and `needsSource` as a method (see the open items). |
+| 2   | Install from a local directory             | `feat:`     | The parser's local arm, `local-plugin.ts`, `local-marketplace.ts`, the Claude directory arm, the trust prompt, the manifest key, `installed` rendering, `source_kind`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 3   | Install from a GitHub repo or subdirectory | `feat:`     | The parser's github arm, `readPluginManifest`, the root checkout in both fetch arms, the marketplace-not-a-plugin hint.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 4   | Re-sync path plugins on update             | `feat:`     | The `restore` branch per row and the `unavailable` arm. Held back so phases 2 and 3 ship without `update` having to know about either yet.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 5   | Document the new sources                   | `docs:`     | README examples and the `--help` block. Contributor and agent knowledge goes to `CLAUDE.md` as each phase lands, not here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## Open items
 
@@ -339,6 +338,22 @@ shape above.
   plan fails with a hint naming `--repo` and `list`. Running the listing right there would
   be friendlier, and the machinery is one `ListAction` away - but it makes one command do
   two things, and the hint is already actionable. Deferred, not rejected.
+- **Where does "the files must be staged locally" live?** Phase 1 changed
+  `Harness.needsSource` from a constant to `needsSource(origin)` and reverted it: no
+  implementation could use the parameter, a test could not even pass one, and phase 2
+  would have had to edit Claude Code's signature regardless. Two candidate shapes, to be
+  decided with the caller in hand. `needsSource(origin)` per harness reads as one
+  question, but asks N editors to re-derive one fact. The alternative keeps
+  `needsSource: boolean` as a property of the editor - Cursor and VS Code copy files,
+  Claude Code does not - and puts the second, origin-shaped fact where there is exactly
+  one of it, for the action to combine. The second is the better guess; what has to be
+  checked before committing to it is the compound condition at the two call sites.
+- **Should the origin hold a `RepoSlug` rather than a `string`?** `brand.repo` is already
+  parsed at brand resolution, so nothing new would fail - and it would give `key()` the
+  existing `toSearchKey()` instead of a third hand-rolled case fold, and let
+  `isSameOrigin` stop rebuilding a `RepoSlug` per listing row. It touches `Brand`, which
+  is why it is not in phase 1; worth doing before a second origin arm makes it two
+  refactors.
 
 ## Out of scope
 

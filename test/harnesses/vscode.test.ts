@@ -56,7 +56,7 @@ function machine({ installed = true, settings = null, copied = false }: MachineS
   const events: HarnessEvent[] = [];
   const ctx: HarnessContext = {
     plugin: PLUGIN,
-    marketplace: new RepoMarketplace('apimatic/context-plugins', 'context-plugins'),
+    origin: new RepoMarketplace('apimatic/context-plugins', 'context-plugins'),
     srcDir: new DirectoryPath(src),
     listener: (e) => events.push(e),
   };
@@ -243,5 +243,5 @@ test("detect and location answer about VS Code's user directory", () => {
   assert.equal(vscode.detect(here.opts), true);
   assert.equal(vscode.detect(gone.opts), false);
   assert.match(vscode.location(here.opts).toString(), /code-user$/);
-  assert.equal(vscode.needsSource(), true, 'VS Code installs from files, so it needs them');
+  assert.equal(vscode.needsSource, true, 'VS Code installs from files, so it needs them');
 });

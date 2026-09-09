@@ -22,7 +22,7 @@ const REPO = 'apimatic/context-plugins';
  */
 const CTX: HarnessContext = {
   plugin: 'xero-sdk',
-  marketplace: new RepoMarketplace(REPO, 'context-plugins'),
+  origin: new RepoMarketplace(REPO, 'context-plugins'),
   listener: () => {},
 };
 
@@ -71,6 +71,14 @@ const opts = (run: RunCommand): HarnessOpts => {
   const env = withClaude();
   return { env, runner: runnerFor(run, env) };
 };
+
+test('it installs from the marketplace itself, so it needs no plugin files', () => {
+  // The one harness that answers `false`, and the flag `actions/install.ts`
+  // reads to decide whether to fetch at all. It was the only one of the three
+  // unasserted: flipping it to `true` made every Claude install clone a
+  // repository it never reads, and the whole suite stayed green.
+  assert.equal(claude.needsSource, false);
+});
 
 test('an already-registered marketplace is updated, not re-added', async () => {
   const run = fakeCli({
@@ -589,13 +597,13 @@ test('no claude on PATH is said once, for either verb', async () => {
 test('with no marketplace name each verb says which one it could not do', async () => {
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
 
-  const installing = recording({ marketplace: NAMELESS });
+  const installing = recording({ origin: NAMELESS });
   assert.equal(outcome(await claude.install(installing.ctx, opts(run))), 'skipped');
   assert.deepEqual(installing.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'install' },
   ]);
 
-  const uninstalling = recording({ marketplace: NAMELESS });
+  const uninstalling = recording({ origin: NAMELESS });
   assert.equal(await claude.uninstall(uninstalling.ctx, opts(run)), 'skipped');
   assert.deepEqual(uninstalling.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' },

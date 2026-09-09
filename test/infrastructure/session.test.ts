@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { sourceFetcher } from '../../src/infrastructure/source-fetcher.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
+import { MarketplaceName } from '../../src/types/ids/marketplace-name.js';
 import { RepoMarketplace } from '../../src/types/marketplace-origin.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
@@ -116,7 +117,7 @@ test('a marketplace spelled two ways is registered with Claude once', async () =
     for (const repo of ['Acme/M', 'acme/m']) {
       await new ClaudeHarness().ensureMarketplaceOnce(
         claudeCli('claude', runnerFor(exec)),
-        RepoMarketplace.named(repo, 'acme'),
+        RepoMarketplace.named(repo, new MarketplaceName('acme')),
         session,
         () => {},
       );
@@ -283,7 +284,7 @@ test('the Claude marketplace is registered once per session, and said once', asy
   for (const _plugin of ['alpha', 'beta', 'gamma']) {
     await new ClaudeHarness().ensureMarketplaceOnce(
       claudeCli('claude', runnerFor(exec)),
-      RepoMarketplace.named(repo, 'acme'),
+      RepoMarketplace.named(repo, new MarketplaceName('acme')),
       session,
       (e) => events.push(e),
     );
@@ -302,7 +303,7 @@ test('without a session the marketplace is registered per call, as before', asyn
   await quietly(async () => {
     const cli = claudeCli('claude', runnerFor(exec));
     const harness = new ClaudeHarness();
-    const origin = RepoMarketplace.named(repo, 'acme');
+    const origin = RepoMarketplace.named(repo, new MarketplaceName('acme'));
     await harness.ensureMarketplaceOnce(cli, origin, null, () => {});
     await harness.ensureMarketplaceOnce(cli, origin, null, () => {});
   });

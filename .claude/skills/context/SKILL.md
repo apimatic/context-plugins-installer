@@ -79,9 +79,13 @@ export interface ThingContext {
 - **Make the listener required.** An optional listener is a line that can go
   missing without anything failing.
 - **Optional means "genuinely absent", not "usually passed".** `session` is
-  optional because a lone install has no shared session; `marketplace` is
-  `string | null` because an unresolved name is a real state with real
-  behaviour, not a missing argument.
+  optional because a lone install has no shared session.
+- **A nullable field belongs inside the value, not beside it.** `HarnessContext`
+  carries one `origin`, and the unresolved-name state lives on it as
+  `MarketplaceOrigin.name` - an uninstall that could not look one up is a real
+  state with real behaviour. It was a `marketplace: string | null` beside a
+  `repo: string`, and nothing stopped a caller pairing a name with the wrong
+  repository.
 - **Don't add a field only one caller reads.** Two fields on `InstallRequest`
   are read by the command and ignored by the action, which is harmless while
   both callers pass the same values twice and a trap the moment one does not.

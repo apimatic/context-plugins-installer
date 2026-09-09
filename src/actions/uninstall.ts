@@ -130,7 +130,7 @@ export class UninstallAction {
           await harness.uninstall(
             {
               plugin,
-              marketplace: found.origin,
+              origin: found.origin,
               listener: this.prompts.harnessListener,
             },
             this.pathOpts,

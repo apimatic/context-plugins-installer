@@ -95,6 +95,7 @@ export interface Registration {
 export class ClaudeHarness implements Harness {
   readonly name: HarnessName = 'claude';
   readonly title = TITLES.claude;
+  readonly needsSource = false;
 
   detect(opts?: HarnessOpts): boolean {
     return Boolean(this.binary(opts));
@@ -102,17 +103,6 @@ export class ClaudeHarness implements Harness {
 
   location(): string {
     return 'claude on PATH';
-  }
-
-  /**
-   * Claude Code installs from the marketplace itself, so the files are needed
-   * only for a marketplace whose contents this tool has to produce - and there
-   * is no such origin yet. Taking no argument is the point: this answer cannot
-   * currently depend on the origin, and the day it does the parameter arrives
-   * with the reason for it.
-   */
-  needsSource(): boolean {
-    return false;
   }
 
   /**
@@ -187,7 +177,7 @@ export class ClaudeHarness implements Harness {
       if (from) {
         return err(
           new Failure(
-            `Claude Code already has a marketplace named '${marketplace}', from ${from} rather than ${origin.describe()}.`,
+            `Claude Code already has a marketplace named '${marketplace}', from ${from} rather than ${origin}.`,
             `Remove it with \`claude plugin marketplace remove ${marketplace}\`, then run this again.`,
           ),
         );
@@ -247,7 +237,7 @@ export class ClaudeHarness implements Harness {
   }
 
   async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>> {
-    const { plugin, marketplace: origin, session } = ctx;
+    const { plugin, origin, session } = ctx;
     const say: Say = ctx.listener;
     const claude = this.binary(opts);
     if (!claude) {
@@ -304,7 +294,7 @@ export class ClaudeHarness implements Harness {
   }
 
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {
-    const { plugin, marketplace: origin } = ctx;
+    const { plugin, origin } = ctx;
     const say: Say = ctx.listener;
     const claude = this.binary(opts);
     // A skip, not a failure: Claude Code is not here to fail, and the record

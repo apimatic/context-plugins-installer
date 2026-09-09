@@ -1,3 +1,6 @@
+import { MarketplaceName } from './ids/marketplace-name.js';
+import { nonEmptyString } from './util.js';
+
 // Where the marketplace a run installs from actually lives, in the vocabulary
 // `claude plugin marketplace list --json` answers in: today a GitHub
 // repository, and - once a plugin can be installed from a path - a directory on
@@ -37,35 +40,48 @@ export class RepoMarketplace {
   ) {}
 
   /**
-   * An origin whose marketplace name is already known. The cast is sound by the
-   * parameter - `name` cannot be null here - and this is the one place that can
-   * say so, which is why registering a marketplace takes one of these rather
-   * than an origin and a name that could belong to different marketplaces.
+   * An origin whose marketplace name is already known. It takes the validated
+   * `MarketplaceName` rather than a string, so the claim the return type makes
+   * is carried by the argument: a name that got this far passed the pattern and
+   * cannot be empty. Nothing here re-checks it - a caller holding one has
+   * already paid for that.
    */
-  static named(repo: string, name: string): NamedMarketplace {
-    return new RepoMarketplace(repo, name) as NamedMarketplace;
+  static named(repo: string, name: MarketplaceName): NamedMarketplace {
+    return new RepoMarketplace(repo, name.toString()) as NamedMarketplace;
   }
 
   /**
    * Whether the name is known, narrowing the origin so a caller that has asked
    * does not then have to carry the answer alongside it.
+   *
+   * `nonEmptyString` rather than a null check, because that is the question
+   * every other reader of a marketplace name asks - the harness reads Claude's
+   * own listing that way twice. An empty name passing here would clear the
+   * install's guard and then be spelled into `plugin install <id>@`.
    */
   hasName(): this is this & NamedMarketplace {
-    return this.name !== null;
+    return nonEmptyString(this.name);
   }
 
   /**
-   * The key a session memoises the registration under. Case-folded on the repo,
-   * the way GitHub reads a slug and the way the harness's own listing match
-   * already does: two spellings are one marketplace, and registering it twice
-   * would be a second `marketplace add` for something already added.
+   * The key a session memoises the registration under. In memory, for one run,
+   * so the format is ours to choose - and two things it has to hold. The repo
+   * is case-folded the way GitHub reads a slug, so two spellings of one
+   * repository register once rather than twice. And the discriminant leads, so
+   * a second kind of origin cannot fold into a repo's key and be handed that
+   * repo's cached registration: `session.marketplaces` is a `Map<string, ...>`,
+   * and there is nothing narrower to catch it.
+   *
+   * The name is *not* folded, deliberately. Claude Code keys a marketplace by
+   * the name it was added under, and this build has no evidence that it reads
+   * two spellings of one name as one marketplace.
    */
   key(): string {
-    return `${this.repo.toLowerCase()}::${this.name ?? ''}`;
+    return `${this.kind}:${this.repo.toLowerCase()}::${this.name ?? ''}`;
   }
 
-  /** What a message calls it, when it has to name where a marketplace came from. */
-  describe(): string {
+  /** The display route, the way every other value in `types/` spells its own. */
+  toString(): string {
     return this.repo;
   }
 }
@@ -82,5 +98,10 @@ export type MarketplaceOrigin = RepoMarketplace;
  * An origin Claude Code can be asked to register: every check has run and the
  * name is known. `RepoMarketplace.named` and `hasName` are the only ways to
  * hold one, so a nameless origin cannot reach the code that needs a name.
+ *
+ * An intersection rather than a second class, and not the branded alias the
+ * value-object rules refuse: a brand is erased at runtime and cannot carry
+ * behaviour, where this keeps every method the class has and only narrows a
+ * field.
  */
 export type NamedMarketplace = MarketplaceOrigin & { readonly name: string };

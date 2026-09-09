@@ -142,7 +142,7 @@ export class InstallAction {
     report.untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
 
     let srcDir: DirectoryPath | null = null;
-    if (want.some((name) => harnesses.byName(name).needsSource(origin))) {
+    if (want.some((name) => harnesses.byName(name).needsSource)) {
       this.at = 'fetch';
       this.prompts.fetching();
       const source = await this.session.source({
@@ -156,18 +156,19 @@ export class InstallAction {
     }
 
     this.at = 'install';
+    // Every field is settled before the loop, so one context serves every editor.
+    const ctx: HarnessContext = {
+      plugin,
+      origin,
+      srcDir,
+      session: this.session,
+      listener: this.prompts.harnessListener,
+    };
     const installed: HarnessName[] = [];
     for (const name of want) {
       const harness = harnesses.byName(name);
       this.prompts.beginHarness(harness.title);
-      const ctx: HarnessContext = {
-        plugin,
-        marketplace: origin,
-        srcDir,
-        session: this.session,
-        listener: this.prompts.harnessListener,
-      };
-      if (harness.needsSource(origin) && !ctx.srcDir) {
+      if (harness.needsSource && !ctx.srcDir) {
         this.prompts.noSource(harness.title);
         continue;
       }
