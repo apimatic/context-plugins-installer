@@ -1,0 +1,1381 @@
+# context-plugins Layering Plan
+
+Moving the installer onto the command / action / prompts / infrastructure / types
+boundaries that apimatic-cli uses, in eight phases that each leave the suite green.
+
+All eight land on one branch, `saeedjamshaid/layering-refactor`, as a single pull
+request against `main`. That is a change from what this document first said: the
+phases were planned as sixteen stacked pull requests, and stacking them through
+squash merges cost more than reviewing them in order does. The phase is still the
+unit of review, and each is a run of self-contained commits.
+
+| Date       | Base             | Source      | Tests               | Reference          |
+| ---------- | ---------------- | ----------- | ------------------- | ------------------ |
+| 2026-09-04 | `main @ a351689` | 4,411 lines | 283 across 16 files | apimatic-cli 1.3.1 |
+
+Contents
+
+1. [Decisions already made](#decisions-already-made)
+2. [What the reference actually does](#what-the-reference-actually-does)
+3. [Where this repo is today](#where-this-repo-is-today)
+4. [Target architecture](#target-architecture)
+5. [The shared kernel](#the-shared-kernel)
+6. [What an action reads like afterwards](#what-an-action-reads-like-afterwards)
+7. [How a harness talks without a terminal](#how-a-harness-talks-without-a-terminal)
+8. [File map](#file-map)
+9. [Test map](#test-map)
+10. [Phases](#phases)
+11. [Rules that hold for every PR](#rules-that-hold-for-every-pr)
+12. [Risks and how each is held](#risks-and-how-each-is-held)
+13. [Out of scope](#out-of-scope)
+
+## Decisions already made
+
+These were settled before the plan was written. Everything below assumes them; change one
+and the affected phase changes with it.
+
+| Decision       | Choice                              | Why                                                                                                               |
+| -------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Dependencies   | Zero at runtime, hand-rolled kernel | ActionResult, Result and the prompts layer are written in-repo. No oclif, clack or neverthrow.                    |
+| Modules        | CommonJS stays                      | bin/cli.js keeps its require; relative imports keep the `.js` suffix they already carry; Node 18 floor untouched. |
+| Injection      | Constructor injection               | Actions, contexts and harnesses receive their services. Tests pass fakes. No sinon, no prototype stubs.           |
+| Library API    | Dropped                             | `src/index.ts` and package.json `main` / `types` / `exports` go. The CLI is the only consumer of its code.        |
+| run.js         | Dropped, with Profile               | Brand config stays reachable through flags, `CP_*` env and `.contextpluginsrc`.                                   |
+| Harness output | Listener port                       | Harnesses emit typed events; a prompts class turns them into prose. Progress stays live.                          |
+| Telemetry      | Events fired from commands          | Actions return facts; commands map them to event classes; a service sends.                                        |
+| Value objects  | Identifiers and paths               | PluginId, RepoSlug, GitRef, MarketplaceName, DirectoryPath, FilePath.                                             |
+
+## What the reference actually does
+
+apimatic-cli documents its layers in `.ai/instructions.md` and seven skill files. Reading
+the code alongside them, the boundaries that matter are these.
+
+- **Command** parses flags, converts them to typed values, builds a `CommandMetadata`, then
+  runs exactly `intro -> action.execute -> outro(result)`. `outro` maps the result to
+  `process.exitCode`. Telemetry events are fired here, from the result.
+- **Action** is one class per command. The constructor takes what it needs; `execute` is an
+  arrow property returning `ActionResult` and never throws. Every message goes through a
+  paired Prompts class. Validation and file I/O go through Context objects.
+- **Application** holds pure algorithms: data in, data out, no I/O, no prompts.
+- **Prompts** is one stateless class per command over `@clack/prompts`. Four kinds of
+  method: spinners, interactive prompts with a cancel guard, log lines, notes.
+- **Infrastructure** services are silent and return `Result<T, ServiceError>` rather than
+  throwing.
+- **Types** hold value objects (private primitive, `toString` as the only exit,
+  `static create()` for fallible construction), contexts (path derivation plus validation
+  plus I/O for one concept, derived paths as private getters), DTOs, and past-tense domain
+  events.
+
+Three things the reference does that this plan deliberately does not copy, each tied to a
+decision above:
+
+- It creates services and prompts inline with `new` and tests by stubbing prototypes with
+  sinon. This repo injects through constructors and keeps `node:test`.
+- Its contexts import concrete `FileService` from infrastructure, so the types layer
+  depends on the I/O layer. Here a context receives its store through the constructor,
+  typed by a small port interface in `types/`.
+- Its `ActionResult.failed()` carries only a message. Here every variant carries the
+  action's **report**, because the command needs the facts of a failed run (which editors
+  were reached, at what stage it stopped, how long it took) to fire telemetry from outside
+  the action.
+
+Also worth knowing before copying anything: its `ServiceError` imports the prompts
+formatter, so infrastructure there depends on the UI layer; its `envInfo` is a mutable
+singleton that tests reset by reaching into a private static; and its command-layer
+telemetry carries a `// TODO: find a solution for tracking`. Those are the reference's
+known gaps, not its pattern.
+
+## Where this repo is today
+
+The codebase is careful about the things it thinks about: validation at JSON boundaries,
+cross-platform paths, the manifest's whole-or-null rules, a state-space test for the
+uninstall decision. What it lacks is any boundary between deciding, doing, and saying.
+
+| Symptom                                                                                                      | Where                                                                                 | Measure                                    |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Terminal output is written from every layer, so no single file shows what a command does                     | `install.ts`, `cli.ts`, the three harnesses, `telemetry.ts`, `fetch.ts`, `catalog.ts` | 151 direct `log.*` calls in 8 files        |
+| The argument parser also renders four commands' output and holds their logic                                 | `cli.ts`: the `list`, `doctor`, `installed` and `telemetry` cases                     | 452 lines, 44 output calls                 |
+| Four commands' orchestration, the pure uninstall decision, prompting and telemetry plumbing share one module | `install.ts`                                                                          | 789 lines                                  |
+| Expected failures are thrown from any depth and caught at the top; exit codes come from catch blocks         | `throw new UserError`                                                                 | 37 sites in 8 files                        |
+| Test seams are threaded as options bags through every level                                                  | `deps` / `pathOpts` parameters                                                        | 43 mentions in install.ts, 26 in doctor.ts |
+| Identifiers are raw strings; the marketplace-name rule is written twice                                      | `MARKETPLACE_RE` in `catalog.ts` and `doctor.ts`; `assert*` in `util.ts`              | 4 identifier kinds, 0 types                |
+| Rules about a manifest row live in two modules that must agree                                               | `sanitizeEntry` in `manifest.ts`, `rowShape` and the rebuild in `install.ts`          | 2 views of one concept                     |
+| Home-directory shortening for display is called wherever a path is printed                                   | `shortPath(...)`                                                                      | 24 call sites                              |
+| All types in one file                                                                                        | `types.ts`                                                                            | 359 lines                                  |
+
+**Keep, do not rebuild.** Zero dependencies. Injection through seams. `decideUninstall` and
+its exhaustive test. Path resolution by target platform in `paths.ts`. The whole-or-null
+reading of Claude's plugin listing. JSONC splicing in `settings-merge.ts`. The
+promise-cached session. Every one of these moves to a new home verbatim; none is
+redesigned.
+
+## Target architecture
+
+Six directories under `src/`, each allowed to import from a fixed set of the others. The
+arrows below are the whole rule; a lint rule enforces them from Phase 7.
+
+```
+                    +-------------------------------+
+                    | commands/                     |  args, help, router, one file per command
+                    +---------------+---------------+
+      intro, outro, usage errors    | construct, execute
+              +---------------------+
+              |                     v
+              |     +-------------------------------+
+              |     | actions/                      |  one class per command; returns ActionResult<Report>
+              |     +----+-----------+----------+---+
+              |          | decide    | install, | manifest, registry, source
+              v          v           v uninstall|
+        +----------+ +--------------+ +------------+
+        | prompts/ | | application/ | | harnesses/ |
+        +----------+ +--------------+ +-----+------+
+                                            | editor I/O
+                                            v          v
+                                     +---------------------+
+                                     | infrastructure/     |
+                                     +----------+----------+
+                                                v
+   +----------------------------------------------------------------------+
+   | types/  value objects, ports, contexts, events, Result, Failure       |
+   +----------------------------------------------------------------------+
+     every layer imports types/; types/ imports nothing but node:path and node:url
+
+   Removed edges that exist today: harnesses -> terminal, infrastructure -> terminal.
+```
+
+| Directory         | May import                                                                                | Must not import                                           | Owns                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `commands/`       | actions, prompts (format, terminal config), types, composition                            | infrastructure directly, harnesses, application           | flag table, help, router, one command class each; fires telemetry events from reports |
+| `actions/`        | application, harnesses, infrastructure (as constructor types), prompts (own class), types | `prompts/terminal`, commands                              | the flow of one command, top to bottom                                                |
+| `prompts/`        | types, prompts/terminal, prompts/format                                                   | infrastructure, actions, harnesses, application, commands | every user-visible string; the only `console` in the codebase                         |
+| `application/`    | types                                                                                     | everything else, node I/O                                 | pure decisions                                                                        |
+| `harnesses/`      | infrastructure, types                                                                     | prompts, actions, commands                                | one editor's install policy, expressed as events and an outcome                       |
+| `infrastructure/` | types, node builtins                                                                      | prompts, actions, harnesses, application, commands        | every file, process, network and state-file operation; returns `Result`, never prints |
+| `types/`          | types, `node:path`, `node:url`                                                            | everything else                                           | value objects, ports, contexts, events, `Result`, `Failure`, `NAMES` and titles       |
+
+### Directory tree
+
+```
+src/
+  main.ts                        run(argv): Promise<number>  -- what bin/cli.js requires
+  composition.ts                 builds the real Services once per run; tests build fakes
+  commands/
+    args.ts  help.ts  router.ts
+    install.ts  uninstall.ts  update.ts  list.ts  installed.ts  doctor.ts  telemetry.ts
+  actions/
+    action-result.ts
+    install.ts  uninstall.ts  update.ts  list.ts  installed.ts  doctor.ts  telemetry.ts
+  application/
+    uninstall-decision.ts        decideUninstall, uninstallLines -- moved verbatim
+    plugin-resolution.ts         resolvePlugin without the fetch; suggest()
+    target-selection.ts          resolveTargets; ask-or-take-all decision
+    brand-resolution.ts          flag -> env -> rc -> defaults, over already-read sources
+  prompts/
+    terminal.ts  format.ts  prompter.ts  gaps.ts
+    install.ts  uninstall.ts  update.ts  list.ts  installed.ts  doctor.ts  telemetry.ts  router.ts
+    harness/claude.ts  cursor.ts  vscode.ts        HarnessListener implementations
+  harnesses/
+    index.ts                     HarnessRegistry over instances; byName, detect
+    claude.ts  cursor.ts  vscode.ts
+  infrastructure/
+    file-system.ts  process-runner.ts  environment.ts  paths.ts
+    rc-file.ts  manifest-store.ts  vscode-settings.ts
+    github-registry-client.ts  source-fetcher.ts  session.ts  claude-cli.ts
+    telemetry-state.ts  mixpanel-client.ts  telemetry-service.ts
+  types/
+    result.ts  failure.ts
+    ids/plugin-id.ts  repo-slug.ts  git-ref.ts  marketplace-name.ts
+    file/directory-path.ts  file-path.ts
+    brand.ts  harness.ts  catalog.ts  session.ts  doctor.ts  reports.ts  telemetry.ts
+    installed-record.ts          every rule about a manifest row, in one place
+    manifest-context.ts          the state file as a domain object
+    ports.ts                     ManifestStore, RegistryReader, SourceFetcher interfaces
+    events/domain-event.ts  plugin-installed.ts  plugin-install-failed.ts
+           plugin-uninstalled.ts  plugin-uninstall-failed.ts
+```
+
+## The shared kernel
+
+Four small types carry the whole design. They are written once in Phase 0 and never grow a
+dependency.
+
+### Result and Failure
+
+`Failure` is today's `UserError` as a value: a message the user can act on and an optional
+hint. Infrastructure returns `Result<T, Failure>` for anything that can go wrong in the
+world; it throws only for bugs. The router prints a thrown `Error` with its stack under
+`--verbose` and exits 1, exactly as today.
+
+```ts
+export class Failure {
+  constructor(
+    readonly message: string,
+    readonly hint?: string,
+  ) {}
+}
+
+export type Result<T, E = Failure> =
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: E };
+
+export const ok = <T>(value: T): Result<T, never> => ({ ok: true, value });
+export const err = <E>(error: E): Result<never, E> => ({ ok: false, error });
+```
+
+### ActionResult
+
+Every action returns one. All three variants carry the action's **report**, the facts of
+the run, because the command fires telemetry from it whether or not the run succeeded. Exit
+codes: 0 success, 1 failed, 130 cancelled. Usage errors never reach an action; the router
+answers those with 2.
+
+```ts
+export class ActionResult<R> {
+  static success<R>(report: R): ActionResult<R>;
+  static failed<R>(report: R, failure: Failure): ActionResult<R>;
+  static cancelled<R>(report: R): ActionResult<R>;
+
+  readonly report: R;
+  readonly failure: Failure | null;
+  isSuccess(): boolean;
+  isFailed(): boolean;
+  isCancelled(): boolean;
+  exitCode(): 0 | 1 | 130;
+}
+```
+
+Reports are plain types in `types/reports.ts`. `InstallReport` carries `plugin`,
+`installed: HarnessName[]`, `untouched`, `marketplace`, `ref`, `stage`, `targetsExplicit`
+and `durationMs`: the same fields install.ts's `progress` object and `InstallResult` hold
+today, in one place. `UninstallReport` carries the `UninstallDecision` itself.
+`UpdateReport` carries one `InstallReport` per row, so the update command fires the same
+events install does.
+
+### HarnessEvent
+
+A discriminated union of everything a harness can say while it works. The harness emits; a
+prompts class writes prose. The strings that exist today move into the prompts class
+unchanged.
+
+```ts
+export type HarnessEvent =
+  | { kind: 'not-detected'; location: DirectoryPath | 'claude on PATH' }
+  | { kind: 'marketplace-known-as'; known: MarketplaceName; configured: MarketplaceName }
+  | { kind: 'marketplace-refreshing'; name: MarketplaceName }
+  | { kind: 'marketplace-refresh-failed'; name: MarketplaceName; exit: number; detail: string }
+  | { kind: 'marketplace-added'; name: MarketplaceName }
+  | { kind: 'retrying-after-refresh'; target: string }
+  | { kind: 'copied'; dest: DirectoryPath }
+  | { kind: 'removed'; dest: DirectoryPath }
+  | { kind: 'nothing-at'; dest: DirectoryPath }
+  | {
+      kind: 'settings-edited';
+      file: FilePath;
+      action: AddLocationAction | RemoveLocationAction;
+      backup: FilePath | null;
+    }
+  | { kind: 'settings-unremovable'; file: FilePath; dest: DirectoryPath }
+  | { kind: 'no-plugin-manifest' } // Cursor's .cursor-plugin/plugin.json is missing
+  | { kind: 'cli-said'; stream: 'stdout' | 'stderr'; tail: string }; // --verbose detail
+
+export type HarnessListener = (event: HarnessEvent) => void;
+```
+
+The outcome is still the return value: `Result<'installed' | 'skipped', Failure>` for
+install and `Result<UninstallOutcome, Failure>` for uninstall, with `UninstallOutcome`
+unchanged as `'removed' | 'absent' | 'skipped' | 'failed'`. A thrown error inside a harness
+is still caught per harness by the uninstall action and recorded as `failed`, so one
+editor's I/O failure never hides the others.
+
+### Domain events
+
+Telemetry's property names are a Mixpanel contract, so each event is a class whose
+constructor types make it impossible to pass a path or a message. `plugin` is a
+`PluginId | null`, never a string; the "only once validated" rule becomes a type.
+
+```ts
+export class PluginInstalledEvent extends DomainEvent {
+  readonly name = 'Context Plugin Installed';
+  constructor(
+    private readonly plugin: PluginId,
+    private readonly harness: HarnessName,
+    private readonly marketplace: MarketplaceLabel, // the built-in repo, or 'custom'
+    private readonly targetsExplicit: boolean,
+    private readonly durationMs: number,
+  ) {
+    super();
+  }
+  properties() {
+    return {
+      plugin: this.plugin.toString(),
+      harness: this.harness,
+      marketplace: this.marketplace,
+      targets_explicit: this.targetsExplicit,
+      duration_ms: this.durationMs,
+    };
+  }
+}
+```
+
+The four events are `PluginInstalled`, `PluginInstallFailed` (`plugin | null`,
+`marketplace`, `stage`, `errorKind`), `PluginUninstalled` and `PluginUninstallFailed`.
+Run-level properties (`command`, `cli_version`, `node_major`, `os`, `arch`, `ci`,
+`interactive`, `run_id`) stay in the service, added at flush.
+
+### Value objects
+
+| Type                        | Replaces                                                                                       | Behaviour it owns                                                                                                                                                                                                                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PluginId`                  | `assertPlugin`, `isPluginId`, the telemetry guard                                              | `create()` with the kebab-case, 64-char rule; `isEqual`                                                                                                                                                                                                                                                           |
+| `RepoSlug`                  | `assertRepo`, `REPO_IN` and `isSameRepo` in claude.ts, URL building in catalog.ts and fetch.ts | `cloneUrl()`, `rawUrl(ref, path)`, `treeUrl(ref)`, case-insensitive `matches()`, `fromListing(text)`                                                                                                                                                                                                              |
+| `GitRef`                    | `assertRef`, `isSha`                                                                           | `isSha()` so the clone strategy can switch; `isDefault()` for the "from" label                                                                                                                                                                                                                                    |
+| `MarketplaceName`           | both copies of `MARKETPLACE_RE`                                                                | `create()` with Claude's schema rule; the hint text about kebab-case lives with it                                                                                                                                                                                                                                |
+| `DirectoryPath`, `FilePath` | 27 `path.join` sites, 24 `shortPath` sites                                                     | Carry the **target platform's** joiner (`path.win32` or `path.posix`), so `test/paths.test.ts` still asserts a Windows path from Linux. `join()`, `parent()`, `isEqual()`, `contains()` for the traversal check in the API download. Display shortening (`~`) is `f.path()` in prompts, not a method on the path. |
+
+Every value object follows the reference's rules: private primitive, `toString()` as the
+only way out, `static create()` returning `T | undefined` from untrusted input, direct
+constructor for trusted callers. `.toString()` appears only at `fs`, `spawn`, `fetch` and
+display sites.
+
+## What an action reads like afterwards
+
+The test of the whole exercise is whether a cold reader can open one file and see what
+`install` does. This is the shape `actions/install.ts` takes; the strings and rules are
+today's, only their location changes.
+
+```ts
+export class InstallAction {
+  constructor(
+    private readonly prompts: InstallPrompts,
+    private readonly registry: RegistryReader, // session-backed: one read per repo@ref
+    private readonly sources: SourceFetcher, // session-backed: one clone per repo@ref
+    private readonly harnesses: HarnessRegistry,
+    private readonly manifest: ManifestContext,
+    private readonly prompter: Prompter,
+    private readonly environment: Environment,
+  ) {}
+
+  readonly execute = async (req: InstallRequest): Promise<ActionResult<InstallReport>> => {
+    const report = InstallReport.start(req);
+
+    const resolved = await this.registry.resolve(req.brand, req.plugin);
+    if (!resolved.ok) return ActionResult.failed(report.at('resolve'), resolved.error);
+    this.prompts.resolved(resolved.value);
+
+    const conflict = this.manifest.conflictFor(req.plugin, req.brand.repo);
+    if (conflict && !req.force) return ActionResult.failed(report.at('harnesses'), conflict);
+
+    const detected = this.harnesses.detect(req.targets);
+    this.prompts.detected(detected);
+    if (!detected.available.length) {
+      return ActionResult.failed(report, noEditorFailure(detected, req));
+    }
+
+    const chosen = await this.choose(detected.available, req);
+    if (chosen === 'cancelled') return ActionResult.cancelled(report);
+    if (!chosen.length) {
+      this.prompts.nothingChosen();
+      return ActionResult.success(report);
+    }
+    this.prompts.installingInto(chosen);
+
+    let source: DirectoryPath | null = null;
+    if (this.harnesses.anyNeedsSource(chosen)) {
+      const fetched = await this.sources.fetch(resolved.value);
+      if (!fetched.ok) return ActionResult.failed(report.at('fetch'), fetched.error);
+      source = fetched.value.dir;
+      this.prompts.sourceReady(fetched.value);
+    }
+
+    for (const name of chosen) {
+      this.prompts.beginHarness(name);
+      const ctx = {
+        plugin: req.plugin,
+        marketplace: resolved.value.marketplace,
+        repo: req.brand.repo,
+        source,
+        session: req.session,
+        listener: this.prompts.harnessListener(name),
+      };
+      const outcome = await this.harnesses.byName(name).install(ctx);
+      if (!outcome.ok) return ActionResult.failed(report.at('install'), outcome.error);
+      if (outcome.value === 'installed') report.installed(name);
+    }
+
+    this.manifest.recordInstall(report, resolved.value); // keeps foreign targets and unknown fields
+    this.prompts.summary(report);
+    return ActionResult.success(report.finished());
+  };
+}
+```
+
+Notice what is **not** in it: no `log`, no `deps`, no telemetry, no `try` around the whole
+thing, no manifest rebuild logic. The command that owns it is shorter still:
+
+```ts
+export class InstallCommand {
+  async run(
+    parsed: ParsedArgs,
+    brand: Brand,
+    services: Services,
+  ): Promise<ActionResult<InstallReport>> {
+    const plugin = PluginId.create(parsed.args[0] ?? services.environment.get('CP_PLUGIN'));
+    if (!plugin) {
+      return usageFailure(
+        'No plugin specified.',
+        `Usage: ${BIN} install <plugin>   (or set CP_PLUGIN)`,
+      );
+    }
+
+    this.prompts.intro(plugin, brand, parsed.flags.ref);
+    const action = new InstallAction(
+      new InstallPrompts(),
+      services.session,
+      services.session,
+      services.harnesses,
+      services.manifest,
+      services.prompter,
+      services.environment,
+    );
+    const result = await action.execute({
+      brand,
+      plugin,
+      ref: parsed.flags.ref,
+      targets: parsed.targets,
+      force: parsed.flags.force,
+      assumeYes: parsed.flags.yes,
+      session: services.session,
+    });
+    this.prompts.outro(result);
+
+    for (const harness of result.report.installed) {
+      services.telemetry.track(
+        new PluginInstalledEvent(
+          plugin,
+          harness,
+          brand.marketplaceLabel(),
+          result.report.targetsExplicit,
+          result.report.durationMs,
+        ),
+      );
+    }
+    if (result.isFailed()) {
+      services.telemetry.track(
+        new PluginInstallFailedEvent(
+          plugin,
+          brand.marketplaceLabel(),
+          result.report.stage,
+          errorKind(result.failure),
+        ),
+      );
+    }
+    return result;
+  }
+}
+```
+
+## How a harness talks without a terminal
+
+Claude Code's install shells out up to five times; a silent stretch would read as a hang.
+The listener port keeps progress live while the harness never learns what a terminal is.
+
+```
+  InstallAction         --install(ctx, listener)-->      ClaudeHarness        --list, add, update, install-->   ClaudeCli
+  actions/install.ts    <--Result<outcome>--             harnesses/claude.ts  <--validated rows, exit codes--   infrastructure/claude-cli.ts
+                                                               |
+                                                               | HarnessEvent, as each step lands
+                                                               v
+                                                         ClaudePrompts
+                                                         prompts/harness/claude.ts
+                                                         (the action supplies this as ctx.listener)
+
+  The harness never imports prompts/. The prompts class never imports the harness.
+  The action wires one into the other per call.
+```
+
+Each existing message ("Marketplace 'x' is already registered - updating it.") becomes one
+`case` in that prompts class, string unchanged.
+
+The split inside `harness/claude.ts` is the one place policy and I/O have to be pulled
+apart by hand:
+
+- **Infrastructure** (`claude-cli.ts`): `listMarketplaces()`, `listPlugins()`,
+  `marketplaceAdd/Update()`, `pluginInstall/Uninstall()`. This is where the whole-or-null
+  reading of the plugin listing lives, because it is a parsing rule: a listing with one
+  unreadable row returns `null`, never a shorter list.
+- **Harness** (`harnesses/claude.ts`): `ensureMarketplace` and its refresh-then-retry, the
+  same-name-different-repo refusal, `isAbsent` with the `SCOPE` / `OTHER_SCOPES` invariant,
+  the `LOOKS_STALE` and `LOOKS_ABSENT` fallbacks. Every one of these moves verbatim with the
+  claude.test case that covers it.
+
+## File map
+
+Where each thing in `src/` today ends up. "Verbatim" means the function body does not
+change in the move; a reviewer can diff it.
+
+| Today                                                                             | Target                                                                                                | Layer               | Note                                                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bin/cli.js`                                                                      | `bin/cli.js`                                                                                          | entry               | Requires `lib/main` instead of `lib/cli`. Contract unchanged; the CI smoke job proves it.                                                                                                                                        |
+| `run.js`, `run.d.ts`                                                              | removed                                                                                               |                     | With the `./run` export and the `Profile` type.                                                                                                                                                                                  |
+| `src/index.ts`                                                                    | removed                                                                                               |                     | With `main`, `types` and `exports` in package.json.                                                                                                                                                                              |
+| `cli.ts` · `parseArgs`, flag tables, `parseTargets`                               | `commands/args.ts`                                                                                    | commands            | Returns `Result<ParsedArgs>` instead of throwing; the router answers 2.                                                                                                                                                          |
+| `cli.ts` · `helpText`                                                             | `commands/help.ts`                                                                                    | commands            | Verbatim, minus the `bin` parameter.                                                                                                                                                                                             |
+| `cli.ts` · `run` switch                                                           | `commands/router.ts` + one `commands/<cmd>.ts` each                                                   | commands            | Router: parse, configure terminal, version, brand, help, dispatch, flush, exit code.                                                                                                                                             |
+| `cli.ts` · list / doctor / installed / telemetry rendering                        | `prompts/list.ts`, `doctor.ts`, `installed.ts`, `telemetry.ts`                                        | prompts             | The grid sizing, label widths and `--json` payloads move verbatim.                                                                                                                                                               |
+| `cli.ts` · `gapWarnings`                                                          | `prompts/gaps.ts`                                                                                     | prompts             | Shared by installed, list and doctor prompts.                                                                                                                                                                                    |
+| `cli.ts` · `telemetryCommand`                                                     | `actions/telemetry.ts` + `prompts/telemetry.ts`                                                       | actions             |                                                                                                                                                                                                                                  |
+| `cli.ts` · `packageVersion`                                                       | `infrastructure/environment.ts`                                                                       | infra               |                                                                                                                                                                                                                                  |
+| `install.ts` · `installPlugin`, `runInstall`                                      | `actions/install.ts`                                                                                  | actions             | See the sketch above.                                                                                                                                                                                                            |
+| `install.ts` · `uninstallPlugin`, `runUninstall`                                  | `actions/uninstall.ts`                                                                                | actions             | The "record failure after printing the summary" order is kept: the report is built, the summary printed, then `failed()` returned.                                                                                               |
+| `install.ts` · `updateAll`                                                        | `actions/update.ts`                                                                                   | actions             | Delegates to `InstallAction` per row with a muted `InstallPrompts` when collapsing, instead of toggling a global quiet flag.                                                                                                     |
+| `install.ts` · `listPlugins`                                                      | `actions/list.ts`                                                                                     | actions             |                                                                                                                                                                                                                                  |
+| `install.ts` · `decideUninstall`, `uninstallLines`                                | `application/uninstall-decision.ts`                                                                   | application         | Verbatim, with `uninstall-decision.test.ts`.                                                                                                                                                                                     |
+| `install.ts` · `rowShape`                                                         | `types/installed-record.ts`                                                                           | types               | Next to `sanitizeEntry`, so the two views of a row are one module.                                                                                                                                                               |
+| `install.ts` · `chooseHarnesses`, `askEach`                                       | `application/target-selection.ts` (decide) + `prompts/install.ts` (ask)                               | application         | The decision "explicit, --yes or non-interactive takes all" is pure; the asking is a prompts method.                                                                                                                             |
+| `install.ts` · `assertNoMarketplaceConflict`                                      | `types/manifest-context.ts` · `conflictFor()`                                                         | types               |                                                                                                                                                                                                                                  |
+| `install.ts` · manifest rebuild (`untouched`, canonical order, `foreignTargets`)  | `types/manifest-context.ts` · `recordInstall()`, `applyUninstall()`                                   | types               | The "never write a row back from the sanitized view" rule becomes the only write path.                                                                                                                                           |
+| `install.ts` · `sinkOf`, `trackFailure`, `Stage`, `progress`                      | removed; `InstallReport.stage` + `types/events/`                                                      |                     |                                                                                                                                                                                                                                  |
+| `install.ts` · `summarize`, `nothingChanged`                                      | `prompts/install.ts`                                                                                  | prompts             |                                                                                                                                                                                                                                  |
+| `harness/index.ts`                                                                | `harnesses/index.ts` + `NAMES`, `TITLES`, `titlesOf`, `everyEditor` in `types/harness.ts`             | harnesses / types   | Static knowledge (names, titles) is types; the registry of instances is built by composition.                                                                                                                                    |
+| `harness/claude.ts` · `listJson`, `listMarketplaces`, `installedPlugins`, `exec`  | `infrastructure/claude-cli.ts`                                                                        | infra               | Whole-or-null stays here.                                                                                                                                                                                                        |
+| `harness/claude.ts` · policy                                                      | `harnesses/claude.ts`                                                                                 | harnesses           | Verbatim, emitting events instead of logging.                                                                                                                                                                                    |
+| `harness/claude.ts`, `cursor.ts`, `vscode.ts` · every `log.*` line                | `prompts/harness/<editor>.ts`                                                                         | prompts             | 19 + 9 + 19 strings, unchanged.                                                                                                                                                                                                  |
+| `harness/cursor.ts`, `vscode.ts` · file ops                                       | `harnesses/cursor.ts`, `vscode.ts` over `FileSystem` and `VsCodeSettings`                             | harnesses           |                                                                                                                                                                                                                                  |
+| `catalog.ts` · `getJson`, `rawUrl`, `ghHeaders`, `loadCatalog`, `networkHint`     | `infrastructure/github-registry-client.ts`                                                            | infra               | Returns `Result<Catalog \| null>`.                                                                                                                                                                                               |
+| `catalog.ts` · `normalize`, `usableEntry`                                         | `types/catalog.ts`                                                                                    | types               |                                                                                                                                                                                                                                  |
+| `catalog.ts` · `entryFor`, `sourcePathFor`, `resolvePlugin`                       | `application/plugin-resolution.ts`                                                                    | application         | Takes the catalog as an argument; the session's `resolve()` fetches then calls it.                                                                                                                                               |
+| `fetch.ts`                                                                        | `infrastructure/source-fetcher.ts`                                                                    | infra               | Git and API strategies behind one class. "git not found, falling back" becomes a `via: 'api'` fact the action's prompts announce; "Downloaded N files" becomes a count on the result.                                            |
+| `session.ts`                                                                      | `infrastructure/session.ts`                                                                           | infra               | A memoising facade over the registry client and source fetcher, plus the Claude marketplace memo. Verbatim.                                                                                                                      |
+| `manifest.ts` · `readRaw`, `write`, `upsert`, `remove`, `findRaw`                 | `infrastructure/manifest-store.ts`                                                                    | infra               | Implements the `ManifestStore` port.                                                                                                                                                                                             |
+| `manifest.ts` · `sanitizeEntry`, `describeIgnored`, `foreignTargets`, `read` view | `types/installed-record.ts`, `types/manifest-context.ts`                                              | types               |                                                                                                                                                                                                                                  |
+| `brand.ts` · `readRc`                                                             | `infrastructure/rc-file.ts`                                                                           | infra               | Returns `Result<RcFile \| null>`; the "loud, names the file" rule is kept as a `Failure`.                                                                                                                                        |
+| `brand.ts` · `resolveBrand`, `DEFAULT_PROFILE`                                    | `application/brand-resolution.ts`, `types/brand.ts` (`DEFAULTS`, `BIN`, telemetry token and host)     | application / types | Profile removed: the token is always the project's, `defaultRepo` is a constant, `bin` is a constant.                                                                                                                            |
+| `paths.ts`                                                                        | `infrastructure/paths.ts`                                                                             | infra               | Same functions, returning `DirectoryPath` / `FilePath` for the target platform.                                                                                                                                                  |
+| `prompt.ts` · `createPrompter`, `parseAnswer`, `glyphs`                           | `prompts/prompter.ts`                                                                                 | prompts             | Ctrl+C resolves a `cancelled` signal instead of calling `process.exit(130)`, so session cleanup and the telemetry flush still run.                                                                                               |
+| `prompt.ts` · `isCi`, `isInteractive`                                             | `infrastructure/environment.ts`                                                                       | infra               | With `unicodeSupported`, `colorEnabled` and `packageVersion`.                                                                                                                                                                    |
+| `log.ts`                                                                          | `prompts/terminal.ts` (writer) + `prompts/format.ts` (`f.path`, `f.plugin`, `plural`, `wrap`, `MARK`) | prompts             | The only file allowed to call `console`.                                                                                                                                                                                         |
+| `telemetry.ts` · `readState`, `writeState`                                        | `infrastructure/telemetry-state.ts`                                                                   | infra               | Fail-closed and atomic-rename rules verbatim.                                                                                                                                                                                    |
+| `telemetry.ts` · the POST                                                         | `infrastructure/mixpanel-client.ts`                                                                   | infra               | The `?ip=1&verbose=1` query moves verbatim. `ip=1` is a deliberate privacy decision recorded in CLAUDE.md, not an incidental default: it lets Mixpanel derive an approximate location at ingestion. A refactor must not flip it. |
+| `telemetry.ts` · `resolve`, `optOutOf`, `createTelemetry`, `describeTelemetry`    | `infrastructure/telemetry-service.ts`                                                                 | infra               | `flush()` returns `{ notice: boolean; logged: string[] }`; `prompts/router.ts` prints them. The service never prints.                                                                                                            |
+| `telemetry.ts` · `EVENTS`, `COLLECTED`, `marketplaceLabel`                        | `types/events/`, `types/telemetry.ts`, `Brand.marketplaceLabel()`                                     | types               |                                                                                                                                                                                                                                  |
+| `doctor.ts`                                                                       | `actions/doctor.ts` + `prompts/doctor.ts`                                                             | actions             | Checks take services from the constructor; the report shape is unchanged.                                                                                                                                                        |
+| `settings-merge.ts`                                                               | `infrastructure/vscode-settings.ts`                                                                   | infra               | Verbatim.                                                                                                                                                                                                                        |
+| `util.ts` · `UserError`                                                           | `types/failure.ts`                                                                                    | types               | Class stays exported as the throwable form for the migration bridge only; deleted in Phase 6.                                                                                                                                    |
+| `util.ts` · validators                                                            | `types/ids/*`                                                                                         | types               |                                                                                                                                                                                                                                  |
+| `util.ts` · fs helpers, `which`, `run`, `pool`, `stripBom`, `timestamp`           | `infrastructure/file-system.ts`, `process-runner.ts`                                                  | infra               | `pool` moves with the source fetcher, its only caller.                                                                                                                                                                           |
+| `util.ts` · `suggest`, `editDistance`                                             | `application/plugin-resolution.ts`                                                                    | application         |                                                                                                                                                                                                                                  |
+| `util.ts` · `shortPath`                                                           | `prompts/format.ts` · `f.path()`                                                                      | prompts             |                                                                                                                                                                                                                                  |
+| `types.ts`                                                                        | `types/**`                                                                                            | types               | Split by owner; `Deps`, `PathOpts`, `HarnessOpts`, `Profile`, `Flags` disappear.                                                                                                                                                 |
+
+## Test map
+
+283 tests today. Each file follows its subject; the count column is what has to still pass
+at the end of the phase that moves it. Tests that assert prose keep doing so through
+`silenceConsole`; tests that only assert behaviour swap to a recording fake prompts object,
+which is smaller and does not depend on wrapping.
+
+| Today                        | Tests | Target                                                                                                                       | Moves in    | Note                                                                                                                                                                               |
+| ---------------------------- | ----: | ---------------------------------------------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `install.test.ts`            |    51 | `test/actions/install.test.ts`, `uninstall.test.ts`, `update.test.ts`, `list.test.ts`                                        | Phase 5     | The `machine()` sandbox becomes `fakeServices(machine)` in helpers. The four telemetry tests move to `test/commands/` because events are fired there now.                          |
+| `cli.test.ts`                |    36 | `test/commands/args.test.ts`, `router.test.ts`, `installed.test.ts`, `telemetry.test.ts`                                     | Phase 5, 6  | `run(argv, profile)` becomes `run(argv)` in Phase 0.                                                                                                                               |
+| `claude.test.ts`             |    27 | `test/harnesses/claude.test.ts` + `test/infrastructure/claude-cli.test.ts`                                                   | Phase 2c, 4 | The five listing-shape cases ("one unreadable row makes the whole listing unknown" and its siblings) test the CLI service; the rest test the harness and assert on emitted events. |
+| `brand.test.ts`              |    24 | `test/application/brand-resolution.test.ts` + `test/infrastructure/rc-file.test.ts`                                          | Phase 0, 3  | Four profile cases deleted in Phase 0. Seven rc-reading cases go to infrastructure.                                                                                                |
+| `settings-merge.test.ts`     |    23 | `test/infrastructure/vscode-settings.test.ts`                                                                                | Phase 2a    | Rename only.                                                                                                                                                                       |
+| `catalog.test.ts`            |    20 | `test/application/plugin-resolution.test.ts` + `test/infrastructure/github-registry-client.test.ts`                          | Phase 2b, 3 | Three fetch cases (403 hint, bearer token, wrong-shaped document) go to infrastructure.                                                                                            |
+| `manifest.test.ts`           |    19 | `test/infrastructure/manifest-store.test.ts` + `test/types/manifest-context.test.ts`                                         | Phase 2a, 3 | Raw read/write/upsert/remove cases stay with the store; the sanitising and gap-reporting cases go with the context.                                                                |
+| `telemetry.test.ts`          |    17 | `test/infrastructure/telemetry-service.test.ts`                                                                              | Phase 2a    | Adds one assertion: the serialised payload for each event class equals today's byte for byte.                                                                                      |
+| `log.test.ts`                |    12 | `test/prompts/terminal.test.ts`                                                                                              | Phase 0     | Rename only.                                                                                                                                                                       |
+| `util.test.ts`               |    12 | `test/types/ids.test.ts`, `test/infrastructure/file-system.test.ts`, `process-runner.test.ts`, `test/prompts/format.test.ts` | Phase 1, 2a |                                                                                                                                                                                    |
+| `doctor.test.ts`             |    10 | `test/actions/doctor.test.ts`                                                                                                | Phase 5     |                                                                                                                                                                                    |
+| `paths.test.ts`              |    10 | `test/infrastructure/paths.test.ts`                                                                                          | Phase 1     | Assertions compare `toString()`; the Windows-from-Linux cases are the proof the path value objects carry the right joiner.                                                         |
+| `prompt.test.ts`             |     8 | `test/prompts/prompter.test.ts` + `test/infrastructure/environment.test.ts`                                                  | Phase 2a    |                                                                                                                                                                                    |
+| `session.test.ts`            |     8 | `test/infrastructure/session.test.ts`                                                                                        | Phase 2b    |                                                                                                                                                                                    |
+| `fetch.test.ts`              |     4 | `test/infrastructure/source-fetcher.test.ts`                                                                                 | Phase 2b    |                                                                                                                                                                                    |
+| `uninstall-decision.test.ts` |     2 | `test/application/uninstall-decision.test.ts`                                                                                | Phase 3     | Verbatim.                                                                                                                                                                          |
+
+`scripts/test.js` lists `test/*.test.ts` flat; it gains a recursive walk in Phase 0 so
+subdirectories are found on Node 18, where `--test` cannot glob.
+
+## Phases
+
+Eight phases, every commit a `refactor:` so nothing releases until a real change lands.
+The PR count on each heading below is a size estimate now, not a branch count: every
+phase lands on the one branch. Each phase names the shim it introduces to keep the old code running and
+the phase that deletes it; a shim that outlives its phase is a review finding.
+
+### Phase 0 · Kernel, guardrails, removals (1 PR, small)
+
+- Write `types/result.ts`, `types/failure.ts`, `actions/action-result.ts`,
+  `types/events/domain-event.ts` with their unit tests.
+- Create the directory skeleton. Move `log.ts` to `prompts/terminal.ts`; leave `src/log.ts`
+  as a one-line re-export.
+- Add the eslint boundary rules (`no-restricted-imports` with per-directory `files` globs)
+  scoped to the new directories, so they bite as code moves in. Turn `no-console` on with a
+  single override for `prompts/terminal.ts`.
+- Delete `src/index.ts`, `run.js`, `run.d.ts`; drop `main`, `types`, `exports` from
+  package.json; remove `Profile` from `types.ts`, `brand.ts` and `cli.ts`.
+  `run(argv, profile)` becomes `run(argv)`. `bin` becomes the constant `BIN`.
+- Delete the four profile cases in `brand.test.ts`; add the recursive walk to
+  `scripts/test.js`; rename `log.test.ts`.
+
+**Exit:** suite green. `npm run build && node bin/cli.js --help` works. Shim: `src/log.ts`
+re-export, deleted in Phase 7.
+
+### Phase 1 · Value objects and the types split (1 PR, medium)
+
+- `types/ids/`: the four identifier classes. Replace every `assertPlugin`, `assertRepo`,
+  `assertRef`, `isSha`, `isPluginId` call and both `MARKETPLACE_RE` copies. Boundaries that
+  receive strings (flags, env, rc, the manifest, Claude's listing) call `create()` and turn
+  `undefined` into the existing failure message.
+- `types/file/`: `DirectoryPath` and `FilePath` carrying a `PathRules` (`path.win32` or
+  `path.posix`). `paths.ts` returns them. The 27 `path.join` sites become `join()`; the
+  traversal check in the API download becomes `dest.contains(target)`.
+- `prompts/format.ts` gains `f.path()`; the 24 `shortPath` sites call it. Strings unchanged.
+- Split `types.ts` into `types/**` by owner. Pure mechanical; imports updated.
+
+**Exit:** `paths.test.ts` passes unchanged apart from `.toString()`.
+`grep -r 'MARKETPLACE_RE\|assertRepo' src` is empty. No shim.
+
+### Phase 2 · Silent infrastructure (3 PRs, large)
+
+Every service returns `Result` and never prints. The old orchestration in `install.ts`
+keeps working through one temporary helper, `orThrow(result)`, which converts a `Failure`
+back into a `UserError`. That helper is the bridge; Phase 5 removes its last caller.
+
+- **2a · state and process**, in slices, because it is the largest: `file-system.ts`,
+  `process-runner.ts`, `environment.ts` first, then the state files, then telemetry.
+  One correction to the file map while doing it: `unicodeSupported` and `colorEnabled`
+  cannot live in `environment.ts`, because `prompts/terminal.ts` reads them to build its
+  glyphs and the boundary lint refuses a prompts module reaching into infrastructure.
+  They stay in `prompts/terminal.ts` until Phase 6, where the router reads the
+  environment and configures the terminal - which is what the target already implies.
+  Original list: `file-system.ts`, `process-runner.ts`, `environment.ts`,
+  `rc-file.ts`, `manifest-store.ts`, `vscode-settings.ts`, `telemetry-state.ts`,
+  `mixpanel-client.ts`, `telemetry-service.ts`. The telemetry notice and the `log`-mode
+  lines are returned from `flush()`, printed by the caller. This is also where the string
+  arm of `DirArg` and `FileArg` was to go, so that a caller could no longer hand the
+  file-system service a bare string and lose the path's own rules. **Moved to Phase 4**,
+  and the reason is worth keeping: narrowing the two aliases and compiling produces 120
+  errors, 106 of them in tests, and almost every production one is inside an fs module
+  passing a host string to itself - `ensureDirFor` handing `path.dirname` to `ensureDir`,
+  `copyDir` and `countFiles` recursing, the fetcher's temp workspace. Those strings are
+  correct: an fs boundary is exactly where a path becomes a string. The leak that is
+  worth closing is a different one - the source directory leaves the fetcher as a string
+  and travels through the session and `HarnessContext` into the harnesses, which is why
+  `cursor.ts` still calls `path.join(srcDir, ...)`. Type that as a `DirectoryPath` when
+  Phase 4 rebuilds `HarnessContext` and the `deps.materialize` seam, and the arm can go
+  with it. Take the
+  chance to memoise the per-blob `mkdirSync` in the API download, which runs once per file
+  rather than once per directory.
+- **2b · network**: `github-registry-client.ts`, `source-fetcher.ts`, `session.ts`.
+  Take `paths.ts` with them: it is infrastructure, and while it sits at `src/` root the
+  boundary rule cannot say what `src/infrastructure` may import, so `telemetry-service.ts`
+  reaching for `../paths.js` passes a rule whose message reads "nothing above it". `BIN`
+  is the other such import, and Phase 3 moves it into `types/brand.ts`; once both are
+  gone the rule can name the root modules and mean it. The 15
+  thrown errors in `fetch.ts` and `catalog.ts` become `err(new Failure(...))` with the same
+  text and hint. Correction while doing it: the fetcher's six log lines cannot become facts
+  on the result. "git not found - falling back to the GitHub API" is only useful _before_
+  the slow fallback it explains, and "Fetching marketplace via git ..." before the clone it
+  announces; reporting either from the returned value moves it after the work, which is a
+  user-visible change in a phase that promises none. They are a `MarketplaceEvent` emitted
+  the moment they happen, rendered by `prompts/marketplace.ts` - the shape Phase 4 gives
+  every harness, arriving one phase early. The registry client's one line joined them for
+  a second reason found in review: reported from the result it was said once per plugin
+  rather than once per run, because the session memoises the read but the caller reads
+  that memo again for every plugin. An event fires inside the cached promise, so the words
+  happen exactly as often as the work.
+- **2c · Claude CLI**: `claude-cli.ts` with `listMarketplaces`, `listPlugins`
+  (whole-or-null), `marketplaceAdd`, `marketplaceUpdate`, `pluginInstall`,
+  `pluginUninstall`. `harness/claude.ts` calls it instead of `exec` directly; its policy is
+  untouched. One correction to the phase's own rule while doing it: the command methods
+  return `RunResult`, not `Result`. A non-zero exit from `claude` is not a failure to hand
+  upwards, it is the evidence the harness reads to tell "the local marketplace copy is
+  stale" from "no such plugin" - the same reason `process-runner.run` returns a code
+  rather than throwing. The listings keep their own convention, `T[] | null`, where null
+  means "the CLI could not answer": wrapping that in a `Result` would invite a caller to
+  read a failure as an empty listing, which is the one conclusion this boundary must never
+  allow.
+
+**Exit:** `grep -rn 'log\.' src/infrastructure` is empty. Every infrastructure test runs
+against a temp directory or a fake runner, none against the developer's home. Shim:
+`orThrow`, deleted in Phase 5.
+
+### Phase 3 · Application layer and the manifest context (1 PR, medium)
+
+- Move `decideUninstall`, `uninstallLines` and their test to `application/` unchanged.
+  Two corrections. First, `uninstallLines` names editors in prose, so it needs
+  `titlesOf` and `everyEditor`, which were in `harness/index.ts` - the module that holds
+  the harness instances. Application may import `types/` only, so Phase 4's move of
+  `NAMES`, `TITLES`, `titlesOf` and `everyEditor` into `types/harness.ts` arrives here
+  instead, one phase early. `TITLES` is a `Record<HarnessName, string>` and `NAMES` is
+  derived from its keys, so there is one list and the compiler keeps it complete.
+  Second, `UninstallFacts`, `UninstallDecision` and `SummaryLine` do **not** live with
+  the functions: `types/manifest-context.ts` applies a decision, and `types/` cannot
+  import `application/`. They are `types/uninstall.ts`, which is where a DTO belongs
+  anyway - the algorithm is the part that is application.
+- `application/plugin-resolution.ts` takes a `Catalog | null` and returns
+  `Result<ResolvedPlugin>`; the session's `resolve()` fetches then calls it. `suggest`
+  moves with it. Correction: the session cannot call it. `session.ts` is infrastructure
+  and the boundary lint refuses an infrastructure module importing application -
+  correctly, since a pure decision living inside a memoising cache is close to how the
+  Phase 2b regression happened. The caller reads the catalog through the session and
+  resolves it itself, which is one line either way.
+- `application/target-selection.ts`: `resolveTargets` and the pure half of
+  `chooseHarnesses`: given available, explicit, assumeYes, interactive, answer
+  `'take-all' | 'ask'`. Correction: three answers, not two. Taking every detected editor
+  because there was nobody to ask has to be distinguishable from being told to take them
+  (`--targets`, `--yes`), or the run chooses editors on the user's behalf in silence - so
+  `cannot-ask` is its own answer and carries the line that explains it. `resolveTargets`
+  returns a `Result` rather than throwing, like everything else this refactor converts.
+- `application/brand-resolution.ts` over already-read rc files. `assertRepo` and
+  `assertRef` in `util.ts` go with it: brand resolution was their only caller, and a
+  wrapper kept alive by its own test is not covered code. `assertPlugin` stays until
+  Phase 5, where install and uninstall stop throwing.
+- `types/installed-record.ts`: `rowShape`, `sanitizeEntry`, `describeIgnored`,
+  `foreignTargets`, the rebuild rule. `types/manifest-context.ts`: `read()`, `find()`,
+  `findRaw()`, `conflictFor()`, `recordInstall()`, `applyUninstall(decision)`, over the
+  `ManifestStore` port. One deliberate non-verbatim change, and the phase's only one:
+  both writers read the raw row themselves rather than being handed one the caller read
+  earlier. That is what turns "never write a row back from the sanitized view" from a
+  comment asking callers to pair two calls correctly into the only way through. Within a
+  run the row cannot change between those two points - no harness touches
+  installed.json, and `upsert` re-reads the file at write time anyway - so nothing
+  widens; under a concurrent writer it narrows.
+- Settle three things Phase 0 left behind when it removed brand profiles, all of them
+  defences for a caller that no longer exists. Settled by deletion, all three.
+  `BrandTelemetry.token` is narrowed to `string`, and the `no-token` opt-out, its
+  `not configured` line, its member in `TelemetryOptOut` and the optional chaining in
+  `marketplaceLabel` and the sender go with it: `resolveBrand` is the only builder of a
+  Brand and it fills the token in from a constant, so nothing user-visible changes. The
+  three tests that covered them built their Brand with `as unknown as Brand`, which is
+  the tell - keeping a branch alive by its own test is how dead code comes to look like
+  covered code. And `BIN` moves from `brand.ts` to `types/brand.ts`, which removes the
+  import edge Phase 0 had to add from `telemetry.ts` to `brand.ts` - and with `paths.ts`
+  already moved, leaves `util.ts` as the single remaining import from
+  `src/infrastructure` into a root module.
+- Settle one more thing when the manifest row becomes typed: a repo is compared
+  case-insensitively by `RepoSlug.matches`, because that is how GitHub treats it, but
+  case-sensitively with `===` by the manifest key, the marketplace conflict check and the
+  `list` scope. The two halves of one run therefore disagree about whether two spellings
+  name the same repository. It predates the refactor; typing the row is what makes it
+  fixable in one place. Fixed as `RepoSlug.same(a, b)`, on the type that owns the rule
+  and taking untrusted values, since none of these callers holds a `RepoSlug` yet. It is
+  the one `fix:` in the phase, and it is a real one: with a row from
+  `context-plugins/plugin-marketplace`, a run naming `Context-Plugins/Plugin-Marketplace`
+  refused with "already installed from a different marketplace" - pointing at the
+  plugin's own marketplace - and forcing past that wrote a second row for the same
+  plugin from the same repository, which neither spelling could then uninstall.
+
+**Exit:** `grep -rn 'node:' src/application` is empty. `install.ts` no longer touches
+`manifest.upsert` directly. No new shim. All met: `src/application` imports `types/` and
+`util.ts` and nothing else, `src/manifest.ts` is gone, and the suite is 409 tests, up
+from 372 at the end of Phase 2.
+
+**Review round.** Thirteen findings, twelve addressed and one declined. Three were
+consequences of the case fix rather than of the moves, and they are the lesson worth
+keeping: folding a comparison changes what a _key_ means, and every reader and writer of
+that key has to be revisited together.
+
+- Folding the repo's case made "one key, one row" false, and `upsert` and `remove` were
+  already acting on every matching row while `findRaw` returned the first. An uninstall
+  therefore decided from one row, said `Uninstalled from: Cursor`, and deleted two -
+  taking a foreign target and a foreign field with nothing naming them. `foldRows` and
+  one private `rowFor` in the context fixed it.
+- Three comparisons were still keyed on the spelling after a commit that claimed
+  "everywhere": `marketplaceLabel`, `session.keyOf` and `ensureMarketplaceOnce`'s key.
+  The middle one is reachable in ordinary use, not only in a legacy manifest.
+- `resolveTargets` read `all` before checking the names, so `--targets all,emacs`
+  widened to every editor in silence - and the test written for it one commit earlier
+  said in its comment that this was a defect and asserted it anyway. Pinning behaviour
+  while documenting it as a bug is how a bug survives a review round.
+- Smaller: `TITLES` was mutable while being the source `isHarnessName` reads and `NAMES`
+  is derived from; `conflictFor`'s caller open-coded `orThrow`'s body, now
+  `throwFailure`; a clock default sat in `types/`; the store port carried a `write`
+  nothing called; and the context's own tests drove it through a real file, so nothing
+  exercised the port the class exists to take.
+- **Declined**, with the reason: that removing `brand.telemetry?.` leaves
+  `marketplaceLabel` able to throw from inside the failure-reporting path. It can only
+  do so for a Brand built by a cast, `resolveBrand` is the only builder, and restoring
+  the guard would restore the dead branch this phase was asked to settle. Recorded here
+  rather than left implicit.
+
+### Phase 4 · Harnesses go silent (1 PR, medium)
+
+- `types/harness.ts`: the `Harness` port, `HarnessEvent`, `HarnessListener`,
+  `HarnessContext` with a `listener`. `NAMES`, `TITLES`, `titlesOf` and `everyEditor`
+  are already there - Phase 3 needed them for the uninstall summary.
+- `harnesses/claude.ts`, `cursor.ts`, `vscode.ts` as classes taking their services. Every
+  `log.*` becomes `ctx.listener({ kind, ... })`. `harnesses/index.ts` becomes
+  `HarnessRegistry`.
+- `prompts/harness/<editor>.ts`: one method per event kind, holding today's strings. The
+  reload hints ("Please reload Cursor: ...") live here, keyed by editor.
+- `claude.test.ts` splits; harness tests assert on the recorded events and the fake CLI's
+  calls, not on console text.
+- The old `install.ts` passes a listener backed by the new prompts classes, so output is
+  byte-identical.
+
+**Exit:** `grep -rn 'log\.' src/harnesses` is empty. The CI smoke job's output is
+unchanged. No new shim. All met: `src/harness/` is gone, nothing under
+`src/harnesses/` imports `prompts/` or `src/log.ts` (eslint refuses both), and the suite
+is 443 tests, up from 409 at the end of Phase 3.
+
+**Corrections, in the order they came up.**
+
+- **The words move as one commit, ahead of two of the three conversions.** The
+  exhaustiveness check at the end of each renderer is a `default: never`, and TypeScript
+  narrows a switch's default to `never` only for a union - with one editor in
+  `HarnessEvent` the check does not compile. Measured with a probe rather than guessed.
+  So the vocabulary and every string land together, then Cursor, VS Code and Claude Code
+  stop printing in a commit each. That also makes each conversion reviewable as a pure
+  swap: the strings are already in one file to diff against.
+- **Six lines are shared, not per editor.** The plan said `prompts/harness/<editor>.ts`,
+  one file each. Cursor and VS Code say "not installed", "no source", "installed",
+  "removed", "nothing to remove" and the reload hint in the same words with the title
+  swapped, so those are one template each in `prompts/harness/editor.ts` and the
+  per-editor files hold only their own. A copy per editor is exactly the drift `TITLES`
+  exists to prevent. The reload hints are a `Record<HarnessName, ...>` there, so an
+  editor added without one does not compile - the same property, one layer up.
+- **Every event names its editor.** The alternative was a listener per harness, which
+  costs the caller a decision it has no business making and loses the property that a
+  recorded event says what it is about on its own. `prompts/harness/index.ts` is then a
+  three-case switch, and `harnessListener(home)` is the whole wiring.
+- **`location()` cannot format itself.** It returned a string already shortened with
+  `f.path`, which a harness may no longer reach. It answers with the path now - prose for
+  Claude Code, whose "location" is `$PATH` - and the two callers that print it format it.
+  Applying `f.path` to an already-shortened path is identity, which is what let the two
+  unconverted harnesses keep formatting theirs for a commit.
+- **No service ports in the constructors.** The plan's file map has the copying harnesses
+  "over `FileSystem` and `VsCodeSettings`". The boundary lint already permits
+  `harnesses/` -> `infrastructure/`, the documented test seam is `HarnessOpts` plus a
+  sandboxed machine asserting on real files, and no test would use a fake file system -
+  so a second seam here would be a branch kept alive by nothing, which is the shape
+  Phase 3 settled three of by deletion. Phase 6 adds constructor injection when
+  `composition.ts` has services to inject and a router to inject them from.
+- **The string arm of `DirArg`/`FileArg` stays.** Phase 2a deferred its removal to here,
+  and it should not happen at all. Narrowing both aliases fails to compile in 109 places,
+  95 of them tests, and all 14 in `src/` are one of two legitimate things: an fs module
+  handing itself a host string, or `f.path` being given something that was never a path -
+  `which('git')`'s answer, a `location()` describing `$PATH`. The leak that mattered is
+  closed instead: `checkout`, `MaterializedSource.dir`, `Session.source` and
+  `HarnessContext.srcDir` are `DirectoryPath`, and so is `TelemetryStatus.file`, which was
+  the same leak in miniature. Nothing in `types/` spells a machine path as a string now.
+  The alias documentation says what the arm is for instead of promising its own removal.
+- **The per-blob `mkdirSync` memo, also deferred here, is not done.** It is a performance
+  nicety in the API download with nothing to do with harnesses; it belongs in the open
+  items below rather than riding on a phase it has no bearing on.
+
+**Verification.** Two CLI comparisons against the pre-phase build, both normalised only
+for the sandbox path, the manifest timestamp and GitHub's rate-limit counter: 18 editor
+shapes at **198 non-empty lines identical**, and the Claude path - a fake `claude` on
+PATH, five shapes plus a CLI too old for `--json` - at **93 lines identical** including
+all 18 recorded `claude` invocations. Each was shown to catch a one-word change to a line
+on the path it covers. A throwaway probe drove the old VS Code module and the new class
+over the eleven scenarios neither comparison reaches, comparing every line printed, the
+outcome, the settings file left behind and whether the copy survived; it became
+`test/harnesses/vscode.test.ts`. And the strings were diffed at the source: 33 of the 47
+`log.<level>(...)` templates in the three old harnesses are byte-identical in the prompts
+files, with the other 14 accounted for by the six deliberate collapses above, each pinned
+to its original words by `test/prompts/harness.test.ts`.
+
+### Phase 5 · Commands, actions and prompts, one command per PR (7 PRs)
+
+Order is simplest first so the pattern is settled before the two commands that carry the
+invariants. Each PR adds `actions/<cmd>.ts`, `prompts/<cmd>.ts` and `commands/<cmd>.ts`,
+routes that command through them, deletes the old code path for it, and moves its tests.
+
+- **installed** (small): manifest view, target filter, gap warnings, `--json`. The scope
+  wording ("in Cursor" vs none for "all") moves to prompts.
+- **telemetry** (small): status, enable, disable over the service. The precedence sentence
+  ("Right now it is ...; that setting takes precedence.") moves to prompts.
+- **doctor** (small): the four check groups as methods taking services; rendering and the
+  `--json` payload in prompts.
+- **list** (small): catalog through the session, installed marks from the manifest context;
+  grid sizing (`OUTLIER_NAME`, column-major order) verbatim in prompts.
+- **uninstall** (large): the marketplace-name lookup that degrades to a warning when a row
+  exists, per-harness catch to `failed`, `decideUninstall`, `applyUninstall`, the summary
+  lines, and only then a `failed()` return when any editor failed. The order "print
+  summary, then fail" is a test.
+- **install** (large): the sketch above. `chooseHarnesses` splits into the application
+  decision and `InstallPrompts.askHarness()`; the prompt-flow connector (`groupEnd`) is a
+  prompts concern. `InstallReport.stage` replaces the mutable `progress` object.
+- **update** (medium): iterates rows, builds a per-row brand, skips rows with no detected
+  editor, calls `InstallAction` with a muted prompts instance when collapsing, collects
+  `InstallReport`s. Deletes `orThrow` with its last caller, and `src/install.ts` itself.
+
+**Exit:** `src/install.ts`, `src/doctor.ts` and the rendering cases in `src/cli.ts` are
+gone. Every action test constructs the action with fakes and never calls `silenceConsole`
+unless it asserts prose. Shim removed: `orThrow`.
+
+**Landed, in the planned order.** `src/doctor.ts` is gone; `src/install.ts` is 75 lines -
+three shims over the new commands plus the telemetry sink they share - and `src/cli.ts`
+holds no rendering. Two exits are not met and are Phase 6's by nature: `orThrow` has four
+call sites left (`brand.ts` three times, `src/catalog.ts` once) plus `assertPlugin`, which
+is defined over it and lost its last caller with the old `install.ts`; and the three shims
+in `install.ts` exist because `cli.ts` has no `Services` to build the commands from yet.
+The bridge in `catalog.ts` is down to one caller rather than two - the uninstall lookup
+reads the registry directly as of this phase, so only `doctor` still goes through it. The
+suite is 469, from 443 at the end of Phase 4.
+
+**Corrections, each with what forced it.** Every one of these was decided by the boundary
+lint or by a measurement, not by preference:
+
+- **`commands/` may not import `application/` or `infrastructure/`**, which decides where
+  several things live. The target filter is in `actions/installed.ts` rather than the
+  command, because `resolveTargets` is application. `EVENTS` and `marketplaceLabel` moved
+  into `types/` because a command has to name an event and label a marketplace.
+  `describeTelemetry` moved to `prompts/telemetry.ts` and `COLLECTED` to
+  `types/telemetry.ts` - the second not to prompts, because the service builds the
+  one-time notice around it and CLAUDE.md requires the two to stay in step.
+- **`prompts/` may not import `application/`**, so `uninstallLines` stays where it is and
+  the action asks it for `SummaryLine`s. That is the right answer for a reason the rule
+  did not know: those lines have to be derived from the same decision the record is
+  written from.
+- **`actions/` may not import `commands/`**, so `UpdateAction` calls `InstallAction`
+  directly and `UpdateCommand` fires each row's events from the reports it collects -
+  which is Phase 6's shape, arriving early.
+- **A muted `InstallPrompts` cannot replace `log.setQuiet` in `update`.** What has to go
+  quiet for the one-line grid includes the harnesses and the session's marketplace lines,
+  and the install prompts own neither. The toggle moved into `prompts/update.ts` instead.
+- **`nothingChanged()` moved to `types/harness.ts`**: one sentence determined entirely by
+  the editor list, said by both the uninstall decision (application) and the install
+  summary (prompts) - two layers that cannot see each other, which is the same reason
+  `everyEditor` is there.
+- **`ActionResult.failed` takes an optional `Failure`**, for `doctor`.
+- **`InstallReport.stage` replaced the mutable `progress` object**, and the action also
+  exposes it as a getter: an _unexpected_ throw still has to report where it happened,
+  which is what `progress` was threaded through the old wrapper for. Dropping that would
+  have quietly changed `stage` in the failure event.
+- **`error_kind` keeps both of its values.** A `Failure` from an action is `user`; a throw
+  out of one is `unexpected`, which is what each command's catch is for.
+
+**Verification.** Seven per-command comparisons against the pre-phase build, one per
+slice, each normalised only for the sandbox path, timestamps, the machine id and GitHub's
+rate-limit counter: `installed` 13 shapes / 126 lines, `telemetry` 15 / 166, `doctor` 9 /
+279, `list` 13 / 541, `uninstall` 18 / 192, `install` 17 / 180, `update` 11 / 127 - every
+one identical, and every one shown to catch a deliberate change (a widened comparison, a
+reworded sentence, a narrowed column, the grid's column-major order, a dropped summary, a
+dropped line, a disabled collapse). The 18-shape editor comparison and the fake-`claude`
+comparison are unchanged throughout.
+
+One thing the scripts got wrong first: `install`, `uninstall` and `update` reach the
+Claude harness, and the early versions left the developer's `PATH` alone - so one run
+installed a plugin into the real Claude Code and the next comparison differed for that
+reason rather than for a code change. All three put the fake `claude` on `PATH` now, with
+the same abort guard the Claude-path script has: if the fake is not reached, the script
+refuses to run.
+
+### Phase 6 · Router, composition root, telemetry events (1 PR, medium)
+
+- `commands/router.ts`: parse (2 on failure), configure terminal, `--version` before the
+  brand, brand (2 on failure), help, dispatch, flush telemetry, print the notice and
+  log-mode lines through `prompts/router.ts`, exit code from the result. `src/main.ts`
+  exports `run(argv)`; `bin/cli.js` requires it.
+- `composition.ts` builds `Services` once: file system, runner, environment, paths, registry
+  client, source fetcher, session, Claude CLI, VS Code settings, manifest context, harness
+  registry, telemetry service, prompter.
+- The four event classes; commands fire them from reports; `deps.track`, `sinkOf`,
+  `trackFailure` and the `Deps` type are deleted. A test asserts the flushed request for
+  install, failed install, uninstall and failed uninstall equals today's: both the body and
+  the `?ip=1&verbose=1` query, since the query carries the location decision.
+- Exit code 130 on cancel. The prompter's SIGINT handler resolves `cancelled`; nothing calls
+  `process.exit` below `bin/`.
+- `UserError` deleted. A thrown `Error` anywhere is a bug: stack under `--verbose`, exit 1.
+
+**Carried in from the Phase 5 review.** Every one of these is a defect the seven per-command
+output comparisons could not see - they compare what the terminal says, and these are in the
+event stream and the prose about it - and every one lands in code this phase rewrites
+anyway:
+
+- **`error_kind` is `user` for every failed `update` row.** Measured against the pre-phase
+  build, which answered `unexpected` for a throw: old `install.ts` decided it with
+  `err instanceof UserError`, and the same probe - a harness whose `install` throws a plain
+  `Error` - reads `unexpected` there and `user` here. `UpdateAction` catches per row, so the
+  command's own catch, the thing meant to tell the two apart, is never entered for a row.
+  The event has to be built where the kind is known: `UpdatedRow` carries it, `user` from
+  the `isFailed()` arm and from an unreadable row, `unexpected` from the catch. A null
+  `report` is not the discriminator - an unreadable row has one of those too. A plain
+  `install` is unaffected and identical to the old build, so the fix is scoped to `update`.
+- **An unreadable manifest row now sends an event the old build did not**, labelled
+  `marketplace: 'custom'` for a row whose recorded repo is the built-in marketplace - the
+  one thing that label is defined not to mean. The `ignored` entry carries `repo`, which
+  `gapWarnings` already reads, so the true label is computable; deciding that a record
+  problem is not an install failure at all and keeping the old silence is the other correct
+  answer. Whichever it is gets a test, because the count of events a run sends is part of
+  the telemetry contract.
+- **Nothing anywhere asserts `error_kind: 'unexpected'`**, and the three commands whose
+  whole job is firing events - `install`, `uninstall`, `update` - have no test under
+  `test/commands/`. That absence is what bought both defects above at 469 green. The
+  flushed-payload test this phase already owes covers the Failure arm; it has to cover the
+  throw arm too.
+- **`InstallReport.plugin` is raw argv on the parse-failure arm.** Safe today only because
+  both commands re-validate with `PluginId.create`, and a leak the moment events are built
+  from reports - which is this phase. Validate before the report exists, or type the field
+  as a `PluginId`.
+- **Four comments in `infrastructure/telemetry-service.ts` document the wrong declaration**
+  now that their exports have moved: `COLLECTED`'s "keep it in step" docblock is
+  `optOutOf`'s, `marketplaceLabel`'s privacy rationale introduces `TelemetryOptions`,
+  `describeTelemetry`'s one-liner sits above `setTelemetryEnabled`'s own, and the Mixpanel
+  naming note sits above `FLUSH_TIMEOUT_MS`. The first matters beyond tidiness: it is the
+  instruction that keeps the disclosure honest, and it belongs with `COLLECTED` in
+  `types/telemetry.ts`.
+- **`assertPlugin` in `util.ts` has no caller in `src/`**, so it goes with `orThrow` - and
+  it is one of the sites that deletion has to find, along with `brand.ts` three times and
+  `catalog.ts` once. Its test goes with it; `PluginId.parse` is already covered.
+- **`ActionResult.cancelled` has no producer.** This is the phase that gives it one, which
+  is also when exit 130 stops being unreachable. `install`'s "no harness selected" stays
+  `success`: nothing was asked of the machine and the old exit was 0.
+- **`asTelemetryVerb` casts** where two `if`s would narrow, which is the one `as` on a
+  validated value in the new code. The router is where argv becomes typed, so it is the
+  right place for it to stop.
+- **`installed`'s read-before-validate comment** claims a bad `--targets` still reports the
+  gaps in the file. Nothing renders them - the command returns before the prompts, exactly
+  as the old code threw before them. Keep the behaviour, fix the sentence.
+- **The confirm seam exists twice**: the action decides `canAsk` from `deps.confirm` while
+  the asking uses the prompts' own. Only `InstallCommand` sets both, and `UpdateAction` sets
+  one - harmless while `update` always resolves to `take-all`, and a real TTY prompt in a
+  non-interactive run if it ever did not. The composition root is where the two become one
+  value.
+- **Sentences in `CLAUDE.md` that Phase 5 falsified**: per-event properties placed in
+  `install.ts` (three command files now), `doctor.ts` named as a caller of `titlesOf`
+  (deleted), `gapWarnings` said to live in `cli.ts` (`prompts/gaps.ts`), `deps.track`
+  reported from `install.ts` (the commands do it), and the "two callers" claim about
+  `catalog.ts`. This phase fixes what it touches - `deps.track` and the per-event
+  properties are its own work - and Phase 7 owns the rest with the rewrite.
+
+**Exit:** `grep -rn 'UserError\|process\.exit' src` is empty, and so is
+`grep -rn 'orThrow\|assertPlugin' src`. `cli.test.ts` is fully migrated. `src/cli.ts` is
+gone. The flushed-payload test pins both values of `error_kind`, and every command that
+fires an event has a test under `test/commands/`.
+
+**Landed, in three commits.** Typed events first, then the router and the composition
+root, then the last of the throwing. Every exit grep above is empty; `src/cli.ts`,
+`src/install.ts`, `src/catalog.ts` and `src/prompt.ts` are gone, the last of them into
+`prompts/prompter.ts` where the tree already said it belonged. The suite is 489, from 469
+at the end of Phase 5.
+
+**Not landed in Phase 6, and named rather than quietly dropped:** the `Deps` type. It
+converted after Phase 7, in four slices, and the record is below.
+
+### Services all the way down (after Phase 7, 4 commits)
+
+`Deps` is gone - no type, no field, no caller - and every action takes the services it
+uses, required, in its constructor. Four slices, bottom-up, so each one compiled and left
+the suite green:
+
+1. **The process table.** `run` and `which` were separate arguments, so the lookup that
+   found `claude` and the spawn that used it could read different environments. One
+   `ProcessRunner` port now, with a `which` that takes no env because the service holds
+   it, and `HarnessOpts` carries the runner rather than a bare `run`.
+2. **The two GitHub clients.** The fetcher threaded `deps` through six internal
+   signatures to read `deps.fetchImpl || fetch` at the leaves; both take required ports
+   now and expose the one method anything above infrastructure uses. `createSession`
+   takes the two clients, which retired `deps.materialize`: a test substitutes a whole
+   fetcher, so `session.source` has one shape instead of two. `update` stopped building
+   its own session - the router creates and disposes it, as it already did for install.
+3. **The actions.** `list` and `uninstall` take a `RegistryClient`; `doctor` adds a
+   `ProcessRunner` and `HttpPorts`. `RegistryClient` and `SourceFetcher` moved to
+   `types/ports.ts` - the same inversion `Telemetry` needed in Phase 7, because a command
+   may not name what builds its services. Commands take a narrow interface over the
+   router's `Services`, so structural typing says what each may reach.
+4. **The documentation**, since the test strategy `CLAUDE.md` described no longer exists.
+
+**What the conversion found.** `InstallAction` took a `Deps` and never read it - the
+Phase 7 review had flagged `InstallRequest` for carrying fields the action ignores, and
+with the bag gone it was simply a dead parameter, as was the one `UpdateAction` forwarded
+to it. What install actually wanted was the confirm, which is an `ask` on the request now.
+That is the case for named services over a bag in one line: a bag hides what nobody uses.
+
+**Two coverage gaps, both found by breaking things.** Handing the fetcher a blank
+environment left the suite green, because a registry read needs no token and nothing
+exercised the clone path's headers through the composition root. And removing the
+session's `openRepo` memo left it green - including the disposal test written earlier in
+the same slice, which claimed to pin the memo and could not, because `repos.set(key, ...)`
+overwrites either way. Both are covered now, the second by counting `openRepo` calls.
+
+**One silent break, caught by a behavioural test rather than the compiler.** Moving
+`HarnessOpts.run` to `HarnessOpts.runner` disabled the whole fake-CLI seam: the fixture
+sets that field inside an object literal whose type is inferred, so nothing checked it and
+the fake was dropped. The stub `claude` files exit 0, so an install that should have failed
+passed. `machine()`'s `pathOpts` is checked with `satisfies HarnessOpts` now - which
+checks without widening `env` to optional, where an annotation would have broken thirty
+call sites.
+
+**Verification.** Sixteen command shapes against the pre-conversion tip, exit 2 on an
+unparseable rc file included: all identical, with the harness first checked against a
+one-character change to `--version` - the first run of it was vacuous, because a `printf`
+ate the escapes and both probes died the same way. 501 tests, from 500.
+
+**Corrections, each with what forced it.**
+
+- **`commands/` may not import `infrastructure/`**, which is why `composition.ts` exists at
+  all and why every member of `Services` is a function: the version, the telemetry
+  instance, the manifest, the telemetry file, the session and the sink are all
+  infrastructure, and none of them may run before the command line is understood -
+  `--version` has to answer even when the rc file beside it is broken.
+- **`parseArgs` answers with a `Result`.** Exit 2 is read off the shape of the answer
+  rather than the class of an exception, which is what let `UserError` go.
+- **`update` fails through its result**, with no `Failure` attached, the way `doctor` does.
+  The router's dispatch is then one line per command with no special case, and the grid has
+  already named every row that failed.
+- **`Harness.install` returns a `Result<InstallOutcome, Failure>`.** Two throws in the
+  Claude harness were real user failures - a marketplace name another repository holds, and
+  `claude plugin install` failing - and typing the events had quietly turned them from
+  `user` into `unexpected`, because a command's catch cannot tell a harness's user error
+  from a bug. Returning them fixes that by construction. The outcome is named rather than
+  boolean for the reason the uninstall outcomes are.
+- **Ctrl-C is an answer, not an exit.** `process.exit(130)` inside the prompter took the
+  run's own cleanup with it: no temp directory removed, nothing flushed. `'cancelled'`
+  travels back through the prompts and the action as `ActionResult.cancelled`, and the
+  router answers 130 with everything in between still finishing.
+- **A partial install still reports nothing.** When one editor installs and the next fails,
+  the run stops with the failure and no `installed` events - which is what the old build
+  did too, because its throw skipped them. Worth knowing rather than fixing here: the same
+  path leaves the record unwritten, and both are older than this phase.
+
+**Verification.** All seven commands compared against a build of the phase-5 tip - 87
+command shapes over 1943 lines, plus the 7-shape Claude Code path through a fake `claude` -
+every one identical, exit codes included, with the comparison shown to catch both a
+reworded summary line and a changed exit code. The event stream is pinned in three places
+rather than one: `test/types/events/` for what each event says, `test/commands/` for which
+events a run fires, and `test/commands/router.test.ts` for the flushed request itself,
+URL and body, on both failure arms. There is no end-to-end test of a _successful_ install's
+flushed payload, and there cannot be one through the real entry point: it has no deps seam,
+so the install would have to reach GitHub. The three assertions above meet in the middle
+instead.
+
+### Phase 7 · Enforcement and documentation (1 PR, small)
+
+- Tighten the boundary lint to cover all of `src/`; delete `src/log.ts`.
+- Rewrite the Architecture section of `CLAUDE.md` around the layers. Keep every invariant
+  paragraph (the `absent` / `skipped` / `failed` semantics, whole-or-null,
+  never-write-from-the-sanitized-view, the telemetry rules) but file each under the layer
+  that now owns it.
+- Add `.claude/skills/` documents adapted from apimatic-cli's `.ai/skills` for this repo's
+  shapes: `command`, `action`, `prompts`, `service`, `context`, `value-object`, `event`.
+  Each with DO / DON'T, a review checklist, reference files and a scaffold.
+- Rewrite the `add-harness` skill: add the name to `HarnessName` and `TITLES`, extend
+  `HarnessEvent` if the editor needs a new kind, write the harness class over
+  infrastructure services, write `prompts/harness/<name>.ts`, register in composition,
+  tests as before. The "all output goes through log" instruction becomes "the harness emits
+  events; strings live in its prompts class".
+- README: remove the one sentence that mentions embedding via `run.js`, if any. Nothing else
+  in the README changes.
+
+**Carried in from the Phase 6 review.** Two of that review's findings were fixed where they
+were found - the composition root's event sink had no test of its own (the one that claimed
+to cover it exercised a copy of the guard in the test fixture, and the suite stayed green
+with the shipped guard deleted), and the `add-harness` skill still described `install` as
+returning `false` with a thrown `UserError` for a failure. These two are this phase's:
+
+- **One listener, wired three ways.** `announceMarketplace` reaches the code from
+  `composition.ts` and `actions/update.ts` (as a session's `notify`), from
+  `actions/doctor.ts` and `actions/list.ts` (imported straight into a `readRegistry` call),
+  and from `actions/uninstall.ts` through its own prompts class. Three actions importing a
+  prompts _function_ is against the rule this file and `CLAUDE.md` both state - an action
+  speaks through its own prompts class - and the boundary lint cannot see it, because what
+  it bars is the other direction. Pick the prompts-class route for all of them, or make the
+  listener something composition hands down; either way it should be one.
+- **`InstallRequest` carries two fields the action ignores.** `deps` and `pathOpts` are
+  read by the command, which passes them to the constructor; the action itself only ever
+  reads its own. Harmless while both callers pass the same values twice, and a trap for a
+  caller who passes one thing and expects the other. **Moved to the `Deps` PR** rather
+  than done here: the plan already said it goes when the request stops carrying services
+  at all, and fixing the field list first and the shape second would be two edits to the
+  same signature.
+
+**Exit:** `npm run lint` fails on any import that crosses a boundary. A new contributor can
+scaffold a command from the skill without reading this document.
+
+**Landed, in four commits.** Structure and lint, the listener, `CLAUDE.md`, the skills.
+Both exits met: every crossing import is refused (fifteen of them probed one at a time,
+each by writing the import and running eslint on it), and there is a skill per shape.
+The suite is 498, from 490 at the end of Phase 6.
+
+**Corrections, each with what forced it.**
+
+- **`src/composition/` is a directory, not two root modules.** The rule can only name a
+  directory: `no-restricted-imports` matches the specifier string, and no basename glob
+  can tell `src/brand.js` from `src/types/brand.js`. That collision is what decided the
+  shape - `src/brand.ts` and `src/composition.ts` are `composition/brand.ts` and
+  `composition/index.ts`, and `src/` root is `main.ts` alone.
+- **`src/util.ts` is `types/util.ts`.** It is a leaf with no imports of its own, and
+  `types/` imports it, so the bottom of the stack is the only place it can sit without a
+  hole in the rule above it. The plan had its pieces distributed to four layers in Phase
+  3; what survived that is a coherent module of pure helpers, and splitting it further
+  would be churn for a shape that reads fine.
+- **`Telemetry` and `Services` are ports in `types/`.** This one was forced by the lint
+  and is the best example of the rule making the decision: the router takes a `Services`,
+  and once nothing in a layer may import the root, a command naming the module that
+  builds its services is exactly the crossing the rule exists to refuse. So the port
+  moved down and the composition root implements it - the same inversion `types/ports.ts`
+  already held `Deps` and `TelemetrySettings` for. `Telemetry` went with it because
+  `Services` names it.
+- **`commands/` may not import the terminal writer either.** `actions/` was already
+  barred; the same reasoning applies one layer up and it cost nothing, because every
+  command already spoke through a prompts class. Measured before adding, not after.
+- **The listener rule is "whoever owns the call".** The review finding offered two
+  routes; neither was quite it. `list` and `doctor` have no prompts class inside the
+  action at all - their command renders the report - so the listener arrives as a
+  required constructor argument from the command. The router owns the install session, so
+  the session's `notify` is its. The composition root now names no prompts function.
+- **`src/log.ts` was already unreferenced.** Nothing imported it, so the shim Phase 0
+  introduced for this phase to remove had been dead since Phase 5's last mover. Worth
+  recording because it is the good case: a named shim with a named removal phase went
+  quiet on its own rather than growing callers.
+- **The README needed nothing.** The `run.js` embedding sentence the phase was to remove
+  is not there - Phase 0 took it with the file.
+- **No `import/order` rule.** The plan proposed one under "Rules that hold for every
+  phase" and this was the phase to add it. Measured first: seven files are out of order
+  today, one of which this phase caused (fixed), and the rest predate it. But the
+  builtin block in the test files is not alphabetised - `node:test` before `node:assert`,
+  in about sixty files - so the obvious config would either churn every test file or need
+  weakening until it stopped meaning much. Left undone deliberately, with the measurement
+  recorded so the next person decides rather than rediscovers.
+
+**A finding of its own, fixed here.** No-opping all five marketplace listeners left the
+suite green at 490. `prompts/marketplace.ts` had no test, and the install fixture built
+its session with its own copy of the production wiring - which is precisely the shape of
+the Phase 6 finding about the event sink, found twice now in two phases. So
+`test/prompts/marketplace.test.ts` pins one row per event kind (keyed by
+`MarketplaceEvent['kind']`, so a new kind without a row does not compile), that every
+prompts class's listener is still the renderer, and that the composition root forwards
+the listener it was handed. The lesson is worth stating as a rule: **a fixture that
+reimplements production wiring silently uncovers it.** When a test needs the wiring, it
+should call the thing that ships.
+
+**Verification.** The fifteen boundary probes above; the three listener probes (a
+no-opped listener, a dropped `notify`, one changed word), each breaking exactly one test
+and no others; a word-count diff of the old `CLAUDE.md` Architecture section against the
+new one, where the only words that lost an occurrence were in the four paragraphs
+deliberately replaced; and seventeen command shapes compared against a Phase 6 build of
+the same tree, all identical, exit 2 on an unparseable rc file included - with the
+harness shown to see a one-character change to `--version` before the result was
+believed.
+
+**Review round on Phase 7.** Four findings, all in this phase's own work, and three
+of them in the guard it exists to install. The lesson is the one Phase 6 and Phase 7 had
+already learned twice, in a third costume: **a guard is worth what its probes are worth**,
+and the fifteen probes of the first round all used the spelling the rule was written for.
+
+- **A bare directory specifier bypassed every layer glob.** `'../harnesses'` resolves the
+  same as `'../harnesses/index.js'` under this tsconfig, and a pattern ending in `/**`
+  does not match it. It type-checked and passed lint. Three directories hold an
+  `index.ts` and were reachable this way, `composition/` among them - so `src/types`
+  could have imported the thing that builds its own services. Every glob has both
+  spellings now.
+- **Dynamic `import()` bypassed the rules entirely.** `no-restricted-imports` reads
+  static imports and re-exports (both of which it does handle - `export * from` was
+  probed too), and nothing else. `no-restricted-syntax` now bars `ImportExpression` in
+  `src/` outright, which is cheap and complete because nothing loads lazily today.
+- **A new module at `src/` root would have had no boundary at all**, the rule being
+  scoped to `src/main.ts` exactly - and no basename glob can name it, so no layer would
+  have been barred from importing it either. That is the exact hole this phase claimed to
+  close, so `CLAUDE.md` asserted something false. The boundary is `src/*.ts` now, and
+  because no glob can say "there should not be a second one",
+  `test/layering.test.ts` asserts the root holds `main.ts` alone and that every directory
+  under `src/` is a layer with a rule. Both proved by breaking them.
+- **Two skills over-generalised a completeness guarantee.** They said both prompts tables
+  are keyed so a missing row does not compile. Only `marketplace.test.ts` is;
+  `harness.test.ts` cannot be, because a `HarnessEvent` is discriminated by editor _and_
+  kind, so it is an array plus a runtime check that every editor says something - which
+  does not notice a new kind on an editor that already has rows. Measured by adding a
+  kind: the renderer's `never` default fails the typecheck, so the words cannot go
+  unspoken, but the table passed unchanged, so they can go untested. Both skills now say
+  which guard is which.
+
+Seventeen crossings were probed after the fixes, the three holes among them: every one
+refused, by the rule that should own it.
+
+**And one thing that comparison does _not_ cover, which is worth writing down.** No-opping
+`ListPrompts.marketplaceListener` leaves `list --verbose` byte-identical, because a
+registry read that succeeds against a repo with git present emits no marketplace event at
+all: `no-git` and the clone lines come from the source fetch, which only `install` and
+`update` reach. So the listener rewiring is covered by the three unit probes and not by
+the CLI comparison, and reaching it end to end would mean a real install against the
+network. Measured rather than assumed - the same check on `doctor --verbose` is vacuous
+for the same reason.
+
+## Rules that hold for every phase
+
+- **No user-visible string changes.** Every message moves verbatim into a prompts class. A
+  string change is its own `fix:` or `feat:` commit, never part of a move, so a reviewer
+  can diff a refactor PR for "moved" and nothing else.
+- **Commit type is `refactor:`.** semantic-release publishes nothing until a real change
+  lands. The Phase 0 removal of `run.js` and the library exports is a `refactor:` too, on
+  the stated basis that nothing consumes them; if the team would rather the CHANGELOG
+  record it, a `BREAKING CHANGE:` footer does that at the cost of a 1.0.0 bump.
+- **Suite green at every merge, on the full matrix.** The 3 OS x 3 Node matrix and the
+  smoke job are the safety net for the path value objects and the entry point.
+- **Shims are named and dated.** Each phase lists the bridge it adds and the phase that
+  removes it. A shim that survives its removal phase blocks the PR.
+- **Verbatim means verbatim.** `decideUninstall`, the whole-or-null listing read, the JSONC
+  splicer, the rc-file rules, the telemetry fail-closed rules and the path table move
+  without a body change. If a move needs a body change, it is a separate commit with a test
+  that motivates it.
+- **Tests never touch the developer's home.** Unchanged from today; now enforced
+  structurally, because every path comes from an injected `Paths` built over a sandbox.
+- **Infrastructure never prints, prompts never decide.** The lint rule says it from Phase
+  7; reviewers say it from Phase 0.
+- **A behaviour bug found while moving code is its own commit.** Two came out of Phase 1's
+  review: the home-prefix collapse in path display, fixed as a `fix:` because it changed
+  what the CLI prints, and an invalid `--marketplace` reaching `claude` argv through the
+  uninstall short-circuit, still open. Neither belongs inside a move.
+- **Nothing enforces import order.** Six of the imports Phase 1 added landed out of
+  position and were caught by review rather than by lint. Phase 7 was to add an
+  `import/order` rule and decided against it, having measured what it would cost: seven
+  files are out of order today, and the builtin block in about sixty test files is not
+  alphabetised (`node:test` before `node:assert`), so the obvious config churns every
+  test file and a config that does not is weak enough to be worth little. Still open,
+  now with a number attached: whoever takes it should expect a large mechanical commit
+  and should land it on its own.
+- **The API download calls `mkdirSync` once per blob**, where once per directory would
+  do. Phase 2a noted it, Phase 4 was to take the chance while typing the source
+  directory, and Phase 7 declined it for a reason that should have been obvious earlier:
+  it is a `perf:` change, so it would publish a release from a branch whose whole promise
+  is that nothing releases. A memo keyed on the parent directory, inside `downloadPath`
+  in `infrastructure/source-fetcher.ts`, as its own `perf:` commit after this lands.
+- **`materialize` in `source-fetcher.ts` had no production caller, and is gone.** Settled
+  where this file said it would be, immediately after the `Deps` PR: `session.source`
+  branching on `deps.materialize` was the code that decided whether the real one had a
+  caller, and with that branch gone the answer was no. It went with `viaGit` and `viaApi`,
+  the two arms it assembled - `openRepo` has re-implemented the same git-or-API decision
+  since Phase 2b, which is the duplication this entry kept describing - and with
+  `MaterializedSource`, whose `via: 'git' | 'api' | string` collapsed to `string` while
+  `RepoHandle.via` is the tight union. The four tests that entered through it now enter
+  through `openRepo`. The temp workspace has one owner again: `materialize`'s try/catch
+  was the second, and the guarantee it made is asserted end to end in
+  `test/infrastructure/session.test.ts` instead - a body that dies mid-read, then
+  `session.cleanup()`, then no `context-plugins-*` directory under a redirected temp root.
+  That is the stronger claim, because the router disposes the session in a `finally` and
+  the shape it replaces tested a function production never called.
+- **One thing this file said about that deletion was wrong.** It warned that deleting
+  `materialize` would "quietly drop the coverage of `viaGit`'s failure paths". There was
+  none to drop: all four of those tests forced the API route with an empty PATH, so
+  `viaGit`, `cloneRepo` and `addSparsePath` were reached by no test at all. **The gap is
+  real and predates the deletion** - nothing in the suite drives the fetcher's git route,
+  which is the route almost every user takes, and the four re-pointed tests still do not.
+  Filling it needs a `git` stub on a stubbed PATH, the way `install-fixture.ts` stubs
+  `claude`. Open, and the one this entry leaves behind.
+
+## Risks and how each is held
+
+| Risk                                                                               | Held by                                                                                                                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Output text drifts while moving 151 log calls into prompts classes                 | Strings move verbatim; the prose-asserting tests keep `silenceConsole` through Phase 5; the smoke job diff is read on every PR.                                                                                                                                                    |
+| The uninstall invariants, re-found by four review rounds, regress in a new shape   | `decideUninstall` and its state-space test move unchanged in Phase 3. The `absent` / `skipped` / `failed` contract is a type in `types/harness.ts` and the per-harness catch is a named test in the uninstall action.                                                              |
+| Windows paths break under the path value objects                                   | `paths.test.ts` asserts Windows, macOS and Linux shapes from any host and is the first test to run in Phase 1. The matrix runs the real thing on Windows.                                                                                                                          |
+| Telemetry schema changes by accident                                               | Property names live in event constructors; a Phase 6 test compares the flushed payload against a fixture captured from today's code.                                                                                                                                               |
+| Bridge helpers (`orThrow`, the log re-export) linger and the layering never closes | Each has a named removal phase and an exit grep; Phase 7's lint makes the re-export path unimportable.                                                                                                                                                                             |
+| The install PR grows until it cannot be reviewed                                   | Phases 2 to 4 take the fetch, the manifest rebuild, the harness output and the decision out of `install.ts` first, so the Phase 5 install PR is orchestration only. If it still exceeds about 600 changed lines, split `chooseHarnesses` and the source fetch into a preceding PR. |
+| Two people work on adjacent phases and collide in `install.ts`                     | Phases 0 to 4 are sequential by design. Phase 5's seven PRs are independent of each other except that `update` depends on `install`.                                                                                                                                               |
+
+## Out of scope
+
+- Any behaviour change: new flags, new messages, new editors, a different exit code for an
+  existing condition. The only visible differences at the end are exit code 130 on Ctrl+C
+  and the removed `run.js`.
+- Switching the test framework, adding sinon or mock-fs, or changing how CI runs.
+- The open question in CLAUDE.md about `--help` and `doctor` resolving the brand before
+  running. The router keeps today's order; changing it is a one-line follow-up once the
+  router exists.
+- Restructuring the README. It stays end-user only.

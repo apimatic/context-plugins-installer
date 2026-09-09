@@ -3,109 +3,29 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { resolveBrand } from '../src/brand.js';
-import { rawUrl } from '../src/catalog.js';
+import { openManifest } from '../src/infrastructure/manifest-store.js';
+import * as paths from '../src/infrastructure/paths.js';
+
 import {
+  brandFor,
+  flat,
   installPlugin,
+  machine,
+  pluginSource,
+  quietly,
+  registryOnly,
+  scriptedConfirm,
+  sinkInto,
+  TARGETS,
+  type Tracked,
   uninstallPlugin,
   updateAll,
-  listPlugins,
-  chooseHarnesses,
-} from '../src/install.js';
-import * as manifest from '../src/manifest.js';
-import * as paths from '../src/paths.js';
-import type { Brand, Deps, HarnessName } from '../src/types.js';
-import { UserError, isPlainObject } from '../src/util.js';
-import { tmpDir, cleanupAll, stubFetch, silenceConsole, parseJsonc } from './helpers.js';
+  wiring,
+  withClaude,
+} from './install-fixture.js';
+import { FailureError, cleanupAll, parseJsonc, silenceConsole, stubFetch } from './helpers.js';
 
 test.after(cleanupAll);
-
-// Claude Code is deliberately excluded from these targets: it shells out to a
-// real `claude` binary that may be installed on the machine running the tests.
-const TARGETS: HarnessName[] = ['cursor', 'vscode'];
-
-/** A sandboxed machine: its own state dir, Cursor dir, and VS Code user dir. */
-function machine() {
-  const root = tmpDir('cp-machine-');
-  const env = {
-    CP_STATE_DIR: path.join(root, 'state'),
-    CP_CURSOR_DIR: path.join(root, '.cursor'),
-    CP_VSCODE_USER_DIR: path.join(root, 'code-user'),
-  };
-  fs.mkdirSync(env.CP_CURSOR_DIR, { recursive: true }); // Cursor "installed"
-  fs.mkdirSync(env.CP_VSCODE_USER_DIR, { recursive: true }); // VS Code "installed"
-  return { root, pathOpts: { env, home: root } };
-}
-
-/** A plugin folder as the marketplace would ship it. */
-function pluginSource(name = 'my-sdk'): string {
-  const dir = path.join(tmpDir('cp-plugin-'), name);
-  fs.mkdirSync(path.join(dir, '.cursor-plugin'), { recursive: true });
-  fs.mkdirSync(path.join(dir, 'skills', 'dotnet'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.cursor-plugin', 'plugin.json'), JSON.stringify({ name }));
-  fs.writeFileSync(path.join(dir, 'plugin.json'), JSON.stringify({ name }));
-  fs.writeFileSync(path.join(dir, 'skills', 'dotnet', 'SKILL.md'), '# dotnet skill');
-  return dir;
-}
-
-interface DepsSpec {
-  repo: string;
-  marketplace?: string;
-  plugin?: string;
-  srcDir: string;
-}
-
-function deps({ repo, marketplace = 'apimatic', plugin = 'my-sdk', srcDir }: DepsSpec): Deps {
-  return {
-    fetchImpl: stubFetch({
-      [rawUrl(repo, 'main', '.claude-plugin/marketplace.json')]: {
-        body: { name: marketplace, plugins: [{ name: plugin, source: `./plugins/${plugin}` }] },
-      },
-    }),
-    env: {},
-    materialize: async () => ({ dir: srcDir, cleanup: () => {}, via: 'stub' }),
-  };
-}
-
-const brandFor = (repo: string) =>
-  resolveBrand({ env: { CP_REPO: repo }, cwd: tmpDir('cp-cwd-'), home: tmpDir('cp-home-') });
-
-/**
- * The same machine with a `claude` on PATH and a fake CLI behind it, so a test
- * can exercise the Claude Code path without touching a real binary.
- */
-function withClaude(m: ReturnType<typeof machine>) {
-  const bin = tmpDir('cp-bin-');
-  fs.writeFileSync(path.join(bin, 'claude'), '#!/bin/sh\n');
-  fs.writeFileSync(path.join(bin, 'claude.cmd'), '@echo off\n');
-  const run = async (_file: string, args: string[]) => {
-    const line = args.join(' ');
-    // Nothing registered, nothing installed: every answer is a clean "not here".
-    if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
-    if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
-    return { code: 1, stdout: '', stderr: 'not found in installed plugins' };
-  };
-  return {
-    ...m,
-    pathOpts: {
-      ...m.pathOpts,
-      env: { ...m.pathOpts.env, PATH: bin, PATHEXT: '.CMD' },
-      run,
-    },
-  };
-}
-
-/** Console output as one line, with `log`'s column wrapping collapsed. */
-const flat = (con: { lines: string[] }): string => con.lines.join(' ').replace(/\s+/g, ' ');
-
-async function quietly<T>(fn: () => Promise<T>): Promise<T> {
-  const con = silenceConsole();
-  try {
-    return await fn();
-  } finally {
-    con.restore();
-  }
-}
 
 test('install places files for every detected harness and records the manifest', async () => {
   const m = machine();
@@ -117,7 +37,7 @@ test('install places files for every detected harness and records the manifest',
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -136,7 +56,7 @@ test('install places files for every detected harness and records the manifest',
   );
   assert.equal(settings['chat.pluginLocations'][vscodeDest.replace(/\\/g, '/')], true);
 
-  const recorded = manifest.list(paths.manifestPath(m.pathOpts));
+  const recorded = openManifest(paths.manifestPath(m.pathOpts)).list();
   assert.equal(recorded.length, 1);
   assert.equal(recorded[0].repo, repo);
   assert.deepEqual(recorded[0].targets, ['cursor', 'vscode']);
@@ -152,13 +72,15 @@ test('a second marketplace installs independently', async () => {
       brand: brandFor(repo),
       plugin: 'acme-payments-sdk',
       targets: TARGETS,
-      deps: deps({ repo, marketplace: 'acme', plugin: 'acme-payments-sdk', srcDir }),
+      wiring: wiring({ repo, marketplace: 'acme', plugin: 'acme-payments-sdk', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
 
   assert.equal(result.marketplace, 'acme');
-  const recorded = JSON.stringify(manifest.list(paths.manifestPath(m.pathOpts))).toLowerCase();
+  const recorded = JSON.stringify(
+    openManifest(paths.manifestPath(m.pathOpts)).list(),
+  ).toLowerCase();
   assert.ok(
     !recorded.includes('apimatic'),
     `unexpected marketplace value in manifest: ${recorded}`,
@@ -173,14 +95,14 @@ test('re-installing updates in place rather than duplicating', async () => {
     brand: brandFor(repo),
     plugin: 'my-sdk',
     targets: TARGETS,
-    deps: deps({ repo, srcDir }),
+    wiring: wiring({ repo, srcDir }),
     pathOpts: m.pathOpts,
   };
 
   await quietly(() => installPlugin(args));
   await quietly(() => installPlugin(args));
 
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 1);
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 1);
   const settings = fs.readFileSync(
     path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json'),
     'utf8',
@@ -198,7 +120,7 @@ test('the same plugin id from a second marketplace is refused without --force', 
       brand: brandFor('context-plugins/plugin-marketplace'),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo: 'context-plugins/plugin-marketplace', srcDir }),
+      wiring: wiring({ repo: 'context-plugins/plugin-marketplace', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -209,11 +131,11 @@ test('the same plugin id from a second marketplace is refused without --force', 
         brand: brandFor('acme/plugin-marketplace'),
         plugin: 'my-sdk',
         targets: TARGETS,
-        deps: deps({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
+        wiring: wiring({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
         pathOpts: m.pathOpts,
       }),
     ),
-    (err) => err instanceof UserError && /different marketplace/.test(err.message),
+    (err) => err instanceof FailureError && /different marketplace/.test(err.message),
   );
 });
 
@@ -225,7 +147,7 @@ test('--force lets the second marketplace take over', async () => {
       brand: brandFor('context-plugins/plugin-marketplace'),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo: 'context-plugins/plugin-marketplace', srcDir }),
+      wiring: wiring({ repo: 'context-plugins/plugin-marketplace', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -235,11 +157,11 @@ test('--force lets the second marketplace take over', async () => {
       plugin: 'my-sdk',
       targets: TARGETS,
       force: true,
-      deps: deps({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
+      wiring: wiring({ repo: 'acme/plugin-marketplace', marketplace: 'acme', srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 2);
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 2);
 });
 
 test('uninstall removes the files, the settings entry, and the manifest row', async () => {
@@ -253,7 +175,7 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
       brand,
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
@@ -262,14 +184,14 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
       brand,
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
     }),
   );
 
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')));
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk')));
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 0);
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 0);
 
   const settings = parseJsonc(
     fs.readFileSync(path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json'), 'utf8'),
@@ -283,7 +205,7 @@ test('uninstall removes the files, the settings entry, and the manifest row', as
 test('a row nothing has installed is cleared rather than left stuck', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -298,19 +220,19 @@ test('a row nothing has installed is cleared rather than left stuck', async () =
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: TARGETS,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
 
   assert.deepEqual(result.targets, [], 'nothing was removed, because nothing was there');
-  assert.equal(manifest.list(file).length, 0, 'and the row it drifted from is gone');
+  assert.equal(openManifest(file).list().length, 0, 'and the row it drifted from is gone');
 });
 
 test('a target that could not be confirmed keeps the row until --force', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const seed = () =>
     fs.writeFileSync(
@@ -331,7 +253,7 @@ test('a target that could not be confirmed keeps the row until --force', async (
     brand: brandFor(repo),
     plugin: 'ghost-sdk',
     targets: ['claude', 'cursor'],
-    deps: { fetchImpl: stubFetch({}), env: {} },
+    wiring: registryOnly(stubFetch({})),
     pathOpts: offPath,
   };
 
@@ -346,7 +268,7 @@ test('a target that could not be confirmed keeps the row until --force', async (
 
   seed();
   await quietly(() => uninstallPlugin({ ...args, force: true }));
-  assert.equal(manifest.list(file).length, 0, '--force clears what could not be confirmed');
+  assert.equal(openManifest(file).list().length, 0, '--force clears what could not be confirmed');
 });
 
 // Saying "cleared the stale record" while a target is still on it is the summary
@@ -354,7 +276,7 @@ test('a target that could not be confirmed keeps the row until --force', async (
 test('a partial clear says which targets it cleared, not that the row is gone', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -372,7 +294,7 @@ test('a partial clear says which targets it cleared, not that the row is gone', 
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['claude', 'cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       // No PATH, so Claude Code cannot be asked and its target must stay.
       pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
     });
@@ -393,7 +315,7 @@ test('a partial clear says which targets it cleared, not that the row is gone', 
 test('--force names what it dropped without confirming', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -410,7 +332,7 @@ test('--force names what it dropped without confirming', async () => {
       plugin: 'ghost-sdk',
       targets: ['claude'],
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
     });
   } finally {
@@ -422,7 +344,7 @@ test('--force names what it dropped without confirming', async () => {
   // Nothing looked, so no line may report a finding - in either direction.
   assert.doesNotMatch(out, /cleared the stale record|Nothing was installed/);
   assert.doesNotMatch(out, /Nothing was changed/);
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 // One editor removed and another found empty are two different things, and the
@@ -433,7 +355,7 @@ test('a removal does not hide a target cleared alongside it', async () => {
   const dest = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'mix-sdk');
   fs.mkdirSync(dest, { recursive: true });
   fs.writeFileSync(path.join(dest, 'plugin.json'), '{}');
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -449,7 +371,7 @@ test('a removal does not hide a target cleared alongside it', async () => {
       brand: brandFor(repo),
       plugin: 'mix-sdk',
       targets: TARGETS,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -459,7 +381,7 @@ test('a removal does not hide a target cleared alongside it', async () => {
   const out = con.lines.join(' ');
   assert.match(out, /Uninstalled from: Cursor/);
   assert.match(out, /Nothing was installed in VS Code - cleared that from the record/);
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 // Cursor's plugin dir lives inside Cursor's own root, so a missing root is not
@@ -469,7 +391,7 @@ test('an editor that is not installed leaves its target recorded', async () => {
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -484,12 +406,16 @@ test('an editor that is not installed leaves its target recorded', async () => {
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
 
-  assert.deepEqual(manifest.list(file)[0].targets, ['cursor'], 'nothing could be established');
+  assert.deepEqual(
+    openManifest(file).list()[0].targets,
+    ['cursor'],
+    'nothing could be established',
+  );
 });
 
 // No plugin files means nothing for VS Code to load, whatever settings.json
@@ -503,7 +429,7 @@ test('an unrecognised settings entry is reported, not silently kept or hidden', 
   const settings = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
   const source = `{\n  "chat.pluginLocations": {\n    "${dest.replace(/\\/g, '/')}": false\n  }\n}\n`;
   fs.writeFileSync(settings, source);
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -519,14 +445,14 @@ test('an unrecognised settings entry is reported, not silently kept or hidden', 
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['vscode'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
     con.restore();
   }
 
-  assert.equal(manifest.list(file).length, 0, 'no files means nothing is installed');
+  assert.equal(openManifest(file).list().length, 0, 'no files means nothing is installed');
   assert.equal(fs.readFileSync(settings, 'utf8'), source, 'the entry is left for the user');
   assert.match(flat(con), /in a form this tool did not write/);
 });
@@ -551,7 +477,7 @@ test('an unrecognised settings entry is named even when the files did go', async
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['vscode'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -569,10 +495,10 @@ test('a harness that throws still records what was already removed', async () =>
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
   const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
+    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, wiring: d, pathOpts: m.pathOpts }),
   );
 
   // A directory where settings.json belongs: readFileSync throws EISDIR, so the
@@ -581,7 +507,7 @@ test('a harness that throws still records what was already removed', async () =>
   fs.rmSync(settings, { force: true });
   fs.mkdirSync(settings, { recursive: true });
 
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   const con = silenceConsole();
   await assert.rejects(
     (async () => {
@@ -590,7 +516,7 @@ test('a harness that throws still records what was already removed', async () =>
           brand,
           plugin: 'my-sdk',
           targets: TARGETS,
-          deps: d,
+          wiring: d,
           pathOpts: m.pathOpts,
         });
       } finally {
@@ -602,7 +528,7 @@ test('a harness that throws still records what was already removed', async () =>
 
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk')));
   assert.deepEqual(
-    manifest.list(file)[0].targets,
+    openManifest(file).list()[0].targets,
     ['vscode'],
     'Cursor is off the record, VS Code is still on it',
   );
@@ -616,7 +542,7 @@ test('a harness that throws still records what was already removed', async () =>
 test('a row whose targets this build cannot read is left exactly as found', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // A newer CLI models targets some other way; the row is its business.
   const row = { plugin: 'future-sdk', repo, marketplace: 'apimatic', targets: { cursor: {} } };
@@ -628,7 +554,7 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
       brand: brandFor(repo),
       plugin: 'future-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -646,7 +572,7 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
       plugin: 'future-sdk',
       targets: ['cursor'],
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -659,7 +585,7 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
 test('a row that names no editor is dropped once every editor has answered', async () => {
   const m = withClaude(machine());
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -673,13 +599,13 @@ test('a row that names no editor is dropped once every editor has answered', asy
     uninstallPlugin({
       brand: brandFor(repo),
       plugin: 'no-targets-sdk',
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
 
-  assert.equal(manifest.read(file).ignored.length, 0, 'and `update` stops failing on it');
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).read().ignored.length, 0, 'and `update` stops failing on it');
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 // The row this branch's own rewrite produces: uninstalling Cursor from
@@ -689,7 +615,7 @@ test('a row that names no editor is dropped once every editor has answered', asy
 test('a row naming only targets this build does not know has a way out', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const row = { plugin: 'zed-sdk', repo, marketplace: 'apimatic', targets: ['zed'] };
   fs.writeFileSync(file, JSON.stringify({ version: 1, plugins: [row] }));
@@ -700,7 +626,7 @@ test('a row naming only targets this build does not know has a way out', async (
       brand: brandFor(repo),
       plugin: 'zed-sdk',
       targets: TARGETS,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -720,11 +646,11 @@ test('a row naming only targets this build does not know has a way out', async (
       plugin: 'zed-sdk',
       targets: TARGETS,
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
-  assert.equal(manifest.read(file).ignored.length, 0, '--force takes it');
+  assert.equal(openManifest(file).read().ignored.length, 0, '--force takes it');
 });
 
 // `targets: []` reads as "every harness", so one editor's answer cannot settle
@@ -735,7 +661,7 @@ test('a scoped run never drops a row that stands for every editor', async () => 
   const vscodeCopy = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'x-sdk');
   fs.mkdirSync(vscodeCopy, { recursive: true });
   fs.writeFileSync(path.join(vscodeCopy, 'plugin.json'), '{}');
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -750,7 +676,7 @@ test('a scoped run never drops a row that stands for every editor', async () => 
       brand: brandFor(repo),
       plugin: 'x-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -768,7 +694,7 @@ test('a scoped run never drops a row that stands for every editor', async () => 
 test('--force still reports what it left behind', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -785,7 +711,7 @@ test('--force still reports what it left behind', async () => {
       plugin: 'y-sdk',
       targets: ['cursor'],
       force: true,
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -802,7 +728,7 @@ test('a row that names no editor survives an editor that could not answer', asyn
   const m = machine();
   fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // `targets: []` reads as "every harness", so it is this same shape.
   fs.writeFileSync(
@@ -819,7 +745,7 @@ test('a row that names no editor survives an editor that could not answer', asyn
       brand: brandFor(repo),
       plugin: 'empty-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -844,7 +770,7 @@ test('an editor that is simply not here does not fail the run', async () => {
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       targets: ['cursor'],
-      deps: { fetchImpl: stubFetch({}), env: {} },
+      wiring: registryOnly(stubFetch({})),
       pathOpts: m.pathOpts,
     }),
   );
@@ -866,7 +792,7 @@ test('an editor that was asked and went wrong fails the run', async () => {
         brand: brandFor(repo),
         plugin: 'ghost-sdk',
         targets: ['vscode'],
-        deps: { fetchImpl: stubFetch({}), env: {} },
+        wiring: registryOnly(stubFetch({})),
         pathOpts: m.pathOpts,
       }),
     ),
@@ -879,7 +805,7 @@ test('an editor that was asked and went wrong fails the run', async () => {
 test('--force clears a record offline, with no marketplace to resolve', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   // No `marketplace` and no `targets`: the shape --force exists for.
   fs.writeFileSync(file, JSON.stringify({ version: 1, plugins: [{ plugin: 'ghost-sdk', repo }] }));
@@ -892,12 +818,12 @@ test('--force clears a record offline, with no marketplace to resolve', async ()
       brand: brandFor(repo),
       plugin: 'ghost-sdk',
       force: true,
-      deps: { fetchImpl: offline, env: {} },
+      wiring: registryOnly(offline),
       pathOpts: { ...m.pathOpts, env: { ...m.pathOpts.env, PATH: '' } },
     }),
   );
 
-  assert.equal(manifest.list(file).length, 0);
+  assert.equal(openManifest(file).list().length, 0);
 });
 
 test('a lookup failure still stops an uninstall with no record to correct', async () => {
@@ -912,33 +838,12 @@ test('a lookup failure still stops an uninstall with no record to correct', asyn
       uninstallPlugin({
         brand: brandFor(repo),
         plugin: 'never-installed-sdk',
-        deps: { fetchImpl: offline, env: {} },
+        wiring: registryOnly(offline),
         pathOpts: m.pathOpts,
       }),
     ),
     'the resolution error is the useful answer when there is nothing to clean up',
   );
-});
-
-// `update` refreshing a plugin for an editor that is no longer installed is a
-// no-op, not a failure - otherwise the row makes `update` exit 1 forever, and
-// this branch made such a row need --force to clear.
-test('update skips a row whose editors are all gone instead of failing', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
-
-  await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
-  );
-  fs.rmSync(m.pathOpts.env.CP_CURSOR_DIR, { recursive: true, force: true });
-
-  const result = await quietly(() => updateAll({ brand, deps: d, pathOpts: m.pathOpts }));
-
-  assert.deepEqual(result.failed, [], 'no editor for it is not a failure');
-  assert.deepEqual(result.updated, []);
 });
 
 test('asking for an editor that is not installed fails, naming it', async () => {
@@ -952,12 +857,12 @@ test('asking for an editor that is not installed fails, naming it', async () => 
         brand: brandFor(repo),
         plugin: 'my-sdk',
         targets: ['cursor'],
-        deps: deps({ repo, srcDir: pluginSource() }),
+        wiring: wiring({ repo, srcDir: pluginSource() }),
         pathOpts: m.pathOpts,
       }),
     ),
     (err) =>
-      err instanceof UserError &&
+      err instanceof FailureError &&
       /Cursor is not installed/.test(err.message) &&
       /--targets/.test(err.hint ?? ''),
   );
@@ -975,11 +880,11 @@ test('no editor at all fails rather than silently doing nothing', async () => {
         brand: brandFor(repo),
         plugin: 'my-sdk',
         targets: TARGETS,
-        deps: deps({ repo, srcDir: pluginSource() }),
+        wiring: wiring({ repo, srcDir: pluginSource() }),
         pathOpts: m.pathOpts,
       }),
     ),
-    (err) => err instanceof UserError && /not installed on this machine/.test(err.message),
+    (err) => err instanceof FailureError && /not installed on this machine/.test(err.message),
   );
 });
 
@@ -989,31 +894,30 @@ test('a harness that is not installed is skipped, not failed', async () => {
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
 
-  const result = await quietly(() =>
-    installPlugin({
+  const con = silenceConsole();
+  let result;
+  try {
+    result = await installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: deps({ repo, srcDir }),
+      wiring: wiring({ repo, srcDir }),
       pathOpts: m.pathOpts,
-    }),
-  );
+    });
+  } finally {
+    con.restore();
+  }
   assert.deepEqual(result.targets, ['vscode']);
+  // `location()` answers with the path and the caller shortens it against the
+  // run's home. Print it unshortened and the line names a directory the user
+  // did not write, which compiles, lints and passes every other assertion.
+  assert.match(flat(con), /Cursor is not installed \(looked in ~[/\\]\.cursor\)/);
+  // And it says which editors it is going on with, so a shorter run than the
+  // one asked for is never silent about being shorter.
+  assert.match(flat(con), /Continuing with VS Code\./);
 });
 
 // ---- harness consent -----------------------------------------------------
-
-type Confirm = NonNullable<Deps['confirm']> & { asked: string[] };
-
-/** Records what was asked, and answers from a scripted list of booleans. */
-function scriptedConfirm(answers: boolean[]): Confirm {
-  const asked: string[] = [];
-  const fn = async (question: string): Promise<boolean> => {
-    asked.push(question);
-    return answers.shift() ?? true;
-  };
-  return Object.assign(fn, { asked });
-}
 
 test('the user is asked once per detected harness', async () => {
   const m = machine();
@@ -1026,12 +930,69 @@ test('the user is asked once per detected harness', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null, // no --targets => ask
-      deps: { ...deps({ repo, srcDir }), confirm },
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
       pathOpts: m.pathOpts,
     }),
   );
 
   assert.deepEqual(confirm.asked, ['Install into Cursor?', 'Install into VS Code?']);
+  assert.deepEqual(result.targets, ['cursor', 'vscode']);
+});
+
+/**
+ * The two guards this file lost. Nine tests were deleted from it during the
+ * refactor; `--targets is a decision, so it skips the prompt` and `--yes skips
+ * the prompt` had no replacement, and `test/application/target-selection.test.ts`
+ * covers only the pure `chooseTargets`, not the caller that feeds it. Measured
+ * rather than assumed: calling `chooseTargets` with `explicit: false,
+ * assumeYes: false` left all 502 tests green here, where the same mutation
+ * failed three tests on `origin/main`.
+ *
+ * The test above is what makes these two mean something. It proves the injected
+ * answerer *is* asked when nobody opted out, so an empty `asked` here is the
+ * opt-out being read - not a confirm that was never wired to anything.
+ */
+test('--targets is a decision, so it skips the prompt', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const confirm = scriptedConfirm([]);
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: ['cursor'],
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(confirm.asked, [], 'a target list the user typed is not a question');
+  assert.deepEqual(result.targets, ['cursor']);
+});
+
+test('--yes skips the prompt', async () => {
+  const m = machine();
+  const repo = 'context-plugins/plugin-marketplace';
+  const srcDir = pluginSource();
+  const confirm = scriptedConfirm([]);
+
+  const result = await quietly(() =>
+    installPlugin({
+      brand: brandFor(repo),
+      plugin: 'my-sdk',
+      targets: null, // no --targets, so only --yes can settle it
+      assumeYes: true,
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
+      pathOpts: m.pathOpts,
+    }),
+  );
+
+  assert.deepEqual(confirm.asked, [], '--yes is the answer, so there is nothing to ask');
   assert.deepEqual(result.targets, ['cursor', 'vscode']);
 });
 
@@ -1045,7 +1006,8 @@ test('a declined harness is not touched', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, true]) },
+      wiring: wiring({ repo, srcDir }),
+      ask: scriptedConfirm([false, true]),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1056,28 +1018,32 @@ test('a declined harness is not touched', async () => {
     'declined harness got no files',
   );
   assert.ok(fs.existsSync(path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk')));
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, ['vscode']);
 });
 
 test('declining an editor it is ALREADY installed in keeps the record and the files', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
-  const args = { brand: brandFor(repo), plugin: 'my-sdk', deps: d, pathOpts: m.pathOpts };
+  const d = wiring({ repo, srcDir });
+  const args = { brand: brandFor(repo), plugin: 'my-sdk', wiring: d, pathOpts: m.pathOpts };
   const vscodeDest = path.join(m.pathOpts.env.CP_STATE_DIR, 'vscode', 'my-sdk');
   const settingsFile = path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json');
 
   // Installed into both to begin with.
   await quietly(() => installPlugin({ ...args, targets: TARGETS }));
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['cursor', 'vscode']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, [
+    'cursor',
+    'vscode',
+  ]);
 
   // Re-install, saying yes to Cursor and no to VS Code.
   const result = await quietly(() =>
     installPlugin({
       ...args,
       targets: null,
-      deps: { ...d, confirm: scriptedConfirm([true, false]) },
+      wiring: d,
+      ask: scriptedConfirm([true, false]),
     }),
   );
 
@@ -1086,7 +1052,7 @@ test('declining an editor it is ALREADY installed in keeps the record and the fi
 
   // The record still names VS Code, so `update` keeps refreshing that copy.
   assert.deepEqual(
-    manifest.list(paths.manifestPath(m.pathOpts))[0].targets,
+    openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets,
     ['cursor', 'vscode'],
     'the declined editor stays on record',
   );
@@ -1105,8 +1071,8 @@ test('the declined-but-installed editor is named once, in the summary', async ()
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
-  const args = { brand: brandFor(repo), plugin: 'my-sdk', deps: d, pathOpts: m.pathOpts };
+  const d = wiring({ repo, srcDir });
+  const args = { brand: brandFor(repo), plugin: 'my-sdk', wiring: d, pathOpts: m.pathOpts };
 
   await quietly(() => installPlugin({ ...args, targets: TARGETS }));
 
@@ -1115,7 +1081,8 @@ test('the declined-but-installed editor is named once, in the summary', async ()
     await installPlugin({
       ...args,
       targets: null,
-      deps: { ...d, confirm: scriptedConfirm([true, false]) },
+      wiring: d,
+      ask: scriptedConfirm([true, false]),
     });
   } finally {
     con.restore();
@@ -1140,13 +1107,14 @@ test('a fresh install records only what it installed', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([true, false]) },
+      wiring: wiring({ repo, srcDir }),
+      ask: scriptedConfirm([true, false]),
       pathOpts: m.pathOpts,
     }),
   );
 
   // No prior record, so nothing to preserve - the union must not invent a target.
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['cursor']);
+  assert.deepEqual(openManifest(paths.manifestPath(m.pathOpts)).list()[0].targets, ['cursor']);
 });
 
 test('declining everything changes nothing at all', async () => {
@@ -1159,13 +1127,14 @@ test('declining everything changes nothing at all', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm: scriptedConfirm([false, false]) },
+      wiring: wiring({ repo, srcDir }),
+      ask: scriptedConfirm([false, false]),
       pathOpts: m.pathOpts,
     }),
   );
 
   assert.deepEqual(result.targets, []);
-  assert.equal(manifest.list(paths.manifestPath(m.pathOpts)).length, 0, 'no manifest entry');
+  assert.equal(openManifest(paths.manifestPath(m.pathOpts)).list().length, 0, 'no manifest entry');
   assert.ok(!fs.existsSync(path.join(m.pathOpts.env.CP_VSCODE_USER_DIR, 'settings.json')));
 });
 
@@ -1181,7 +1150,8 @@ test('an undetected harness is never offered', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: { ...deps({ repo, srcDir }), confirm },
+      wiring: wiring({ repo, srcDir }),
+      ask: confirm,
       pathOpts: m.pathOpts,
     }),
   );
@@ -1199,14 +1169,18 @@ test('nothing is downloaded when every harness is declined', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: null,
-      deps: {
-        ...deps({ repo, srcDir: pluginSource() }),
-        materialize: async () => {
-          fetched = true;
-          throw new Error('should not fetch');
+      // A fetcher that fails if it is reached at all, which is the assertion:
+      // the prompt has to come before the download.
+      wiring: {
+        ...wiring({ repo, srcDir: pluginSource() }),
+        fetcher: {
+          openRepo: async () => {
+            fetched = true;
+            throw new Error('should not fetch');
+          },
         },
-        confirm: scriptedConfirm([false, false]),
       },
+      ask: scriptedConfirm([false, false]),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1214,212 +1188,10 @@ test('nothing is downloaded when every harness is declined', async () => {
   assert.equal(fetched, false, 'the prompt runs before the download');
 });
 
-test('--targets is a decision, so it skips the prompt', async () => {
-  const confirm = scriptedConfirm([]);
-  const chosen = await chooseHarnesses(TARGETS, { explicit: true, confirm });
-  assert.deepEqual(chosen, ['cursor', 'vscode']);
-  assert.deepEqual(confirm.asked, []);
-});
-
-test('--yes skips the prompt', async () => {
-  const confirm = scriptedConfirm([]);
-  const chosen = await chooseHarnesses(TARGETS, { assumeYes: true, confirm });
-  assert.deepEqual(chosen, ['cursor', 'vscode']);
-  assert.deepEqual(confirm.asked, []);
-});
-
-test('update never re-asks, it replays the recorded harnesses', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
-
-  await quietly(() =>
-    installPlugin({
-      brand: brandFor(repo),
-      plugin: 'my-sdk',
-      targets: null,
-      deps: { ...d, confirm: scriptedConfirm([false, true]) },
-      pathOpts: m.pathOpts,
-    }),
-  );
-
-  const confirm = scriptedConfirm([]);
-  await quietly(() =>
-    updateAll({ brand: brandFor(repo), deps: { ...d, confirm }, pathOpts: m.pathOpts }),
-  );
-
-  assert.deepEqual(confirm.asked, []);
-  assert.deepEqual(manifest.list(paths.manifestPath(m.pathOpts))[0].targets, ['vscode']);
-});
-
-test('update names the targets it cannot update, and leaves them recorded', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const d = deps({ repo, srcDir: pluginSource() });
-  const file = paths.manifestPath(m.pathOpts);
-
-  await quietly(() =>
-    installPlugin({
-      brand: brandFor(repo),
-      plugin: 'my-sdk',
-      targets: TARGETS,
-      deps: d,
-      pathOpts: m.pathOpts,
-    }),
-  );
-  // As if a newer CLI had installed the same plugin into an editor this build
-  // knows nothing about.
-  const raw = manifest.findRaw(file, { plugin: 'my-sdk', repo });
-  assert.ok(raw);
-  manifest.upsert(file, { ...raw, targets: [...TARGETS, 'zed'] });
-
-  const con = silenceConsole();
-  try {
-    await updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts });
-  } finally {
-    con.restore();
-  }
-
-  const out = con.lines
-    .join(' ')
-    .replace(/\x1b\[\d+m/g, '')
-    .split(' ')
-    .filter(Boolean)
-    .join(' ');
-  assert.ok(out.includes('not updating unknown target(s): zed'), `no such warning in: ${out}`);
-  assert.deepEqual(
-    manifest.foreignTargets(manifest.findRaw(file, { plugin: 'my-sdk', repo })),
-    ['zed'],
-    'and the update wrote it back untouched',
-  );
-});
-
-test('update reads the registry once for the whole run, not once per plugin', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const registry = rawUrl(repo, 'main', '.claude-plugin/marketplace.json');
-  const fetchImpl = stubFetch({
-    [registry]: {
-      body: {
-        name: 'apimatic',
-        plugins: [
-          { name: 'alpha', source: './plugins/alpha' },
-          { name: 'beta', source: './plugins/beta' },
-        ],
-      },
-    },
-  });
-  const d: Deps = {
-    fetchImpl,
-    env: {},
-    materialize: async ({ sourcePath }) => ({
-      dir: pluginSource(sourcePath.split('/').pop()),
-      cleanup: () => {},
-      via: 'stub',
-    }),
-  };
-
-  for (const plugin of ['alpha', 'beta']) {
-    await quietly(() =>
-      installPlugin({
-        brand: brandFor(repo),
-        plugin,
-        targets: TARGETS,
-        deps: d,
-        pathOpts: m.pathOpts,
-      }),
-    );
-  }
-
-  const before = fetchImpl.calls.filter((u) => u === registry).length;
-  const result = await quietly(() =>
-    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
-  );
-
-  const during = fetchImpl.calls.filter((u) => u === registry).length - before;
-  assert.deepEqual(result.updated.sort(), ['alpha', 'beta']);
-  assert.deepEqual(result.failed, []);
-  assert.equal(during, 1, `expected one registry read for two plugins, got ${during}`);
-});
-
-test('list marks what is installed on this machine', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
-
-  await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
-  );
-  const listing = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
-
-  assert.equal(listing.marketplace, 'apimatic');
-  assert.deepEqual(
-    listing.plugins.map((p) => [p.name, p.installed]),
-    [['my-sdk', true]],
-  );
-});
-
-test('list reports the editors a plugin was actually installed into', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
-
-  // Installed into Cursor only - VS Code never got a copy.
-  await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: ['cursor'], deps: d, pathOpts: m.pathOpts }),
-  );
-
-  const listing = await listPlugins({ brand, deps: d, pathOpts: m.pathOpts });
-  assert.deepEqual(listing.plugins[0].targets, ['cursor']);
-  assert.equal(listing.plugins[0].installed, true, 'installed somewhere');
-});
-
-test('update fails loudly on rows it cannot read instead of skipping them', async () => {
-  const m = machine();
-  const repo = 'context-plugins/plugin-marketplace';
-  const srcDir = pluginSource();
-  const d = deps({ repo, srcDir });
-
-  // One good install on record, plus a row only a newer CLI understands.
-  await quietly(() =>
-    installPlugin({
-      brand: brandFor(repo),
-      plugin: 'my-sdk',
-      targets: TARGETS,
-      deps: d,
-      pathOpts: m.pathOpts,
-    }),
-  );
-  const file = paths.manifestPath(m.pathOpts);
-  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-  raw.plugins.push({ plugin: 'future-sdk', repo, marketplace: 'apimatic', targets: ['zed'] });
-  fs.writeFileSync(file, JSON.stringify(raw));
-
-  const result = await quietly(() =>
-    updateAll({ brand: brandFor(repo), deps: d, pathOpts: m.pathOpts }),
-  );
-
-  assert.deepEqual(result.updated, ['my-sdk']);
-  assert.equal(result.failed.length, 1, 'the unreadable row is a failure, not a silent skip');
-  assert.equal(result.failed[0].plugin, 'future-sdk');
-  assert.match(result.failed[0].error, /unknown target\(s\): zed/);
-
-  const after: unknown[] = JSON.parse(fs.readFileSync(file, 'utf8')).plugins;
-  assert.ok(
-    after.some((p) => isPlainObject(p) && p.plugin === 'future-sdk'),
-    'the row survives the update rewrite',
-  );
-});
-
 test('uninstall still works offline for rows the sanitized view hides', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
@@ -1444,7 +1216,7 @@ test('uninstall still works offline for rows the sanitized view hides', async ()
     result = await uninstallPlugin({
       brand: brandFor(repo),
       plugin: 'future-sdk',
-      deps: { fetchImpl: offline, env: {} },
+      wiring: registryOnly(offline),
       pathOpts: m.pathOpts,
     });
   } finally {
@@ -1466,42 +1238,27 @@ test('a row mixing a known target with a foreign one keeps the foreign name', as
   const repo = 'context-plugins/plugin-marketplace';
   const srcDir = pluginSource();
   const brand = brandFor(repo);
-  const d = deps({ repo, srcDir });
+  const d = wiring({ repo, srcDir });
 
   await quietly(() =>
-    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, deps: d, pathOpts: m.pathOpts }),
+    installPlugin({ brand, plugin: 'my-sdk', targets: TARGETS, wiring: d, pathOpts: m.pathOpts }),
   );
 
   // A newer CLI adds its own harness to the row, and a field this build has
   // never heard of. Both belong to it, not to us.
-  const file = paths.manifestPath(m.pathOpts);
+  const file = paths.manifestPath(m.pathOpts).toString();
   const seeded = JSON.parse(fs.readFileSync(file, 'utf8'));
   seeded.plugins[0].targets.push('zed');
   seeded.plugins[0].pinned = true;
   fs.writeFileSync(file, JSON.stringify(seeded));
 
-  const result = await quietly(() => updateAll({ brand, deps: d, pathOpts: m.pathOpts }));
+  const result = await quietly(() => updateAll({ brand, wiring: d, pathOpts: m.pathOpts }));
   assert.deepEqual(result.updated, ['my-sdk'], 'this build still refreshes what it owns');
 
   const after = JSON.parse(fs.readFileSync(file, 'utf8')).plugins[0];
   assert.deepEqual(after.targets, [...TARGETS, 'zed'], 'known names canonical, foreign kept');
   assert.equal(after.pinned, true, 'and so is a field this build does not model');
 });
-
-interface Tracked {
-  name: string;
-  properties: Record<string, unknown>;
-}
-
-/** The deps for an install, plus a track seam that collects into `events`. */
-function tracking(spec: DepsSpec, events: Tracked[]): Deps {
-  return {
-    ...deps(spec),
-    track: (name, properties = {}) => {
-      events.push({ name, properties });
-    },
-  };
-}
 
 test('install reports one event per editor through the track seam, flat and without paths', async () => {
   const m = machine();
@@ -1512,7 +1269,8 @@ test('install reports one event per editor through the track seam, flat and with
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: tracking({ repo, srcDir: pluginSource() }, events),
+      wiring: wiring({ repo, srcDir: pluginSource() }),
+      sink: sinkInto(events),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1549,7 +1307,8 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
       brand: brandFor(repo),
       plugin: 'acme-sdk',
       targets: TARGETS,
-      deps: tracking(spec, events),
+      wiring: wiring(spec),
+      sink: sinkInto(events),
       pathOpts: m.pathOpts,
     }),
   );
@@ -1562,11 +1321,12 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
         brand: brandFor(repo),
         plugin: 'missing-sdk',
         targets: TARGETS,
-        deps: tracking(spec, events),
+        wiring: wiring(spec),
+        sink: sinkInto(events),
         pathOpts: m.pathOpts,
       }),
     ),
-    UserError,
+    FailureError,
   );
   assert.deepEqual(
     events.map((e) => e.name),
@@ -1585,11 +1345,12 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
         brand: brandFor(repo),
         plugin: '../etc',
         targets: TARGETS,
-        deps: tracking(spec, events),
+        wiring: wiring(spec),
+        sink: sinkInto(events),
         pathOpts: m.pathOpts,
       }),
     ),
-    UserError,
+    FailureError,
   );
   assert.equal(events[0]?.properties.plugin, null);
 });
@@ -1598,13 +1359,15 @@ test('uninstall reports one event per editor it removed', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const events: Tracked[] = [];
-  const d = tracking({ repo, srcDir: pluginSource() }, events);
+  const d = wiring({ repo, srcDir: pluginSource() });
+  const sink = sinkInto(events);
   await quietly(() =>
     installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
+      sink,
       pathOpts: m.pathOpts,
     }),
   );
@@ -1615,7 +1378,8 @@ test('uninstall reports one event per editor it removed', async () => {
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: d,
+      wiring: d,
+      sink,
       pathOpts: m.pathOpts,
     }),
   );
@@ -1628,40 +1392,21 @@ test('uninstall reports one event per editor it removed', async () => {
   );
 });
 
-test('a throwing track sink, or a Brand without telemetry config, never fails an install', async () => {
+test('a throwing track sink never fails an install', async () => {
   const m = machine();
   const repo = 'context-plugins/plugin-marketplace';
   const spec = { repo, srcDir: pluginSource() };
-  const throwing: Deps = {
-    ...deps(spec),
-    track: () => {
-      throw new Error('sink is down');
-    },
-  };
   const result = await quietly(() =>
     installPlugin({
       brand: brandFor(repo),
       plugin: 'my-sdk',
       targets: TARGETS,
-      deps: throwing,
+      wiring: wiring(spec),
+      sink: () => {
+        throw new Error('sink is down');
+      },
       pathOpts: m.pathOpts,
     }),
   );
   assert.deepEqual(result.targets, ['cursor', 'vscode']);
-
-  // A Brand built by an older caller has no telemetry field at all.
-  const legacy = { ...brandFor(repo), telemetry: undefined } as unknown as Brand;
-  const events: Tracked[] = [];
-  const again = await quietly(() =>
-    installPlugin({
-      brand: legacy,
-      plugin: 'my-sdk',
-      targets: TARGETS,
-      force: true,
-      deps: tracking(spec, events),
-      pathOpts: m.pathOpts,
-    }),
-  );
-  assert.deepEqual(again.targets, ['cursor', 'vscode']);
-  assert.equal(events[0]?.properties.marketplace, 'custom');
 });

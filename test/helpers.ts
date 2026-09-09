@@ -2,7 +2,19 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { FetchLike, FetchResponseLike } from '../src/types.js';
+import type {
+  FetchLike,
+  FetchResponseLike,
+  ProcessRunner,
+  RunCommand,
+  SourcePorts,
+} from '../src/types/ports.js';
+import type { Failure } from '../src/types/failure.js';
+import type { Env } from '../src/types/env.js';
+import type { Result } from '../src/types/result.js';
+import { readBrand, type ResolveBrandOptions } from '../src/composition/brand.js';
+import { run as realRun, which } from '../src/infrastructure/process-runner.js';
+import type { Brand } from '../src/types/brand.js';
 
 const dirs: string[] = [];
 
@@ -145,3 +157,72 @@ export function silenceConsole(): {
     },
   };
 }
+
+/**
+ * A value with every path in it reduced to its string. `DirectoryPath` and
+ * `FilePath` carry their platform's rules, and two objects holding the same
+ * rules are not `deepEqual` - the bound functions inside differ - so an event
+ * carrying a path is compared through the JSON form both sides agree on.
+ */
+export const plainly = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+
+/**
+ * An install outcome as one word - `installed`, `skipped`, or the failure's
+ * message - so a harness test asserts it in one line and a failure says why
+ * rather than just "not what I expected".
+ */
+export const outcome = <T>(result: Result<T, Failure>): T | string =>
+  result.ok ? result.value : `failed: ${result.error.message}`;
+
+/**
+ * A `Failure`, thrown. Nothing in `src` throws for a problem the user can fix
+ * any more - a command answers with an `ActionResult` and the router reads it -
+ * but a few hundred assertions here are written as `assert.rejects`, and this
+ * is what they catch.
+ */
+export class FailureError extends Error {
+  constructor(readonly failure: Failure) {
+    super(failure.message);
+    this.name = 'FailureError';
+  }
+
+  get hint(): string | undefined {
+    return this.failure.hint;
+  }
+}
+
+export const throwFailure = (failure: Failure): never => {
+  throw new FailureError(failure);
+};
+
+/** A `Result`, unwrapped or thrown, for a test that only cares about the value. */
+export function orThrow<T>(result: Result<T, Failure>): T {
+  if (!result.ok) throw new FailureError(result.error);
+  return result.value;
+}
+
+/** One brand and no ceremony: `readBrand` is the Result-returning seam in src. */
+export const resolveBrand = (options: ResolveBrandOptions = {}): Brand =>
+  orThrow(readBrand(options));
+
+/**
+ * A `ProcessRunner` whose spawn is a fake and whose lookup reads the env it was
+ * given rather than the host's. The real `which` does the looking, so a PATH
+ * stub keeps behaving exactly as it did when the two were separate arguments.
+ */
+export const runnerFor = (run: RunCommand, env: Env = {}): ProcessRunner => ({
+  run,
+  which: (cmd) => which(cmd, env),
+});
+
+/**
+ * Complete ports for a test: the fake fetch it cares about, plus an env and a
+ * runner. Required fields on `SourcePorts` mean a test has to say what it means
+ * by "the environment" rather than inheriting the host's by omission - and the
+ * runner spawns for real, so the tests that clone with git still clone.
+ */
+export const portsFor = (
+  fetch: FetchLike,
+  env: Env = {},
+  run: RunCommand = realRun,
+): SourcePorts => ({ fetch, env, runner: runnerFor(run, env) });
