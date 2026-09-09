@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`context-plugins` installs plugins from a plugin marketplace (a GitHub repo carrying a
-`.claude-plugin/marketplace.json` registry) into Claude Code, Cursor, and VS Code with one
-command. Published to npm; users run it via `npx`. The README is end-user documentation
+`context-plugins` installs plugins into Claude Code, Cursor, and VS Code with one
+command - from a plugin marketplace (a GitHub repo carrying a
+`.claude-plugin/marketplace.json` registry), or from a directory on the machine
+that is itself a plugin. Published to npm; users run it via `npx`. The README is end-user documentation
 only, by explicit decision — contributor and agent knowledge belongs here, not there.
 
 ## Commands
@@ -212,6 +213,24 @@ that ends up somewhere else is a rule two callers can disagree about.
   that installs into it, and the `Harness` contract itself. `HarnessContext`
   carries the marketplace as an `origin`, named for what it holds so that no
   reader has to rename it to read it.
+- **`types/plugin-source.ts`** - what the user asked to install, parsed once at
+  the front of the run: a marketplace id, or a directory. `PluginId` is tried
+  first, which is the guarantee that no argument this program already accepted
+  changes meaning; anything starting with `.`, a separator, `~` or a drive
+  letter is a path, and anything else keeps the id's own failure. `key()` is
+  the manifest's `repo` column - a marketplace source's is the repo verbatim,
+  so no record migrates - and `reportableId()` is where a local plugin's name
+  is withheld from telemetry, rather than in a command that would have to
+  remember. `isLocalKey` / `localDirOf` read that column back, so the prefix
+  has one spelling. It is pure: whether a directory really holds a plugin is a
+  question for `infrastructure/local-plugin.ts`, which goes and looks.
+- **`types/plugin-manifest.ts`** - a plugin's own `plugin.json` as this build
+  reads it, beside `normalize` in `types/catalog.ts` for the same reason: two
+  boundaries read those bytes (a directory, and a repo over both GitHub hosts)
+  and neither should decide what a usable manifest is. `MANIFEST_FILES` is the
+  probe order, Claude Code's location first. The `name` is the id everything
+  downstream uses - never the folder's name, which can be renamed without the
+  plugin changing what it is.
 - **`types/marketplace-origin.ts`** - where the marketplace a run installs from
   lives, in the vocabulary `claude plugin marketplace list --json` answers in.
   One value rather than the marketplace name and its repo as two fields, which
@@ -235,7 +254,10 @@ that ends up somewhere else is a rule two callers can disagree about.
   clear one guard and be spelled into `plugin install <id>@`. `key()` leads
   with the discriminant and folds only the repo: it is an in-memory per-run
   key, so the format is free, but two origins of different kinds agreeing on
-  one would hand a caller the other's cached registration.
+  one would hand a caller the other's cached registration. The `directory` arm
+  is the marketplace this tool generates for plugins that came from a path; its
+  name is never unknown, because we chose it, so every instance of it is
+  already a `NamedMarketplace`.
 - **`types/installed-record.ts`** and **`types/manifest-context.ts`** - every
   rule about a manifest row, and the file as a domain object. See **State**.
 - **`types/util.ts`** - the pure helpers, and the reason they sit here: `types/`
@@ -333,6 +355,26 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   green install of a plugin VS Code never loads, and splicing a second entry in
   would just leave a duplicate key.
 
+- **Installing from a path** (`infrastructure/local-plugin.ts`,
+  `infrastructure/local-marketplace.ts`): reading a directory and generating a
+  marketplace for it. `readLocalPlugin` answers with the plugin a directory
+  declares itself to be, or a `Failure` naming the path - and it is also where
+  the overlap guard lives: `replaceDir` removes its destination before copying,
+  so a source that _is_ a destination would be deleted before it was read and
+  one containing a destination would be copied into itself. Both directions are
+  refused, for every editor's destination and for the generated marketplace.
+  That marketplace exists because `claude plugin install` only ever takes
+  `<id>@<marketplace>`: `claude plugin marketplace add` accepts a directory, so
+  one is written under the state dir - `CP_STATE_DIR` sandboxes it, which a test
+  run registering a marketplace with the developer's real `claude` would
+  otherwise not be. One shared marketplace, not one per plugin, so its registry
+  is shared state and follows the record's rule: every row but the one being
+  written rides through verbatim. Staging happens in the action and only when
+  Claude Code is actually a target, so a run that never touched it leaves no
+  marketplace holding a plugin it never got - and the last plugin out takes the
+  whole directory with it, since an empty generated marketplace is a row in
+  `claude plugin marketplace list` offering nothing.
+
 ### `src/harnesses/` - one editor's install strategy each
 
 One class per editor implementing the `Harness`
@@ -414,7 +456,14 @@ it - and a caller that only wants a title should read `TITLES` rather than
 reach for a harness. `byName` is total over `HarnessName` - narrow a string
 with `isHarnessName` first. Claude Code installs
 through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
-and VS Code copy files and need the fetched source. To add an editor, use the
+and VS Code copy files and need the fetched source - as does Claude Code for a
+`directory` origin, which is why a local install stages the files before the
+loop rather than asking a harness. The Claude path also removes the plugin
+before installing it when the origin is a directory: `claude plugin list --json`
+shows a plugin cached at `plugins/cache/<marketplace>/<id>/<version>`, so an
+edited local plugin whose manifest version did not move would re-install and
+copy nothing. That call reports nothing and its result is ignored - absence is
+the state it wants. To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
 editor names and CI steps the compiler cannot flag.
 

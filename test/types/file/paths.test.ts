@@ -117,6 +117,33 @@ test('a trailing separator on the directory does not make it contain nothing', (
  * least failed loudly. Making the rules serializable removed that crash, so
  * without a toJSON a payload would quietly get an object where it wanted a path.
  */
+test('two spellings of one directory are the same place', () => {
+  // Asserted here rather than through the harness that reads it: a comparison
+  // covered only through a caller gets reasoned about from that caller next time.
+  const dir = new DirectoryPath('/home/dev/.context-plugins/marketplace', POSIX);
+  assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace'), true);
+  assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace/'), true, 'trailing sep');
+  assert.equal(
+    dir.samePlace('/home/dev/.context-plugins/other/../marketplace'),
+    true,
+    'uncollapsed',
+  );
+  assert.equal(dir.samePlace('/home/dev/.context-plugins'), false, 'the parent is not the place');
+  assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace2'), false, 'same prefix');
+});
+
+test('windows rules fold case, posix rules do not', () => {
+  // A path's case does not distinguish directories on Windows, and nothing in
+  // PathRules can tell darwin from linux - so POSIX compares exactly, which
+  // under-matches there. Under-matching is the safe direction for the caller:
+  // a marketplace it fails to recognise is re-added under its own name.
+  const win = new DirectoryPath(`C:${SEP}Users${SEP}Dev${SEP}state`, WIN);
+  assert.equal(win.samePlace(`c:${SEP}users${SEP}dev${SEP}state`), true);
+
+  const posix = new DirectoryPath('/home/Dev/state', POSIX);
+  assert.equal(posix.samePlace('/home/dev/state'), false);
+});
+
 test('a path serializes to its string, not to its innards', () => {
   assert.equal(JSON.stringify(new DirectoryPath('/a/b', POSIX)), '"/a/b"');
   assert.equal(JSON.stringify(new FilePath('/a/b.json', POSIX)), '"/a/b.json"');

@@ -33,6 +33,15 @@ export class UninstallPrompts {
     log.warn(`Could not look up the marketplace for '${plugin}' - continuing. ${error.message}`);
   }
 
+  /**
+   * The plugin is out of every editor and off the record, but the copy this
+   * tool staged for Claude Code is still there. Said rather than swallowed:
+   * unmentioned it survives, and it is not a reason to fail a clean uninstall.
+   */
+  stagingLeft(error: Failure): void {
+    log.warn(`${error.message} You can remove that directory by hand.`);
+  }
+
   harnessThrew(title: string, message: string): void {
     log.warn(`${title}: ${message}`);
   }

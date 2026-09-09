@@ -30,22 +30,33 @@ export class UpdateCommand {
    */
   private report(row: UpdatedRow): void {
     switch (row.outcome) {
-      case 'updated':
+      case 'updated': {
+        const { source } = row.report;
+        if (!source) return;
         for (const harness of row.report.targets) {
-          if (!row.report.plugin) continue;
           this.sink(
             new PluginInstalledEvent(
-              row.report.plugin,
+              source.reportableId(),
               harness,
               row.marketplace,
+              source.kind,
               row.report.targetsExplicit,
               row.report.durationMs,
             ),
           );
         }
         return;
+      }
       case 'failed':
-        this.sink(new PluginInstallFailedEvent(row.id, row.marketplace, row.stage, row.errorKind));
+        this.sink(
+          new PluginInstallFailedEvent(
+            row.id,
+            row.marketplace,
+            row.sourceKind,
+            row.stage,
+            row.errorKind,
+          ),
+        );
         return;
       case 'unreadable':
       case 'skipped':

@@ -14,6 +14,7 @@ import {
   type MarketplaceListing,
   type UninstallOutcome,
 } from '../types/harness.js';
+import type { DirectoryPath } from '../types/file/paths.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import type { MarketplaceOrigin, NamedMarketplace } from '../types/marketplace-origin.js';
 import type { ProcessRunner, RunResult } from '../types/ports.js';
@@ -69,16 +70,34 @@ function repoOf(entry: MarketplaceListing): RepoSlug | null {
 }
 
 /**
+ * A directory marketplace lists as `{ source: 'directory', path, installLocation }`
+ * - measured against claude 2.1.266. Both path fields are tried because `path`
+ * is what it was added under and `installLocation` is where Claude reads it
+ * from; for a directory marketplace they are the same value, so a build that
+ * changes one is one this still matches on the other.
+ */
+const isSameDirectory = (entry: MarketplaceListing, dir: DirectoryPath): boolean =>
+  [entry.path, entry.installLocation].some((at) => nonEmptyString(at) && dir.samePlace(at));
+
+/**
  * Whether a listed marketplace is the one this origin names. `repoOf` answers
- * `null` for a row whose source Claude cannot spell as a slug, and then the only
- * evidence left is whether the row mentions the repository anywhere at all.
+ * `null` for a row whose source Claude cannot spell as a slug - a directory
+ * marketplace included, which is why that arm is answered first rather than
+ * left to the substring fallback that would have compared it by luck. For a
+ * repository with no readable source, whether the row mentions it at all is the
+ * only evidence there is.
  */
 const isSameOrigin = (entry: MarketplaceListing, origin: MarketplaceOrigin): boolean => {
+  if (origin.kind === 'directory') return isSameDirectory(entry, origin.dir);
   const repo = new RepoSlug(origin.repo);
   const from = repoOf(entry);
   if (from) return from.matches(repo);
   return JSON.stringify(entry).toLowerCase().includes(repo.toSearchKey());
 };
+
+/** What `claude plugin marketplace add` takes for this origin. */
+const addressOf = (origin: MarketplaceOrigin): string =>
+  origin.kind === 'repo' ? origin.repo : origin.dir.toString();
 
 export interface Registration {
   known: string;
@@ -187,7 +206,7 @@ export class ClaudeHarness implements Harness {
       return ok({ known: marketplace, updated: true });
     }
 
-    const added = await cli.marketplaceAdd(origin.repo);
+    const added = await cli.marketplaceAdd(addressOf(origin));
     if (added.code === 0) {
       say({ harness: 'claude', kind: 'marketplace-added', marketplace });
       return ok({ known: (await this.registeredName(cli, origin)) || marketplace, updated: false });
@@ -257,6 +276,14 @@ export class ClaudeHarness implements Harness {
     if (!registered.ok) return registered;
     const { known, updated } = registered.value;
     const target = `${plugin}@${known}`;
+
+    // A plugin is cached under `<marketplace>/<id>/<version>`, so re-installing
+    // one whose manifest version did not move copies nothing - which is exactly
+    // what an edited local plugin looks like. Removing it first makes the
+    // install unconditional. Nothing is reported and the result is ignored on
+    // purpose: absence is the state this wants, and a plugin that was not there
+    // is already in it.
+    if (origin.kind === 'directory') await cli.pluginUninstall(target, SCOPE);
 
     let res = await cli.pluginInstall(target, SCOPE);
     if (res.code !== 0 && !updated && LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)) {

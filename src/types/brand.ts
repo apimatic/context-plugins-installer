@@ -12,6 +12,15 @@ import { RepoSlug } from './ids/repo-slug.js';
 export const BIN = 'context-plugins';
 
 /**
+ * The marketplace this tool generates for plugins installed from a path, and
+ * registers with Claude Code as a directory. One name however many such plugins
+ * are installed, so `claude plugin marketplace list` gains a single row - and
+ * spelled so it cannot collide with a marketplace a user added by hand, since
+ * a same-named entry from elsewhere is refused rather than installed into.
+ */
+export const LOCAL_MARKETPLACE = 'context-plugins-local';
+
+/**
  * Which marketplace a run used, as telemetry may say it: the built-in one by
  * name, or `custom`. Never `brand.repo` - that is user input, and a differently
  * cased spelling of the built-in marketplace is still the built-in one, so the
@@ -29,6 +38,16 @@ export class MarketplaceLabel {
     return new MarketplaceLabel(
       RepoSlug.same(repo, telemetry.defaultRepo) ? telemetry.defaultRepo : 'custom',
     );
+  }
+
+  /**
+   * A run that did not install from a marketplace at all. `of` would read the
+   * configured `brand.repo` - which for a plugin installed from a path is
+   * whatever the default happens to be, and naming the built-in marketplace for
+   * an install that never touched it is worse than saying nothing precise.
+   */
+  static custom(): MarketplaceLabel {
+    return new MarketplaceLabel('custom');
   }
 
   toString(): string {

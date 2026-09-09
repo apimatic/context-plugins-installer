@@ -1,5 +1,6 @@
 import { createPrompter } from './prompter.js';
 import type { Brand } from '../types/brand.js';
+import type { PluginSource } from '../types/plugin-source.js';
 import {
   NAMES,
   TITLES,
@@ -39,13 +40,59 @@ export class InstallPrompts {
 
   readonly harnessListener: HarnessListener = (event) => harnessListener(this.home)(event);
 
-  intro(plugin: string, brand: Brand, ref: string, marketplace: string, about?: string): void {
-    const from = ref === 'main' ? brand.label : `${brand.label} (${ref})`;
-    log.banner(`Installing '${plugin}' from ${from}`);
-    log.debug(`source: ${brand.repo}@${ref}, marketplace: ${marketplace}`);
+  /** Where the plugin is coming from, as the banner says it. */
+  private origin(brand: Brand, ref: string | null, source: PluginSource): string {
+    if (source.kind === 'local') return f.path(source.dir, this.home);
+    return ref && ref !== 'main' ? `${brand.label} (${ref})` : brand.label;
+  }
+
+  intro(
+    plugin: string,
+    brand: Brand,
+    ref: string | null,
+    marketplace: string,
+    about: string,
+    source: PluginSource,
+  ): void {
+    log.banner(`Installing '${plugin}' from ${this.origin(brand, ref, source)}`);
+    log.debug(
+      source.kind === 'local'
+        ? `source: ${source.dir}, marketplace: ${marketplace}`
+        : `source: ${brand.repo}@${ref}, marketplace: ${marketplace}`,
+    );
     if (about) log.info(about);
     log.rule();
     log.step('[Harnesses]');
+  }
+
+  /**
+   * Whether to install from a source this program was not shipped pointing at.
+   * Asked before anything is fetched or copied, because a plugin from an
+   * arbitrary directory can carry hooks and MCP servers that run commands.
+   *
+   * `assumed` covers both ways of having already answered - `--yes`, and a shell
+   * with nobody in it. The line is still printed in that case: the source is
+   * exactly what a run doing this unattended should say out loud.
+   */
+  async confirmSource(source: PluginSource, assumed: boolean): Promise<boolean | 'cancelled'> {
+    const where = source.kind === 'local' ? f.path(source.dir, this.home) : source.key();
+    log.warn(`This installs a plugin from ${where}, not from ${TITLES.claude}'s marketplace.`);
+    log.info('A plugin can run commands through its hooks and MCP servers.');
+    if (assumed) return true;
+    const question = 'Install from this source?';
+    if (this.confirm) return this.confirm(question, false);
+    const prompter = createPrompter();
+    try {
+      return await prompter.confirm(question, false);
+    } finally {
+      prompter.close();
+    }
+  }
+
+  /** The source was declined, which is not the same as choosing no editor. */
+  nothingTrusted(): void {
+    log.plain('');
+    log.warn('Not installed - the source was not confirmed.');
   }
 
   notInstalled(harness: Harness, opts?: { home?: string }): void {

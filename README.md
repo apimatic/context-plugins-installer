@@ -16,6 +16,14 @@ npx context-plugins install paypal
 `npx context-plugins list` shows every plugin the marketplace offers. Assistants that aren't
 installed are skipped. Nothing is installed globally; `npx` runs the CLI from a cache.
 
+You can also install a plugin from a folder on your own machine — useful while writing one:
+
+```bash
+npx context-plugins install ./my-plugin
+```
+
+See [Installing from a folder](#installing-from-a-folder).
+
 ## Requirements
 
 - **Node.js 18 or newer** — the only requirement for the CLI itself.
@@ -28,6 +36,7 @@ installed are skipped. Nothing is installed globally; `npx` runs the CLI from a 
 
 ```bash
 context-plugins install <plugin> [options]     # install into the assistants you choose
+context-plugins install <path> [options]       # install a plugin from a folder on this machine
 context-plugins uninstall <plugin> [options]   # remove it again
 context-plugins update                         # refresh everything already installed
 context-plugins list                           # what the marketplace offers
@@ -92,6 +101,35 @@ The question is skipped when the answer is already known: with `--targets`, with
 `update` (which reuses your earlier choices), and in a non-interactive shell such as CI, where it
 falls back to every detected assistant rather than waiting on input.
 
+## Installing from a folder
+
+Point `install` at a directory instead of a plugin name and it installs that folder as a plugin.
+Anything starting with `.`, `/`, `~` or a drive letter is read as a path:
+
+```bash
+npx context-plugins install ./my-plugin          # relative to where you are
+npx context-plugins install ~/dev/my-plugin      # absolute, or under your home
+npx context-plugins install . --targets claude   # the folder you are in
+```
+
+The folder needs a plugin manifest — `.claude-plugin/plugin.json`, or the Cursor or root
+equivalent — and the `name` in it is what the plugin is called. The folder's own name is not used,
+so renaming the directory does not rename the plugin.
+
+A few things worth knowing:
+
+- **You are asked first.** A plugin can run commands through its hooks and MCP servers, so a folder
+  outside the marketplace is confirmed before anything is copied. `-y` skips the question.
+- **It is a snapshot.** The files are copied as they are now. After editing the plugin, run the
+  same install again to re-sync it; `update` reports these plugins rather than refreshing them,
+  because there is no version to fetch.
+- **Claude Code needs a marketplace**, so one is generated at `~/.context-plugins/marketplace/`
+  holding every plugin you installed from a folder. It appears once in
+  `claude plugin marketplace list`, as `context-plugins-local`, and goes away when the last such
+  plugin is uninstalled.
+- **Uninstall by name**, not by path: `context-plugins uninstall my-plugin`. Your source folder is
+  never touched.
+
 ## What it does per assistant
 
 | Assistant       | Mechanism                                                                                                                   | Location                              |
@@ -118,6 +156,7 @@ rather than reporting a change it did not make.
   installed.json          what is installed, and from which marketplace
   telemetry.json          a random machine id and your telemetry choice
   vscode/<plugin>/        the copy VS Code points at
+  marketplace/            a generated marketplace, only if you installed from a folder
 ```
 
 ## Telemetry

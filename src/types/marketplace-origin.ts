@@ -1,10 +1,11 @@
+import type { DirectoryPath } from './file/paths.js';
 import { MarketplaceName } from './ids/marketplace-name.js';
 import { nonEmptyString } from './util.js';
 
 // Where the marketplace a run installs from actually lives, in the vocabulary
-// `claude plugin marketplace list --json` answers in: today a GitHub
-// repository, and - once a plugin can be installed from a path - a directory on
-// this machine that we generated.
+// `claude plugin marketplace list --json` answers in: a GitHub repository, or a
+// directory on this machine - which for now means the one this tool generates
+// for plugins that came from a path.
 //
 // One value rather than the `marketplace: string | null` and `repo: string`
 // pair it replaces. Those travelled side by side from the resolver to the
@@ -27,11 +28,6 @@ import { nonEmptyString } from './util.js';
  * only printed.
  */
 export class RepoMarketplace {
-  /**
-   * The discriminant, on a union that has one arm today. It is here from the
-   * start rather than added with the second arm because every narrowing site
-   * would otherwise have to be written twice - once without it and once with.
-   */
   readonly kind = 'repo' as const;
 
   constructor(
@@ -87,12 +83,45 @@ export class RepoMarketplace {
 }
 
 /**
- * Every place a marketplace can live. A directory arm joins this when `install`
- * learns to take a path; the consumers are written against this name rather
- * than against `RepoMarketplace` so that widening it is one line here and a
- * compile error at each site that has to learn about the new kind.
+ * A marketplace directory, which `claude plugin marketplace add` takes as a
+ * source just as it takes a repository. This tool generates one, so unlike a
+ * repository's the name is never unknown: we chose it before the directory
+ * existed, which is why `name` is a plain `string` here and every instance is
+ * already a `NamedMarketplace`.
  */
-export type MarketplaceOrigin = RepoMarketplace;
+export class DirectoryMarketplace {
+  readonly kind = 'directory' as const;
+
+  constructor(
+    readonly dir: DirectoryPath,
+    readonly name: string,
+  ) {}
+
+  /**
+   * Case-folded like the repo arm's, and for the same reason on the two
+   * platforms where a path's case does not distinguish directories. The
+   * discriminant leads, so this can never collide with a slug's key.
+   */
+  key(): string {
+    return `${this.kind}:${this.dir.toString().toLowerCase()}`;
+  }
+
+  /** Always: we named this one. Here so a caller can ask the union. */
+  hasName(): this is this & NamedMarketplace {
+    return nonEmptyString(this.name);
+  }
+
+  toString(): string {
+    return this.dir.toString();
+  }
+}
+
+/**
+ * Every place a marketplace can live. The consumers are written against this
+ * name rather than against either class, so a third kind is one line here and a
+ * compile error at each site that has to learn about it.
+ */
+export type MarketplaceOrigin = RepoMarketplace | DirectoryMarketplace;
 
 /**
  * An origin Claude Code can be asked to register: every check has run and the

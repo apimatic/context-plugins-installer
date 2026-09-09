@@ -16,6 +16,17 @@ function ctx(overrides: PathOpts = {}) {
   };
 }
 
+/**
+ * What the user's own strings resolve against: the directory a relative path is
+ * relative to, the home a `~` expands to, and the rules to join them by. Taken
+ * from `PathOpts` first so a test never resolves against the directory it
+ * happened to be run from.
+ */
+export function pathContext(o?: PathOpts): { cwd: string; home: string; rules: PathRules } {
+  const c = ctx(o);
+  return { cwd: o?.cwd || process.cwd(), home: c.home.toString(), rules: c.rules };
+}
+
 /** An override is taken as the user wrote it; an empty one is no override. */
 const given = (value: string | undefined, rules: PathRules): DirectoryPath | undefined =>
   value ? new DirectoryPath(value, rules) : undefined;
@@ -31,6 +42,17 @@ export function manifestPath(o?: PathOpts): FilePath {
 
 export function telemetryPath(o?: PathOpts): FilePath {
   return stateDir(o).file('telemetry.json');
+}
+
+/**
+ * The marketplace this tool generates for plugins that came from a path. Under
+ * the state dir, so `CP_STATE_DIR` sandboxes it in a test the way it does the
+ * record - a generated marketplace written into a developer's real
+ * `~/.context-plugins` by a test run would then be registered with their real
+ * `claude`.
+ */
+export function localMarketplaceDir(o?: PathOpts): DirectoryPath {
+  return stateDir(o).join('marketplace');
 }
 
 export function vscodeStoreDir(o?: PathOpts): DirectoryPath {

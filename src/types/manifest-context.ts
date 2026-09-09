@@ -28,7 +28,8 @@ export interface InstallRecord {
   plugin: string;
   repo: string;
   marketplace: string;
-  ref: string;
+  /** Null for a source with no version to record: a directory on this machine. */
+  ref: string | null;
   /** Editors this run installed into. */
   installed: readonly HarnessName[];
   /**
@@ -97,7 +98,10 @@ export class ManifestContext {
       plugin,
       repo,
       marketplace,
-      ref,
+      // Omitted rather than written empty when there is none: `sanitizeEntry`
+      // reads an empty string as absent anyway, so writing one would put a key
+      // on disk that no reader can tell from a missing one.
+      ...(ref === null ? {} : { ref }),
       targets: [
         ...NAMES.filter((n) => keep.has(n)), // canonical order
         ...foreignTargets(raw),

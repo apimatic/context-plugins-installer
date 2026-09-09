@@ -12,13 +12,23 @@ export function helpText(bin: string, brand: Pick<Brand, 'displayName' | 'label'
 ${brand.displayName} - install marketplace plugins into ${everyEditor('and')}.
 
 Usage
-  ${bin} install <plugin> [options]
+  ${bin} install <plugin|path> [options]
   ${bin} uninstall <plugin> [options]
   ${bin} update
   ${bin} list
   ${bin} installed
   ${bin} doctor
   ${bin} telemetry [status|enable|disable]
+
+Install sources
+  <plugin>              A plugin listed in the marketplace   (${bin} list)
+  <path>                A directory that is itself a plugin - one holding
+                        .claude-plugin/plugin.json. Anything starting with
+                        . / ~ or a drive letter is read as a path, and the
+                        plugin's own manifest names it. Claude Code installs
+                        it through a marketplace this tool generates under
+                        ~/.context-plugins; ${bin} update reports such a
+                        plugin rather than refreshing it - re-run install.
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
@@ -48,6 +58,8 @@ Examples
   ${bin} install paypal
   ${bin} install acme-payments --repo acme/plugin-marketplace
   ${bin} install paypal --targets cursor,vscode --ref v1.2.0
+  ${bin} install ./my-plugin
+  ${bin} install ~/dev/my-plugin --targets claude
   ${bin} uninstall paypal
 `.trimStart();
 }

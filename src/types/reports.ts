@@ -2,6 +2,7 @@ import type { MarketplaceLabel } from './brand.js';
 import type { Failure } from './failure.js';
 import type { HarnessName } from './harness.js';
 import type { PluginId } from './ids/plugin-id.js';
+import type { PluginSource, SourceKind } from './plugin-source.js';
 import type { ErrorKind, TelemetryStatus, TelemetryVerb } from './telemetry.js';
 import type { Manifest, ManifestEntry } from './installed-record.js';
 
@@ -19,7 +20,8 @@ export interface InstallResult {
   /** Editors an earlier run installed into that this run left alone. */
   untouched?: HarnessName[];
   marketplace: string;
-  ref: string;
+  /** Null for a source that has no ref: a directory on this machine. */
+  ref: string | null;
 }
 
 /** How far a run got; coarse on purpose, so no message travels with it. */
@@ -35,6 +37,13 @@ export interface InstallReport extends InstallResult {
   stage: InstallStage;
   targetsExplicit: boolean;
   durationMs: number;
+  /**
+   * What the run was asked to install, once parsed - null when the argument was
+   * neither an id nor a path. A command reads two things off it that it must not
+   * decide for itself: which `source_kind` to report, and whether the plugin id
+   * may leave the machine at all.
+   */
+  source: PluginSource | null;
 }
 
 export interface UninstallResult {
@@ -78,7 +87,14 @@ export type UpdatedRow =
   | {
       outcome: 'failed';
       plugin: string;
+      /**
+       * The id telemetry may carry, which is not always the id the run knew: a
+       * plugin installed from a directory withholds its own. Taken off the
+       * source through `reportableId`, so this field is already the answer and
+       * a reader never has to re-derive it.
+       */
       id: PluginId | null;
+      sourceKind: SourceKind | null;
       marketplace: MarketplaceLabel;
       report: InstallReport | null;
       stage: InstallStage | null;

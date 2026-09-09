@@ -9,4 +9,11 @@ export interface PathOpts {
   platform?: string;
   env?: Env;
   home?: string;
+  /**
+   * What a relative path the user typed is relative to. Here rather than read
+   * from `process` for the same reason `home` is: a test that resolved against
+   * the developer's real working directory would assert whatever they ran it
+   * from.
+   */
+  cwd?: string;
 }

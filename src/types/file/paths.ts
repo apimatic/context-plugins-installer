@@ -14,6 +14,13 @@ export interface PathRules {
   dirname(p: string): string;
   basename(p: string): string;
   normalize(p: string): string;
+  /**
+   * Absolute, against the directory given first. Always called with an explicit
+   * base rather than letting it read the host's own cwd - that is what keeps a
+   * foreign platform's rules deterministic from this one.
+   */
+  resolve(...parts: string[]): string;
+  isAbsolute(p: string): boolean;
   readonly sep: string;
 }
 
@@ -28,6 +35,8 @@ const extract = (rules: typeof nodePath): PathRules => ({
   dirname: rules.dirname.bind(rules),
   basename: rules.basename.bind(rules),
   normalize: rules.normalize.bind(rules),
+  resolve: rules.resolve.bind(rules),
+  isAbsolute: rules.isAbsolute.bind(rules),
   sep: rules.sep,
 });
 
@@ -112,6 +121,24 @@ export class DirectoryPath {
     const inner = this.settled(pathString(target));
     const outer = this.settled(this.dir);
     return inner === outer || inner.startsWith(outer + this.rules.sep);
+  }
+
+  /**
+   * Whether two paths name the same directory. Normalized on both sides like
+   * `contains`, so a trailing separator or an uncollapsed `..` is harmless -
+   * and case-insensitive under Windows rules, where a path's case does not
+   * distinguish one directory from another.
+   *
+   * POSIX rules compare exactly, which under-matches on macOS: its filesystem
+   * is usually case-insensitive too, and nothing in `PathRules` can tell darwin
+   * from linux. Under-matching is the safe direction for the caller that reads
+   * this - a marketplace it fails to recognise is re-added under a name that is
+   * then found to be its own.
+   */
+  samePlace(other: PathArg): boolean {
+    const windows = this.rules.sep !== '/';
+    const fold = (value: string): string => (windows ? value.toLowerCase() : value);
+    return fold(this.settled(pathString(other))) === fold(this.settled(this.dir));
   }
 
   toString(): string {

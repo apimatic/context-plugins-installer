@@ -74,6 +74,14 @@ export class UpdatePrompts {
     log.warn(`${this.cell(plugin)}  no editor for it on this machine - skipping`);
   }
 
+  /**
+   * A row installed from a directory. Not a failure, and worth naming what does
+   * refresh it: nothing here can read a path as a marketplace.
+   */
+  localSource(plugin: string): void {
+    log.warn(`${this.cell(plugin)}  installed from a path - re-run install to re-sync`);
+  }
+
   updated(plugin: string, targets: readonly HarnessName[]): void {
     if (this.collapse) log.ok(`${this.cell(plugin)}  ${log.dim(titlesOf(targets))}`);
   }

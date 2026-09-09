@@ -33,7 +33,9 @@ export type TelemetryOptOut = 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'state' |
  * event class in `types/events/` declares.
  */
 export const COLLECTED =
-  'the plugin id, the editor it went into, the marketplace when it is the built-in one, ' +
+  'the plugin id - except for a plugin installed from a path, whose name stays on this ' +
+  'machine - the editor it went into, whether the plugin came from a marketplace or a ' +
+  'path (never the path itself), the marketplace when it is the built-in one, ' +
   'the command, OS, CPU architecture, Node and CLI version, whether the run was interactive ' +
   'or in CI, how long it took, a random id for this machine, and an approximate location ' +
   '(city, region, country) that Mixpanel derives from the request address and then discards';
