@@ -1,4 +1,5 @@
 import { claudeCli, findClaude, type ClaudeCli } from '../infrastructure/claude-cli.js';
+import { unstageLocalPlugin } from '../infrastructure/local-marketplace.js';
 import { processRunner } from '../infrastructure/process-runner.js';
 import { BIN } from '../types/brand.js';
 import { Failure } from '../types/failure.js';
@@ -280,10 +281,12 @@ export class ClaudeHarness implements Harness {
     // A plugin is cached under `<marketplace>/<id>/<version>`, so re-installing
     // one whose manifest version did not move copies nothing - which is exactly
     // what an edited local plugin looks like. Removing it first makes the
-    // install unconditional. Nothing is reported and the result is ignored on
-    // purpose: absence is the state this wants, and a plugin that was not there
-    // is already in it.
-    if (origin.kind === 'directory') await cli.pluginUninstall(target, SCOPE);
+    // install unconditional. Nothing is reported when there was nothing there:
+    // absence is the state this wants, and a plugin that was not there is
+    // already in it. Whether it removed one is remembered, because it opens the
+    // one window in which failing leaves the user worse off than not trying.
+    const replaced =
+      origin.kind === 'directory' && (await cli.pluginUninstall(target, SCOPE)).code === 0;
 
     let res = await cli.pluginInstall(target, SCOPE);
     if (res.code !== 0 && !updated && LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)) {
@@ -294,9 +297,14 @@ export class ClaudeHarness implements Harness {
       return err(
         new Failure(
           `claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim(),
-          LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
-            ? `'${plugin}' is not in marketplace '${known}'. Run \`npx ${BIN} list\` to see what it offers.`
-            : undefined,
+          // The removal above is the thing the user most needs to know about
+          // when the install after it failed: the copy they had is gone, and
+          // no other line would tell them.
+          replaced
+            ? `The previous copy of '${plugin}' was removed first, so Claude Code has none now. Run the same install again once the cause is fixed.`
+            : LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
+              ? `'${plugin}' is not in marketplace '${known}'. Run \`npx ${BIN} list\` to see what it offers.`
+              : undefined,
         ),
       );
     }
@@ -318,6 +326,37 @@ export class ClaudeHarness implements Harness {
     const ours = (scope: string | null): boolean =>
       !OTHER_SCOPES.has((scope || SCOPE).toLowerCase());
     return !rows.some((r) => r.plugin === plugin && ours(r.scope));
+  }
+
+  /**
+   * The copy this tool staged exists only so Claude Code has a marketplace to
+   * install from, so it goes when Claude Code no longer has the plugin - and
+   * with the last one, the generated marketplace itself, which is otherwise a
+   * row in `claude plugin marketplace list` pointing at a directory that is not
+   * there. Deregistering is the half that has to happen here: removing the
+   * files is `infrastructure`'s, and the argv is only ever spelled by a harness.
+   *
+   * Never fatal. The plugin is out of the editor either way, and a leftover
+   * directory is a mess to mention rather than a reason to fail a clean
+   * uninstall.
+   */
+  private async unstage(
+    cli: ClaudeCli,
+    origin: MarketplaceOrigin,
+    plugin: string,
+    known: string,
+    say: Say,
+    opts?: HarnessOpts,
+  ): Promise<void> {
+    if (origin.kind !== 'directory') return;
+    const unstaged = unstageLocalPlugin({ plugin }, opts);
+    if (!unstaged.ok) {
+      say({ harness: 'claude', kind: 'staging-left', detail: unstaged.error.message });
+      return;
+    }
+    if (!unstaged.value.removed) return;
+    const dropped = await cli.marketplaceRemove(known);
+    if (dropped.code === 0) say({ harness: 'claude', kind: 'marketplace-removed', known });
   }
 
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {
@@ -342,6 +381,9 @@ export class ClaudeHarness implements Harness {
       // True whether it was never installed or a command removed it and then failed.
       if (await this.isAbsent(cli, plugin, res)) {
         say({ harness: 'claude', kind: 'plugin-absent', plugin, scope: SCOPE });
+        // Absent is still "Claude Code does not have it", so anything staged
+        // for it here is now weight with nothing to load it.
+        await this.unstage(cli, origin, plugin, known, say, opts);
         return 'absent';
       }
       say({
@@ -354,6 +396,7 @@ export class ClaudeHarness implements Harness {
       return 'failed';
     }
     say({ harness: 'claude', kind: 'plugin-uninstalled', target });
+    await this.unstage(cli, origin, plugin, known, say, opts);
     say({ harness: 'claude', kind: 'reload', after: 'uninstall' });
     return 'removed';
   }

@@ -2,7 +2,7 @@ import { resolvePlugin } from '../application/plugin-resolution.js';
 import { resolveTargets } from '../application/target-selection.js';
 import { decideUninstall, uninstallLines } from '../application/uninstall-decision.js';
 import { harnesses } from '../harnesses/index.js';
-import { localMarketplace, unstageLocalPlugin } from '../infrastructure/local-marketplace.js';
+import { localMarketplace } from '../infrastructure/local-marketplace.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UninstallPrompts } from '../prompts/uninstall.js';
@@ -15,9 +15,14 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
-import type { EntryKey } from '../types/installed-record.js';
+import { DirectoryPath } from '../types/file/paths.js';
 import { RepoMarketplace, type MarketplaceOrigin } from '../types/marketplace-origin.js';
-import { isLocalKey } from '../types/plugin-source.js';
+import {
+  LocalSource,
+  MarketplaceSource,
+  localDirOf,
+  type PluginSource,
+} from '../types/plugin-source.js';
 import type { RegistryClient } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
 import { errorMessage, nonEmptyString } from '../types/util.js';
@@ -49,8 +54,15 @@ export class UninstallAction {
    */
   private id: PluginId | null = null;
 
+  private from: PluginSource | null = null;
+
   get plugin(): PluginId | null {
     return this.id;
+  }
+
+  /** The row's own source, for the command's catch to report on. */
+  get source(): PluginSource | null {
+    return this.from;
   }
 
   constructor(
@@ -99,25 +111,16 @@ export class UninstallAction {
     return at(null);
   }
 
-  /**
-   * Which row this argument names. A plugin installed from a directory is keyed
-   * by that directory rather than by the configured marketplace, so an id alone
-   * would miss it - and an id alone is what a user types to remove one. The
-   * configured key is tried first, so nothing about the spelling this program
-   * has always taken changes.
-   */
-  private keyFor(records: ReturnType<typeof openManifest>, plugin: string, brand: Brand): EntryKey {
-    const configured = { plugin, repo: brand.repo };
-    if (records.findRaw(configured)) return configured;
-    const elsewhere = records.list().find((p) => p.plugin === plugin && isLocalKey(p.repo));
-    return elsewhere?.repo ? { plugin, repo: elsewhere.repo } : configured;
-  }
-
   readonly execute = async (req: UninstallRequest): Promise<ActionResult<UninstallResult>> => {
     const { brand, force = false } = req;
     // A function, not a value: the arms after the id is validated report which
     // plugin the run was about, and the one before it has nothing to report.
-    const nothing = (): UninstallResult => ({ plugin: this.id, targets: [], failed: [] });
+    const nothing = (): UninstallResult => ({
+      plugin: this.id,
+      source: this.from,
+      targets: [],
+      failed: [],
+    });
 
     const id = PluginId.parse(req.plugin);
     if (!id.ok) return ActionResult.failed(nothing(), id.error);
@@ -125,17 +128,24 @@ export class UninstallAction {
     const plugin = id.value.toString();
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
-    // The raw row: uninstall must also clear rows the sanitized view hides, and
-    // their recorded marketplace is what keeps the Claude path offline.
-    const key = this.keyFor(records, plugin, brand);
-    const recorded = records.findRaw(key);
-    const local = isLocalKey(key.repo);
+    // One read, and the raw row: uninstall must also clear rows the sanitized
+    // view hides, and their recorded marketplace is what keeps Claude offline.
+    const { key, row: recorded } = records.locate(plugin, brand.repo);
+    const dir = localDirOf(key.repo);
+    // Rebuilt from the key so the command can ask it the same two questions an
+    // install asks: which kind to report, and whether the id may be reported at
+    // all. A plugin removed from a directory withholds the name that directory
+    // gave it, exactly as installing it did.
+    this.from =
+      dir === null
+        ? new MarketplaceSource(id.value, String(key.repo ?? brand.repo), brand.ref)
+        : new LocalSource(new DirectoryPath(dir));
 
     const targets = resolveTargets(req.targets);
     if (!targets.ok) return ActionResult.failed(nothing(), targets.error);
     const want = targets.value;
 
-    const found = await this.marketplaceFor(brand, plugin, recorded, want, local);
+    const found = await this.marketplaceFor(brand, plugin, recorded, want, dir !== null);
     if ('failure' in found) return ActionResult.failed(nothing(), found.failure);
 
     this.prompts.intro(plugin, brand, want);
@@ -170,18 +180,11 @@ export class UninstallAction {
     // silently as one more thing that went wrong.
     records.applyUninstall(key, decision);
 
-    // The generated marketplace follows the record: once no row claims this
-    // plugin, the staged copy under it is dead weight, and an empty generated
-    // marketplace is a row in `claude plugin marketplace list` offering nothing.
-    if (local && decision.write === 'remove') {
-      const unstaged = unstageLocalPlugin({ plugin }, this.pathOpts);
-      if (!unstaged.ok) this.prompts.stagingLeft(unstaged.error);
-    }
-
     this.prompts.summary(uninstallLines(decision, { plugin, bin: BIN }));
 
     const report: UninstallResult = {
       plugin: id.value,
+      source: this.from,
       targets: decision.removed,
       failed: decision.failed,
     };

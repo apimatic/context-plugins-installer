@@ -70,13 +70,26 @@ test('a failure before the argument parsed reports no source kind either', () =>
 });
 
 test('an uninstall reports one editor and the marketplace', () => {
-  const event = new PluginUninstalledEvent(plugin, 'vscode', builtIn);
+  const event = new PluginUninstalledEvent(plugin, 'vscode', builtIn, 'marketplace');
   assert.equal(event.name, 'Context Plugin Uninstalled');
   assert.deepEqual(event.properties(), {
     plugin: 'my-sdk',
     harness: 'vscode',
     marketplace: BUILT_IN,
+    source_kind: 'marketplace',
   });
+});
+
+/**
+ * Removing a plugin may say no more about it than installing one did. This is
+ * the half that was missed when the rule arrived: the id was withheld on the
+ * way in and sent on the way out, which made the printed inventory false.
+ */
+test('a local uninstall withholds the folders plugin name too', () => {
+  const event = new PluginUninstalledEvent(null, 'cursor', custom, 'local');
+  assert.equal(event.properties().plugin, null);
+  assert.equal(event.properties().source_kind, 'local');
+  assert.equal(event.properties().marketplace, 'custom');
 });
 
 /**
@@ -84,11 +97,12 @@ test('an uninstall reports one editor and the marketplace', () => {
  * read as one funnel, and a property missing from one arm cannot be grouped by.
  */
 test('a failed uninstall carries a null stage rather than omitting it', () => {
-  const event = new PluginUninstallFailedEvent(plugin, builtIn, 'unexpected');
+  const event = new PluginUninstallFailedEvent(plugin, builtIn, 'marketplace', 'unexpected');
   assert.equal(event.name, 'Context Plugin Uninstall Failed');
   assert.deepEqual(event.properties(), {
     plugin: 'my-sdk',
     marketplace: BUILT_IN,
+    source_kind: 'marketplace',
     stage: null,
     error_kind: 'unexpected',
   });
@@ -106,7 +120,10 @@ test('an unvalidated id travels as null on both failure arms', () => {
       .plugin,
     null,
   );
-  assert.equal(new PluginUninstallFailedEvent(null, builtIn, 'user').properties().plugin, null);
+  assert.equal(
+    new PluginUninstallFailedEvent(null, builtIn, 'marketplace', 'user').properties().plugin,
+    null,
+  );
 });
 
 /**
@@ -124,8 +141,8 @@ test('every property of every event is a primitive', () => {
     new PluginInstalledEvent(plugin, 'cursor', builtIn, 'marketplace', false, 1),
     new PluginInstalledEvent(null, 'cursor', custom, 'local', false, 1),
     new PluginInstallFailedEvent(plugin, custom, 'local', null, 'unexpected'),
-    new PluginUninstalledEvent(plugin, 'claude', custom),
-    new PluginUninstallFailedEvent(plugin, custom, 'user'),
+    new PluginUninstalledEvent(plugin, 'claude', custom, 'marketplace'),
+    new PluginUninstallFailedEvent(plugin, custom, 'marketplace', 'user'),
   ];
   for (const event of events) {
     for (const [key, value] of Object.entries(event.properties())) {

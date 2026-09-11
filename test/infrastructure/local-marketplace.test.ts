@@ -158,14 +158,53 @@ test('unstaging from nothing is not a failure', () => {
   });
 });
 
-test('an unreadable registry does not make every path install fail forever', () => {
+test('an unreadable registry is rebuilt from the folders, not from nothing', () => {
+  // Reading "no rows" from a file that would not parse looks exactly like an
+  // empty marketplace. Writing that back would drop every other path plugin's
+  // row while its files sit right beside it, so the rows are reconstructed.
   const s = sandbox();
-  stageLocalPlugin({ plugin: 'mine', srcDir: pluginDir('mine') }, s.opts);
+  stageLocalPlugin({ plugin: 'first', srcDir: pluginDir('first') }, s.opts);
+  stageLocalPlugin({ plugin: 'second', srcDir: pluginDir('second') }, s.opts);
   fs.writeFileSync(s.registry, '{ truncated');
 
-  const origin = value(stageLocalPlugin({ plugin: 'mine', srcDir: pluginDir('mine') }, s.opts));
+  const origin = value(stageLocalPlugin({ plugin: 'second', srcDir: pluginDir('second') }, s.opts));
   assert.equal(origin.name, LOCAL_MARKETPLACE);
-  assert.deepEqual(registryOf(s.registry).plugins, [{ name: 'mine', source: './plugins/mine' }]);
+  assert.deepEqual(
+    (registryOf(s.registry).plugins ?? []).map((p) => (p as { name: string }).name).sort(),
+    ['first', 'second'],
+    'the plugin that had nothing to do with the broken write keeps its row',
+  );
+});
+
+test('an unreadable registry never takes the other plugins files with it', () => {
+  // The failure this guards: emptiness read off a truncated file, and four
+  // staged plugins deleted because of one bad write.
+  const s = sandbox();
+  stageLocalPlugin({ plugin: 'first', srcDir: pluginDir('first') }, s.opts);
+  stageLocalPlugin({ plugin: 'second', srcDir: pluginDir('second') }, s.opts);
+  fs.writeFileSync(s.registry, '{ truncated');
+
+  const left = value(unstageLocalPlugin({ plugin: 'first' }, s.opts));
+  assert.deepEqual(left, { remaining: 1, removed: false });
+  assert.ok(fs.existsSync(path.join(s.root.toString(), 'plugins', 'second')));
+  assert.ok(fs.existsSync(s.root.toString()), 'the marketplace itself survives');
+});
+
+test('every other field of the registry document rides through a rewrite', () => {
+  // The same rule the record follows: shared state, so an `owner` block or
+  // anything a newer build added is not this one's to drop.
+  const s = sandbox();
+  stageLocalPlugin({ plugin: 'mine', srcDir: pluginDir('mine') }, s.opts);
+  const doc = registryOf(s.registry) as Record<string, unknown>;
+  fs.writeFileSync(
+    s.registry,
+    JSON.stringify({ ...doc, owner: { name: 'Someone' }, future: ['a thing'] }),
+  );
+
+  stageLocalPlugin({ plugin: 'other', srcDir: pluginDir('other') }, s.opts);
+  const after = registryOf(s.registry) as Record<string, unknown>;
+  assert.deepEqual(after.owner, { name: 'Someone' });
+  assert.deepEqual(after.future, ['a thing']);
 });
 
 test('it writes under the state dir it is given, never a real home', () => {

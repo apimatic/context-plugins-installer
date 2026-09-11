@@ -31,12 +31,6 @@ export interface PluginManifest {
    */
   id: PluginId;
   description: string;
-  /**
-   * Claude Code caches a plugin under `<marketplace>/<id>/<version>`, so a
-   * re-sync of an edited plugin whose version did not move would copy nothing.
-   * Read here so the staging path can see it; `null` when none is declared.
-   */
-  version: string | null;
 }
 
 /**
@@ -59,9 +53,13 @@ export function readManifest(data: unknown, from: string): Result<PluginManifest
       ),
     );
   }
+  // The declared `version` is deliberately not read. Claude Code caches a
+  // plugin under `<marketplace>/<id>/<version>`, so an edited plugin whose
+  // version did not move would re-install and copy nothing - and that is
+  // answered by removing it before installing, in the harness, rather than by
+  // a comparison here that nothing would be able to act on.
   return ok({
     id: id.value,
     description: nonEmptyString(data.description) ? data.description : '',
-    version: nonEmptyString(data.version) ? data.version : null,
   });
 }

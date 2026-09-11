@@ -475,3 +475,131 @@ test('update reports a path row rather than failing on it forever', () => {
     assert.deepEqual(report.rows, [{ outcome: 'skipped', plugin: 'my-sdk' }]);
   });
 });
+
+test('the last path plugin out deregisters the generated marketplace', () => {
+  // Deleting the directory without telling Claude Code leaves a row in
+  // `claude plugin marketplace list` pointing at somewhere that is not there.
+  return quietly(async () => {
+    const m = claudeMachine();
+    await installPlugin({
+      brand: brand(),
+      plugin: pluginDir(),
+      targets: ['claude'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+    m.calls.length = 0;
+
+    await uninstallPlugin({
+      brand: brand(),
+      plugin: 'my-sdk',
+      targets: ['claude'],
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    assert.ok(
+      m.calls.includes(`plugin marketplace remove ${LOCAL_MARKETPLACE}`),
+      `expected the registration to be dropped, got: ${m.calls.join(' | ')}`,
+    );
+  });
+});
+
+test('a path plugin that is not the last one leaves the marketplace registered', () => {
+  return quietly(async () => {
+    const m = claudeMachine();
+    for (const name of ['first', 'second']) {
+      await installPlugin({
+        brand: brand(),
+        plugin: pluginDir(name),
+        targets: ['claude'],
+        assumeYes: true,
+        pathOpts: m.pathOpts,
+        wiring: wiring(),
+      });
+    }
+    m.calls.length = 0;
+
+    await uninstallPlugin({
+      brand: brand(),
+      plugin: 'first',
+      targets: ['claude'],
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    assert.ok(
+      !m.calls.some((c) => c.startsWith('plugin marketplace remove')),
+      'the other plugin still needs it',
+    );
+  });
+});
+
+test('uninstall telemetry withholds the folders plugin name too', () => {
+  // The half that was missed when the rule arrived: the id was withheld on the
+  // way in and sent on the way out, which made the printed inventory false.
+  return quietly(async () => {
+    const m = machine();
+    const events: Tracked[] = [];
+    await installPlugin({
+      brand: brand(),
+      plugin: pluginDir(),
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    await uninstallPlugin({
+      brand: brand(),
+      plugin: 'my-sdk',
+      targets: ['cursor'],
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+      sink: sinkInto(events),
+    });
+
+    const removed = events.filter((e) => e.name === 'Context Plugin Uninstalled');
+    assert.equal(removed.length, 1);
+    assert.equal(removed[0]?.properties.plugin, null);
+    assert.equal(removed[0]?.properties.source_kind, 'local');
+    assert.equal(removed[0]?.properties.marketplace, 'custom');
+  });
+});
+
+test('a path row the read view hides is still reachable by uninstall', () => {
+  // `['cursor','zed']` shortened by an earlier uninstall to `['zed']` is dropped
+  // from the sanitized view. Looking for the row there would strand it:
+  // unremovable, and reported by every `update` for ever.
+  return quietly(async () => {
+    const m = machine();
+    const file = paths.manifestPath(m.pathOpts).toString();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        plugins: [
+          {
+            plugin: 'my-sdk',
+            repo: 'local:/somewhere/my-sdk',
+            marketplace: LOCAL_MARKETPLACE,
+            targets: ['zed'],
+          },
+        ],
+      }),
+    );
+
+    await uninstallPlugin({
+      brand: brand(),
+      plugin: 'my-sdk',
+      targets: ['cursor'],
+      force: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    assert.deepEqual(rowsOf(m), [], 'the stranded row is clearable');
+  });
+});

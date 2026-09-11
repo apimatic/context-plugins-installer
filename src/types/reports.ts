@@ -49,6 +49,14 @@ export interface InstallReport extends InstallResult {
 export interface UninstallResult {
   /** Null when the id never validated; see `InstallResult.plugin`. */
   plugin: PluginId | null;
+  /**
+   * Where the row this run acted on came from, rebuilt from its recorded key.
+   * A command reads the same two things off it that install does: the kind to
+   * report, and whether the plugin id may leave the machine - a plugin removed
+   * from a directory withholds the name that directory gave it, exactly as
+   * installing it did.
+   */
+  source: PluginSource | null;
   /** Editors something was actually removed from - not editors whose record was corrected. */
   targets: HarnessName[];
   /** Editors that were asked and went wrong. Non-empty means the run failed. */

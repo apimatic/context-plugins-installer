@@ -72,9 +72,14 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   `api.mixpanel.com`. Properties are
   primitives only, and `COLLECTED` in `types/telemetry.ts` is the one prose inventory the
   notice and `telemetry status` print; keep it, `common`, and the properties each event
-  class in `types/events/` declares (`plugin` once validated, `harness`, `marketplace` as
-  the built-in repo or `custom`, `stage`, `error_kind`, `targets_explicit`,
-  `duration_ms`) in step. Never send
+  class in `types/events/` declares (`plugin` once validated - and withheld entirely for a
+  plugin installed from a path, whose name came from a folder the user chose - `harness`,
+  `marketplace` as the built-in repo or `custom`, `source_kind` as `marketplace` or
+  `local`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step.
+  `PluginSource.reportableId` is where that id is withheld and
+  `MarketplaceLabel.forSource` where a path install is kept from naming the built-in
+  marketplace it never touched: both live on the types, so no command answers either
+  question for itself. Never send
   a path, hostname, username, error message, env var, or a user-supplied `--repo`
   - which is why `MarketplaceLabel.of` answers with the built-in constant or
     `custom` and never with `brand.repo` (not to be confused with the rc file's

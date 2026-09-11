@@ -17,26 +17,23 @@ const failure = <T>(result: Result<T, Failure>): Failure => {
   return result.error;
 };
 
-test('the id, the description and the version are read', () => {
-  const read = readManifest({ name: 'my-sdk', description: 'A plugin', version: '1.2.3' }, FROM);
+test('the id and the description are read', () => {
+  const read = readManifest({ name: 'my-sdk', description: 'A plugin' }, FROM);
   assert.ok(read.ok, read.ok ? '' : read.error.message);
   assert.equal(read.value.id.toString(), 'my-sdk');
   assert.equal(read.value.description, 'A plugin');
-  assert.equal(read.value.version, '1.2.3');
 });
 
-test('a description and a version are optional, and absent means null or empty', () => {
+test('a description is optional, and absent means empty', () => {
   const read = readManifest({ name: 'my-sdk' }, FROM);
   assert.ok(read.ok);
   assert.equal(read.value.description, '');
-  assert.equal(read.value.version, null, 'a plugin need not declare one');
 });
 
-test('fields of the wrong type read as absent rather than being carried through', () => {
-  const read = readManifest({ name: 'my-sdk', description: 42, version: ['1.0'] }, FROM);
+test('a description of the wrong type reads as absent rather than being carried through', () => {
+  const read = readManifest({ name: 'my-sdk', description: 42 }, FROM);
   assert.ok(read.ok);
   assert.equal(read.value.description, '');
-  assert.equal(read.value.version, null);
 });
 
 test('an unusable name names the file and the value it found', () => {

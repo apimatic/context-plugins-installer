@@ -1,5 +1,6 @@
 import type { MarketplaceLabel } from '../brand.js';
 import type { PluginId } from '../ids/plugin-id.js';
+import type { SourceKind } from '../plugin-source.js';
 import type { ErrorKind, TelemetryValue } from '../telemetry.js';
 import { DomainEvent } from './domain-event.js';
 
@@ -15,6 +16,12 @@ export class PluginUninstallFailedEvent extends DomainEvent {
   constructor(
     private readonly plugin: PluginId | null,
     private readonly marketplace: MarketplaceLabel,
+    /**
+     * Where the plugin came from, as a kind and never as a path or a
+     * repository. On both failure arms for the reason `stage` is: they are one
+     * funnel, and a property missing from one arm cannot be grouped by.
+     */
+    private readonly sourceKind: SourceKind | null,
     private readonly errorKind: ErrorKind,
   ) {
     super();
@@ -24,6 +31,7 @@ export class PluginUninstallFailedEvent extends DomainEvent {
     return {
       plugin: this.plugin?.toString() ?? null,
       marketplace: this.marketplace.toString(),
+      source_kind: this.sourceKind,
       stage: null,
       error_kind: this.errorKind,
     };

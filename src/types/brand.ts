@@ -1,4 +1,5 @@
 import { RepoSlug } from './ids/repo-slug.js';
+import type { PluginSource } from './plugin-source.js';
 
 // Which marketplace this run installs from, what it calls itself, and whether it
 // reports anything. Resolved from a flag, then `CP_*` env, then an rc file, then
@@ -48,6 +49,22 @@ export class MarketplaceLabel {
    */
   static custom(): MarketplaceLabel {
     return new MarketplaceLabel('custom');
+  }
+
+  /**
+   * What a run about this source may call its marketplace. Here rather than in
+   * each command, because both of them ask it and a second copy is a second
+   * chance to answer `of` for a plugin that came from a directory. A source
+   * this build could not parse leaves the run about the configured marketplace
+   * as far as it got, which is what `of` answers.
+   */
+  static forSource(
+    source: PluginSource | null,
+    brand: Pick<Brand, 'repo' | 'telemetry'>,
+  ): MarketplaceLabel {
+    return source && source.kind !== 'marketplace'
+      ? MarketplaceLabel.custom()
+      : MarketplaceLabel.of(brand);
   }
 
   toString(): string {

@@ -5,11 +5,14 @@ import {
   foldRows,
   foreignTargets,
   manifestView,
+  matchesKey,
   sanitizeEntry,
   type EntryKey,
   type Manifest,
   type ManifestEntry,
 } from './installed-record.js';
+import { isPlainObject } from './util.js';
+import { isLocalKey } from './plugin-source.js';
 import type { ManifestStore } from './ports.js';
 import type { UninstallDecision } from './uninstall.js';
 
@@ -77,15 +80,46 @@ export class ManifestContext {
   }
 
   /**
+   * The row an argument names and the key that writes it, in one read.
+   *
+   * A plugin installed from a directory is keyed by that directory, and an id
+   * is what a user types to remove one - so when the configured key matches
+   * nothing, a row for the same id from a path is what they meant. The
+   * configured key is tried first, so nothing about the spelling this program
+   * has always taken changes.
+   *
+   * Over the raw rows, not the read view: a row the view hides is exactly the
+   * one this has to reach. `['cursor','zed']` shortened by an earlier
+   * uninstall to `['zed']` is dropped from the view, and looking there would
+   * strand it - unremovable, and failing every `update`.
+   */
+  locate(plugin: string, repo: string): { key: EntryKey; row: Record<string, unknown> | null } {
+    const rows = this.store.readRaw().plugins;
+    const configured: EntryKey = { plugin, repo };
+    const matching = rows.filter((r): r is Record<string, unknown> => matchesKey(r, configured));
+    if (matching.length) return { key: configured, row: foldRows(matching) };
+
+    const local = rows.find(
+      (r): r is Record<string, unknown> =>
+        isPlainObject(r) && r.plugin === plugin && isLocalKey(r.repo),
+    );
+    if (!local) return { key: configured, row: null };
+    const key: EntryKey = { plugin, repo: local.repo };
+    const found = rows.filter((r): r is Record<string, unknown> => matchesKey(r, key));
+    return { key, row: foldRows(found) };
+  }
+
+  /**
    * Cursor and VS Code both keep plugins in a flat `<plugin>/` directory, so the
-   * same id from a second marketplace would silently overwrite the first.
-   * `--force` is the caller's to honour: this only reports the clash.
+   * same id from a second source - another marketplace, or a folder on this
+   * machine - would silently overwrite the first. `--force` is the caller's to
+   * honour: this only reports the clash.
    */
   conflictFor({ plugin, repo }: { plugin: string; repo: string }): Failure | null {
     const clash = this.list().find((p) => p.plugin === plugin && !RepoSlug.same(p.repo, repo));
     if (!clash) return null;
     return new Failure(
-      `'${plugin}' is already installed from a different marketplace.`,
+      `'${plugin}' is already installed from a different source.`,
       'Uninstall it first, or re-run with --force to replace it.',
     );
   }

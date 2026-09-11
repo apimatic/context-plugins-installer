@@ -58,7 +58,7 @@ const LOCAL_PREFIX = 'local:';
  * than a full parse because that is all its caller needs: a `repo` no slug can
  * ever be.
  */
-export const isLocalKey = (repo: unknown): boolean =>
+export const isLocalKey = (repo: unknown): repo is string =>
   typeof repo === 'string' && repo.startsWith(LOCAL_PREFIX);
 
 /**
@@ -67,7 +67,7 @@ export const isLocalKey = (repo: unknown): boolean =>
  * sliced it off itself is a second definition of the key format.
  */
 export const localDirOf = (repo: unknown): string | null =>
-  isLocalKey(repo) ? (repo as string).slice(LOCAL_PREFIX.length) : null;
+  isLocalKey(repo) ? repo.slice(LOCAL_PREFIX.length) : null;
 
 export class LocalSource {
   readonly kind = 'local' as const;

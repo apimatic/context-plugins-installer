@@ -1,6 +1,6 @@
 import { createPrompter } from './prompter.js';
 import type { Brand } from '../types/brand.js';
-import type { PluginSource } from '../types/plugin-source.js';
+import type { LocalSource, PluginSource } from '../types/plugin-source.js';
 import {
   NAMES,
   TITLES,
@@ -74,8 +74,8 @@ export class InstallPrompts {
    * with nobody in it. The line is still printed in that case: the source is
    * exactly what a run doing this unattended should say out loud.
    */
-  async confirmSource(source: PluginSource, assumed: boolean): Promise<boolean | 'cancelled'> {
-    const where = source.kind === 'local' ? f.path(source.dir, this.home) : source.key();
+  async confirmSource(source: LocalSource, assumed: boolean): Promise<boolean | 'cancelled'> {
+    const where = f.path(source.dir, this.home);
     log.warn(`This installs a plugin from ${where}, not from ${TITLES.claude}'s marketplace.`);
     log.info('A plugin can run commands through its hooks and MCP servers.');
     if (assumed) return true;

@@ -47,7 +47,6 @@ test('it reads the id, description and version a plugin declares', () => {
   assert.ok(read.ok, read.ok ? '' : read.error.message);
   assert.equal(read.value.id.toString(), 'my-plugin');
   assert.equal(read.value.description, 'A local plugin');
-  assert.equal(read.value.version, '1.2.3');
   assert.ok(read.value.dir.isEqual(dir));
 });
 

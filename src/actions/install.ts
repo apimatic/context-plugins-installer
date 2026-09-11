@@ -147,9 +147,10 @@ export class InstallAction {
     if (!targets.ok) return failed(targets.error);
     const requested = targets.value;
 
-    // Keyed by the source rather than by the run's repo: a directory keys on its
-    // own path, so the same id from a marketplace and from a folder are two rows
-    // - and a marketplace source keys on exactly what it always has.
+    // Keyed by the source rather than by the run's repo: a directory keys on
+    // its own path, and a marketplace source on exactly what it always has.
+    // Two sources with one id still clash - they share a destination folder
+    // under Cursor and VS Code - which is what `conflictFor` reports.
     const key = { plugin, repo: source.key() };
     const conflict = force ? null : records.conflictFor(key);
     if (conflict) return failed(conflict);
@@ -215,10 +216,12 @@ export class InstallAction {
     // came from a directory is put into the one this tool generates - but only
     // when Claude Code is actually being installed into, or a run that never
     // touched it would leave a marketplace behind holding a plugin it never got.
-    if (origin.kind === 'directory' && want.includes('claude')) {
-      if (!srcDir) return failed(new Failure(`No files to stage for '${plugin}'.`));
+    // `localDir` is what `srcDir` was seeded from for this origin, so there is
+    // nothing to guard against here: a directory origin is produced only by the
+    // local arm of `resolve`, which always answers with the directory it read.
+    if (origin.kind === 'directory' && resolved.localDir && want.includes('claude')) {
       const staged = stageLocalPlugin(
-        { plugin, srcDir, description: resolved.description },
+        { plugin, srcDir: resolved.localDir, description: resolved.description },
         this.pathOpts,
       );
       if (!staged.ok) return failed(staged.error);

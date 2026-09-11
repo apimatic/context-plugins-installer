@@ -134,6 +134,8 @@ export type ClaudeEvent = { harness: 'claude' } & (
   | { kind: 'plugin-installed'; target: string; scope: string }
   | { kind: 'plugin-absent'; plugin: string; scope: string }
   | { kind: 'plugin-uninstalled'; target: string }
+  | { kind: 'marketplace-removed'; known: string }
+  | { kind: 'staging-left'; detail: string }
   | { kind: 'plugin-uninstall-failed'; target: string; code: number; detail: string }
   | { kind: 'reload'; after: HarnessVerb }
 );
