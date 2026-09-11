@@ -12,9 +12,9 @@ import {
 } from '../../src/infrastructure/source-fetcher.js';
 import type { Env } from '../../src/types/env.js';
 import { RepoSlug } from '../../src/types/ids/repo-slug.js';
-import type { FetchResponseLike } from '../../src/types/ports.js';
+import type { FetchResponseLike, RunCommand, SourcePorts } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
-import { cleanupAll, portsFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
+import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -471,4 +471,138 @@ test('pool preserves input order regardless of completion order', async () => {
     return ms;
   });
   assert.deepEqual(results, items);
+});
+
+/**
+ * A `git` on PATH and a fake behind it that builds the working tree the real
+ * one would: a `--sparse` clone holds the top level and nothing else, `add`
+ * fills in one folder, and `disable` fills in the rest. Recording the argv is
+ * the point - what this phase changed is which commands are run, and a test
+ * that only asserted the directory came back would pass with the sparse
+ * checkout narrowed right back down again.
+ */
+function fakeGit(): { ports: SourcePorts; argv: string[][] } {
+  const bin = tmpDir('cp-git-');
+  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\n');
+  fs.writeFileSync(path.join(bin, 'git.cmd'), '@echo off\n');
+  const env: Env = { PATH: bin, PATHEXT: '.CMD' };
+  const argv: string[][] = [];
+  const fill = (clone: string, under: string): void => {
+    const dir = path.join(clone, ...under.split('/'));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'plugin.json'), '{}');
+  };
+  const run: RunCommand = async (_file, args) => {
+    argv.push(args);
+    if (args[0] === 'clone') {
+      const clone = args[args.length - 1] as string;
+      fs.mkdirSync(clone, { recursive: true });
+      fs.writeFileSync(path.join(clone, 'plugin.json'), '{ "name": "whole-repo" }');
+    }
+    if (args[2] === 'sparse-checkout') {
+      fill(args[1] as string, args[3] === 'disable' ? 'tools/foo' : (args[4] as string));
+    }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  return { ports: { fetch: stubFetch({}), env, runner: runnerFor(run, env) }, argv };
+}
+
+const sparseCalls = (argv: string[][]): string[][] =>
+  argv.filter((a) => a[2] === 'sparse-checkout');
+
+test('a repository that is itself the plugin checks the whole tree out', async () => {
+  // `sparse-checkout add ''` is not a way to ask for everything - it is an
+  // error - so the clone's own sparseness is turned off instead and the clone
+  // directory is the checkout.
+  const { ports, argv } = fakeGit();
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, ports);
+  try {
+    assert.equal(handle.via, 'git');
+    const dir = await handle.checkout(null);
+    assert.ok(dir.ok, dir.ok ? '' : dir.error.message);
+    assert.ok(fs.existsSync(dir.value.file('plugin.json').toString()), 'the root is the checkout');
+    assert.deepEqual(
+      sparseCalls(argv).map((a) => a.slice(2)),
+      [['sparse-checkout', 'disable']],
+    );
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test('a folder checked out after the whole repository is read, not narrowed back down', async () => {
+  // `sparse-checkout add` after a `disable` re-narrows the working tree, which
+  // would delete files out from under the directory the first checkout handed
+  // back. Once the tree is whole, a folder is just a path into it.
+  const { ports, argv } = fakeGit();
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, ports);
+  try {
+    const whole = await handle.checkout(null);
+    const folder = await handle.checkout('tools/foo');
+    assert.ok(whole.ok && folder.ok, 'both checkouts answer');
+    assert.ok(fs.existsSync(folder.value.file('plugin.json').toString()));
+    assert.ok(fs.existsSync(whole.value.file('plugin.json').toString()), 'the first one survives');
+    assert.deepEqual(
+      sparseCalls(argv).map((a) => a.slice(2)),
+      [['sparse-checkout', 'disable']],
+      'no add after the tree was filled',
+    );
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test('the checkout of a whole repository is made once and remembered', async () => {
+  const { ports, argv } = fakeGit();
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, ports);
+  try {
+    const first = await handle.checkout(null);
+    const second = await handle.checkout(null);
+    assert.ok(first.ok && second.ok);
+    assert.equal(first.value.toString(), second.value.toString());
+    assert.equal(sparseCalls(argv).length, 1);
+    assert.equal(argv.filter((a) => a[0] === 'clone').length, 1);
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test('the API route takes every blob when the repository is the plugin', async () => {
+  const fetchImpl = stubFetch({
+    [TREE_URL]: {
+      body: {
+        tree: [
+          { type: 'blob', path: '.claude-plugin/plugin.json' },
+          { type: 'blob', path: 'skills/thing/SKILL.md' },
+          { type: 'tree', path: 'skills' },
+        ],
+      },
+    },
+    [rawFile('.claude-plugin/plugin.json')]: { body: { name: 'whole-repo' } },
+    [rawFile('skills/thing/SKILL.md')]: { body: '# thing' },
+  });
+
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
+  try {
+    const dir = await handle.checkout(null);
+    assert.ok(dir.ok, dir.ok ? '' : dir.error.message);
+    // Laid out as the repository is, with no folder stripped off the front:
+    // an empty prefix is what makes the whole tree the plugin.
+    assert.ok(fs.existsSync(dir.value.file('.claude-plugin', 'plugin.json').toString()));
+    assert.ok(fs.existsSync(dir.value.file('skills', 'thing', 'SKILL.md').toString()));
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test('a repository with no files says so without naming a folder that does not exist', async () => {
+  const fetchImpl = stubFetch({ [TREE_URL]: { body: { tree: [] } } });
+  const handle = await openRepo({ repo: REPO, ref: 'main' }, portsFor(fetchImpl, NO_GIT));
+  try {
+    const dir = await handle.checkout(null);
+    assert.equal(dir.ok, false);
+    if (!dir.ok) assert.equal(dir.error.message, `${REPO}@main has no files.`);
+  } finally {
+    handle.cleanup();
+  }
 });

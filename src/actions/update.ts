@@ -6,7 +6,7 @@ import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { HarnessOpts } from '../types/harness.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
 import type { Session } from '../types/session.js';
-import { isLocalKey } from '../types/plugin-source.js';
+import { sourceKindOf } from '../types/plugin-source.js';
 import { errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 import { InstallAction } from './install.js';
@@ -69,13 +69,15 @@ export class UpdateAction {
     // registry once and clone it once.
     const { session } = this;
     for (const entry of entries) {
-      // A row installed from a directory has a path where a repository would
-      // be, so refreshing it is not a registry read at all. Skipped rather than
-      // failed: a row that fails every `update` forever is the one thing this
-      // command must never produce, and re-running the install re-syncs it.
-      if (isLocalKey(entry.repo)) {
+      // A row that did not come from a marketplace has a path or a repository
+      // where a marketplace slug would be, so refreshing it is not a registry
+      // read at all. Skipped rather than failed: a row that fails every
+      // `update` forever is the one thing this command must never produce, and
+      // re-running the install re-syncs it.
+      const kind = sourceKindOf(entry.repo);
+      if (kind !== 'marketplace') {
         rows.push({ outcome: 'skipped', plugin: entry.plugin });
-        this.prompts.localSource(entry.plugin);
+        this.prompts.notFromMarketplace(entry.plugin, kind);
         continue;
       }
       const entryBrand: Brand = Object.freeze({
@@ -115,7 +117,7 @@ export class UpdateAction {
             plugin: entry.plugin,
             // The reportable id, not the one the run knew: a row that came from
             // a directory keeps its plugin's name on this machine.
-            id: result.report.source?.reportableId() ?? null,
+            id: result.report.source?.reportableId(result.report.plugin) ?? null,
             sourceKind: result.report.source?.kind ?? null,
             marketplace,
             report: result.report,
@@ -145,7 +147,7 @@ export class UpdateAction {
         rows.push({
           outcome: 'failed',
           plugin: entry.plugin,
-          id: install.source?.reportableId() ?? null,
+          id: install.source?.reportableId(install.plugin) ?? null,
           sourceKind: install.source?.kind ?? null,
           marketplace,
           report: null,

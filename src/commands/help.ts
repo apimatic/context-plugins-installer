@@ -12,7 +12,7 @@ export function helpText(bin: string, brand: Pick<Brand, 'displayName' | 'label'
 ${brand.displayName} - install marketplace plugins into ${everyEditor('and')}.
 
 Usage
-  ${bin} install <plugin|path> [options]
+  ${bin} install <plugin|path|repo> [options]
   ${bin} uninstall <plugin> [options]
   ${bin} update
   ${bin} list
@@ -24,11 +24,15 @@ Install sources
   <plugin>              A plugin listed in the marketplace   (${bin} list)
   <path>                A directory that is itself a plugin - one holding
                         .claude-plugin/plugin.json. Anything starting with
-                        . / ~ or a drive letter is read as a path, and the
-                        plugin's own manifest names it. Claude Code installs
-                        it through a marketplace this tool generates under
-                        ~/.context-plugins; ${bin} update reports such a
-                        plugin rather than refreshing it - re-run install.
+                        . / ~ or a drive letter is read as a path.
+  <repo>                A GitHub repository, or a folder inside one, that is
+                        itself a plugin: owner/repo, owner/repo/folder, or a
+                        github.com URL. An @ref after it wins over --ref.
+
+  A plugin from a path or a repo is named by its own manifest rather than by
+  the folder or the repository. Claude Code installs it through a marketplace
+  this tool generates under ~/.context-plugins; ${bin} update reports such
+  a plugin rather than refreshing it - re-run install to re-sync.
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
@@ -60,6 +64,8 @@ Examples
   ${bin} install paypal --targets cursor,vscode --ref v1.2.0
   ${bin} install ./my-plugin
   ${bin} install ~/dev/my-plugin --targets claude
+  ${bin} install acme/my-plugin
+  ${bin} install acme/monorepo/tools/my-plugin@v1.2
   ${bin} uninstall paypal
 `.trimStart();
 }

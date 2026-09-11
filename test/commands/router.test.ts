@@ -76,7 +76,7 @@ test('help text uses the configured bin name', () => {
     label: 'Acme AI Plugins Marketplace',
     ref: 'main',
   });
-  assert.ok(text.includes('acme-plugins install <plugin|path>'));
+  assert.ok(text.includes('acme-plugins install <plugin|path|repo>'));
   assert.ok(text.includes('Acme AI Plugins'));
   assert.ok(!text.toLowerCase().includes('apimatic'));
 });

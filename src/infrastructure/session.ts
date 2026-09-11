@@ -1,6 +1,7 @@
 import type { Catalog } from '../types/catalog.js';
 import type { Failure } from '../types/failure.js';
 import type { DirectoryPath } from '../types/file/paths.js';
+import type { PluginManifest } from '../types/plugin-manifest.js';
 import type { RegistryClient, SourceFetcher } from '../types/ports.js';
 import type { Result } from '../types/result.js';
 import type { MarketplaceListener, RepoHandle, Session } from '../types/session.js';
@@ -24,6 +25,7 @@ export function createSession({
   notify?: MarketplaceListener;
 }): Session {
   const catalogs = new Map<string, Promise<Result<Catalog | null, Failure>>>();
+  const manifests = new Map<string, Promise<Result<PluginManifest, Failure>>>();
   const repos = new Map<string, Promise<RepoHandle>>();
   const marketplaces: Session['marketplaces'] = new Map();
 
@@ -40,7 +42,19 @@ export function createSession({
       return pending;
     },
 
-    async source({ repo, ref, sourcePath }): Promise<Result<DirectoryPath | null, Failure>> {
+    manifest({ repo, ref, path }) {
+      // The folder joins the key: two plugins out of one monorepo are two
+      // different manifests at the same repo and ref.
+      const key = `${keyOf(repo, ref)}/${path ?? ''}`;
+      let pending = manifests.get(key);
+      if (!pending) {
+        pending = registry.readPluginManifest({ repo, ref, path, notify });
+        manifests.set(key, pending);
+      }
+      return pending;
+    },
+
+    async source({ repo, ref, sourcePath }): Promise<Result<DirectoryPath, Failure>> {
       // One handle per repo@ref, and every checkout after the first is local.
       // A test substitutes the whole fetcher rather than an injected hook,
       // which is what let this method stop having two shapes.

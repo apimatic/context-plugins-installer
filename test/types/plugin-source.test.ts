@@ -3,10 +3,14 @@ import assert from 'node:assert';
 
 import { rulesFor } from '../../src/types/file/paths.js';
 import type { Failure } from '../../src/types/failure.js';
+import { PluginId } from '../../src/types/ids/plugin-id.js';
 import {
+  GithubSource,
   LocalSource,
   MarketplaceSource,
   parseSource,
+  restoreSource,
+  sourceKindOf,
   type PluginSource,
 } from '../../src/types/plugin-source.js';
 import type { Result } from '../../src/types/result.js';
@@ -83,10 +87,11 @@ test('a path with spaces is a path, not a rejected id', () => {
   assert.equal(local('./my plugin'), '/work/proj/my plugin');
 });
 
-test('anything that is neither an id nor path-shaped keeps the ids own failure', () => {
-  // Not a new message: a typo has always read as a typo, and phase 3 is what
-  // teaches this parser that `acme/repo` is a source rather than a bad id.
-  for (const spec of ['acme/repo', 'Not An Id', 'UPPER', '', 'trailing-', undefined, 42]) {
+test('anything that is neither an id, a path nor a repo keeps the ids own failure', () => {
+  // A typo reads as a typo. `acme/repo` used to be in this list and is a
+  // source now, which is the one meaning phase 3 changed - and only for a
+  // spelling that was refused outright before.
+  for (const spec of ['Not An Id', 'UPPER', '', 'trailing-', undefined, 42]) {
     const result = parse(spec);
     assert.equal(result.ok, false, `expected ${JSON.stringify(spec)} to be refused`);
     if (!result.ok) assert.match(result.error.message, /Invalid plugin id/);
@@ -100,7 +105,119 @@ test('the manifest key is the repo for a marketplace source and prefixed for a l
   assert.notEqual(value(parse('/opt/x')).key(), value(parse('paypal')).key());
 });
 
-test('only a marketplace source lets its plugin id leave the machine', () => {
-  assert.equal(value(parse('paypal')).reportableId()?.toString(), 'paypal');
-  assert.equal(value(parse('./private-thing')).reportableId(), null);
+test('a folder the user chose never lets its plugins name leave the machine', () => {
+  const learned = new PluginId('my-sdk');
+  // The marketplace arm knew the id before the run started, so it reports one
+  // even when nothing was learned; the local arm withholds the id it has.
+  assert.equal(value(parse('paypal')).reportableId(null)?.toString(), 'paypal');
+  assert.equal(value(parse('./private-thing')).reportableId(learned), null);
+  // A repository publishes its plugin under a public name, but only once the
+  // manifest has been read - so a run that failed before that reports none.
+  assert.equal(value(parse('acme/x')).reportableId(learned)?.toString(), 'my-sdk');
+  assert.equal(value(parse('acme/x')).reportableId(null), null);
+});
+
+const github = (spec: string): GithubSource => {
+  const source = value(parse(spec));
+  assert.ok(source instanceof GithubSource, `expected a github source for ${spec}`);
+  return source;
+};
+
+const shape = (spec: string) => {
+  const source = github(spec);
+  return { repo: source.repo, ref: source.ref, path: source.path };
+};
+
+test('a bare owner/repo is a plugin in that repository, at the runs ref', () => {
+  assert.deepEqual(shape('acme/my-plugin'), { repo: 'acme/my-plugin', ref: 'main', path: null });
+});
+
+test('a folder after the repo is a plugin inside it', () => {
+  assert.deepEqual(shape('acme/mono/tools/foo'), {
+    repo: 'acme/mono',
+    ref: 'main',
+    path: 'tools/foo',
+  });
+});
+
+test('an inline ref wins over the runs, and may hold a slash', () => {
+  assert.equal(shape('acme/my-plugin@v1.2').ref, 'v1.2');
+  assert.equal(shape('acme/mono/tools/foo@v1.2').ref, 'v1.2');
+  // Split at the last `@` rather than matched, because `release/1.0` is a
+  // branch name a user will type and a single-segment pattern refuses it.
+  assert.deepEqual(shape('acme/x@release/1.0'), {
+    repo: 'acme/x',
+    ref: 'release/1.0',
+    path: null,
+  });
+});
+
+test('the spellings github itself hands out all parse', () => {
+  assert.deepEqual(shape('https://github.com/acme/mono/tree/v2/tools/foo'), {
+    repo: 'acme/mono',
+    ref: 'v2',
+    path: 'tools/foo',
+  });
+  assert.deepEqual(shape('https://github.com/acme/x'), { repo: 'acme/x', ref: 'main', path: null });
+  assert.deepEqual(shape('github.com/acme/x/'), { repo: 'acme/x', ref: 'main', path: null });
+  assert.deepEqual(shape('https://www.github.com/acme/x.git'), {
+    repo: 'acme/x',
+    ref: 'main',
+    path: null,
+  });
+  // What `git clone` prints, `.git` and all.
+  assert.deepEqual(shape('git@github.com:acme/x.git'), { repo: 'acme/x', ref: 'main', path: null });
+});
+
+test('a path beats a repository, so a relative folder is never read as a slug', () => {
+  // The reason `acme/repo` is a repository and `./acme/repo` is not: one of
+  // the two spellings has to be the path, and a leading `.` is the one thing
+  // no repository slug can start with.
+  assert.equal(local('./acme/repo'), '/work/proj/acme/repo');
+  assert.equal(value(parse('acme/repo')).kind, 'github');
+});
+
+test('anything that is not a github repository says so, rather than talking about ids', () => {
+  for (const spec of ['https://example.com/a/b', 'acme/', 'acme/mono/tools/../../etc']) {
+    const result = parse(spec);
+    assert.equal(result.ok, false, `expected ${spec} to be refused`);
+    if (!result.ok) assert.match(result.error.message, /not a plugin id, a path, or a GitHub/);
+  }
+});
+
+test('a ref the parser cannot pass to git is refused where it was written', () => {
+  const result = parse('acme/x@--upload-pack=evil');
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error.message, /Invalid ref/);
+});
+
+test('the manifest key keeps two plugins out of one repository apart', () => {
+  assert.equal(github('acme/mono/tools/foo').key(), 'github:acme/mono//tools/foo');
+  assert.equal(github('acme/mono/tools/bar').key(), 'github:acme/mono//tools/bar');
+  assert.equal(github('acme/x').key(), 'github:acme/x');
+  assert.notEqual(github('acme/x').key(), value(parse('paypal')).key());
+});
+
+test('a recorded key restores as the source it was written from', () => {
+  for (const spec of ['paypal', 'acme/mono/tools/foo', 'acme/x', '/opt/x']) {
+    const source = value(parse(spec));
+    const back = restoreSource(source.key(), { plugin: new PluginId('my-sdk'), ref: 'main' });
+    assert.equal(back.kind, source.kind, spec);
+    assert.equal(back.key(), source.key(), spec);
+  }
+});
+
+test('a key this build cannot read restores as a marketplace row, never as nothing', () => {
+  // The invariant a row depends on: uninstall has to be able to reach every
+  // row, so an odd-looking key is the oldest kind rather than an error.
+  const odd = restoreSource('Acme/Weird-Repo', { plugin: new PluginId('my-sdk'), ref: 'main' });
+  assert.equal(odd.kind, 'marketplace');
+  assert.equal(odd.key(), 'Acme/Weird-Repo');
+});
+
+test('the kind of a recorded key is readable without building a source', () => {
+  assert.equal(sourceKindOf('acme/plugin-marketplace'), 'marketplace');
+  assert.equal(sourceKindOf('local:/opt/x'), 'local');
+  assert.equal(sourceKindOf('github:acme/x'), 'github');
+  assert.equal(sourceKindOf(undefined), 'marketplace');
 });

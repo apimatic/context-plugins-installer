@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `context-plugins` installs plugins into Claude Code, Cursor, and VS Code with one
 command - from a plugin marketplace (a GitHub repo carrying a
-`.claude-plugin/marketplace.json` registry), or from a directory on the machine
+`.claude-plugin/marketplace.json` registry), from a directory on the machine
+that is itself a plugin, or from a GitHub repository (or a folder inside one)
 that is itself a plugin. Published to npm; users run it via `npx`. The README is end-user documentation
 only, by explicit decision — contributor and agent knowledge belongs here, not there.
 
@@ -73,13 +74,19 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   primitives only, and `COLLECTED` in `types/telemetry.ts` is the one prose inventory the
   notice and `telemetry status` print; keep it, `common`, and the properties each event
   class in `types/events/` declares (`plugin` once validated - and withheld entirely for a
-  plugin installed from a path, whose name came from a folder the user chose - `harness`,
-  `marketplace` as the built-in repo or `custom`, `source_kind` as `marketplace` or
-  `local`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step.
-  `PluginSource.reportableId` is where that id is withheld and
-  `MarketplaceLabel.forSource` where a path install is kept from naming the built-in
-  marketplace it never touched: both live on the types, so no command answers either
-  question for itself. Never send
+  plugin installed from a directory, whose name came from a folder the user chose - `harness`,
+  `marketplace` as the built-in repo or `custom`, `source_kind` as `marketplace`,
+  `github` or `local`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step.
+  `PluginSource.reportableId(learned)` is where that id is decided and
+  `MarketplaceLabel.forSource` where a path or repo install is kept from naming the
+  built-in marketplace it never touched: both live on the types, so no command answers
+  either question for itself. The argument is what makes the three arms differ rather
+  than one of them having to be re-derived: a marketplace source knew the id before the
+  run started and reports it even from a failure, a `github` one reports only what the
+  repository's own manifest said (so a run that failed at `resolve` reports none), and a
+  `local` one reports nothing ever. A plugin published in a repository has a public
+  name, which is why that arm is not withheld - the repository the user named still is,
+  the same way `--repo` is. Never send
   a path, hostname, username, error message, env var, or a user-supplied `--repo`
   - which is why `MarketplaceLabel.of` answers with the built-in constant or
     `custom` and never with `brand.repo` (not to be confused with the rc file's
@@ -219,16 +226,28 @@ that ends up somewhere else is a rule two callers can disagree about.
   carries the marketplace as an `origin`, named for what it holds so that no
   reader has to rename it to read it.
 - **`types/plugin-source.ts`** - what the user asked to install, parsed once at
-  the front of the run: a marketplace id, or a directory. `PluginId` is tried
-  first, which is the guarantee that no argument this program already accepted
-  changes meaning; anything starting with `.`, a separator, `~` or a drive
-  letter is a path, and anything else keeps the id's own failure. `key()` is
-  the manifest's `repo` column - a marketplace source's is the repo verbatim,
-  so no record migrates - and `reportableId()` is where a local plugin's name
-  is withheld from telemetry, rather than in a command that would have to
-  remember. `isLocalKey` / `localDirOf` read that column back, so the prefix
-  has one spelling. It is pure: whether a directory really holds a plugin is a
-  question for `infrastructure/local-plugin.ts`, which goes and looks.
+  the front of the run: a marketplace id, a directory, or a GitHub repository
+  that is itself a plugin. The order the three are told apart in is the whole
+  contract. `PluginId` is tried first, which is the guarantee that no argument
+  this program already accepted changes meaning; anything starting with `.`, a
+  separator, `~` or a drive letter is a path, because that is the one shape no
+  slug can have; anything left holding a `/` - or spelled as a github.com URL
+  or an scp address - is a repository; and anything with none of those keeps
+  the id's own failure, so a typo still reads as a typo. The cost of that
+  order, stated rather than discovered: a relative folder has to be written
+  `./my-plugin/sub`, because `my-plugin/sub` is a repository. An `@ref` is
+  split at the **last** `@` rather than matched, since `release/1.0` is a
+  branch name a user will type. `key()` is the manifest's `repo` column - a
+  marketplace source's is the repo verbatim, so no record migrates, and the
+  other two are prefixed `local:` / `github:` so they can never collide with a
+  slug; a repository's folder is separated by `//`, which is what keeps two
+  plugins out of one monorepo in two rows. `restoreSource` reads that column
+  back into a source and is **total**: a key this build cannot parse is a
+  marketplace repo, because a row that no command could reach is worse than a
+  row that reads oddly. `sourceKindOf` is the same question for a caller that
+  only needs to branch. It is pure: whether a directory or a repository really
+  holds a plugin is a question for `infrastructure/local-plugin.ts` and
+  `readPluginManifest`, which go and look.
 - **`types/plugin-manifest.ts`** - a plugin's own `plugin.json` as this build
   reads it, beside `normalize` in `types/catalog.ts` for the same reason: two
   boundaries read those bytes (a directory, and a repo over both GitHub hosts)
@@ -291,7 +310,8 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
 `src/` root the boundary rule could not say what this directory may import.
 
 - **Session** (`src/infrastructure/session.ts`): work shared by every plugin in one run — the
-  registry fetch, the repo clone, the Claude marketplace registration — each done
+  registry fetch, the plugin-manifest read, the repo clone, the Claude marketplace
+  registration — each done
   once, keyed `repo@ref` with the repo lower-cased - two spellings are one
   repository, and keying on the spelling made one `update` read the registry
   twice and clone it twice, announcing both; `ensureMarketplaceOnce`'s key folds
@@ -344,6 +364,16 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   stays parseable; `downloadPath` folds it to one line per folder rather than
   one per blob in flight.
 
+- **A checkout of a whole repository** (`RepoHandle.checkout(null)`): `null` is
+  the repository itself rather than a folder in it, which is what a repo that
+  _is_ a plugin needs. Neither arm could express it before: `sparse-checkout
+add ''` is an error, so the git arm turns the clone's sparseness off instead
+  and the clone directory is the checkout - and it **remembers**, because a
+  later `sparse-checkout add` would narrow the tree back down and take files
+  out from under a directory the handle has already answered with, so once the
+  tree is whole a folder is read off it rather than asked for. The API arm
+  takes every blob, an empty prefix being exactly that.
+
 - **`src/infrastructure/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
   `path.posix` chosen by the `platform` override, not the host), so Windows paths are
   exactly assertable from Linux CI.
@@ -360,9 +390,10 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   green install of a plugin VS Code never loads, and splicing a second entry in
   would just leave a duplicate key.
 
-- **Installing from a path** (`infrastructure/local-plugin.ts`,
-  `infrastructure/local-marketplace.ts`): reading a directory and generating a
-  marketplace for it. `readLocalPlugin` answers with the plugin a directory
+- **Installing from a path or a repository** (`infrastructure/local-plugin.ts`,
+  `infrastructure/local-marketplace.ts`, and `readPluginManifest` in
+  `infrastructure/github-registry-client.ts`): reading what a source declares
+  itself to be, and generating a marketplace for it. `readLocalPlugin` answers with the plugin a directory
   declares itself to be, or a `Failure` naming the path - and it is also where
   the overlap guard lives: `replaceDir` removes its destination before copying,
   so a source that _is_ a destination would be deleted before it was read and
@@ -378,7 +409,20 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   Claude Code is actually a target, so a run that never touched it leaves no
   marketplace holding a plugin it never got - and the last plugin out takes the
   whole directory with it, since an empty generated marketplace is a row in
-  `claude plugin marketplace list` offering nothing.
+  `claude plugin marketplace list` offering nothing. A `github` source stages
+  the same way from the checkout instead of from a folder the user has, which
+  is the reason the fetch condition is a compound one: `needsSource` stays a
+  fact about an editor, "this origin has to be staged" is the fact about the
+  run, and the action combines them - otherwise a run asking only for Claude
+  Code would fetch nothing and stage nothing.
+  `readPluginManifest` is the same read over the network, sharing
+  `types/plugin-manifest.ts` with the disk so the two boundaries cannot
+  disagree about what a usable manifest is. It probes the three files in the
+  same order and, only once none of them answered, asks whether the repository
+  carries a marketplace registry instead - because pointing at a marketplace
+  and spelling it as a plugin is the one wrong turn where the repository really
+  is installable, through `--repo`. The ordinary install still costs one
+  request.
 
 ### `src/harnesses/` - one editor's install strategy each
 
@@ -462,11 +506,11 @@ reach for a harness. `byName` is total over `HarnessName` - narrow a string
 with `isHarnessName` first. Claude Code installs
 through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
 and VS Code copy files and need the fetched source - as does Claude Code for a
-`directory` origin, which is why a local install stages the files before the
-loop rather than asking a harness. The Claude path also removes the plugin
+`directory` origin, which is why a path or repo install stages the files before
+the loop rather than asking a harness. The Claude path also removes the plugin
 before installing it when the origin is a directory: `claude plugin list --json`
 shows a plugin cached at `plugins/cache/<marketplace>/<id>/<version>`, so an
-edited local plugin whose manifest version did not move would re-install and
+edited plugin whose manifest version did not move would re-install and
 copy nothing. That call reports nothing and its result is ignored - absence is
 the state it wants. To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written

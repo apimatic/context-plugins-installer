@@ -3,6 +3,7 @@ import { UninstallAction, type UninstallRequest } from '../actions/uninstall.js'
 import { UninstallPrompts } from '../prompts/uninstall.js';
 import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { EventSink } from '../types/events/domain-event.js';
+import type { PluginId } from '../types/ids/plugin-id.js';
 import type { RegistryClient } from '../types/ports.js';
 import { PluginUninstallFailedEvent } from '../types/events/plugin-uninstall-failed.js';
 import { PluginUninstalledEvent } from '../types/events/plugin-uninstalled.js';
@@ -32,7 +33,7 @@ export class UninstallCommand {
         for (const harness of targets) {
           this.sink(
             new PluginUninstalledEvent(
-              source.reportableId(),
+              source.reportableId(result.report.plugin),
               harness,
               MarketplaceLabel.forSource(source, req.brand),
               source.kind,
@@ -40,11 +41,11 @@ export class UninstallCommand {
           );
         }
       }
-      if (result.isFailed()) this.failed(source, req.brand, 'user');
+      if (result.isFailed()) this.failed(source, req.brand, result.report.plugin, 'user');
       return result;
     } catch (err) {
       // A throw from here is a bug, not a problem the user can fix.
-      this.failed(action.source, req.brand, 'unexpected');
+      this.failed(action.source, req.brand, action.plugin, 'unexpected');
       throw err;
     }
   }
@@ -55,10 +56,15 @@ export class UninstallCommand {
    * the label off `forSource`, which refuses to name the built-in marketplace
    * for a plugin that never came from it.
    */
-  private failed(source: PluginSource | null, brand: Brand, kind: ErrorKind): void {
+  private failed(
+    source: PluginSource | null,
+    brand: Brand,
+    learned: PluginId | null,
+    kind: ErrorKind,
+  ): void {
     this.sink(
       new PluginUninstallFailedEvent(
-        source?.reportableId() ?? null,
+        source?.reportableId(learned) ?? null,
         MarketplaceLabel.forSource(source, brand),
         source?.kind ?? null,
         kind,

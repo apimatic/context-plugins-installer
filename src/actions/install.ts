@@ -36,19 +36,26 @@ export interface InstallRequest {
 }
 
 /**
+ * Where a run's files are, which is all the fetch stage reads. Two shapes
+ * rather than nullable fields, because "already here" and "not fetched yet"
+ * were the same `null` the moment a second kind of source could be either.
+ */
+type PluginFiles =
+  | { kind: 'on-disk'; dir: DirectoryPath }
+  | { kind: 'remote'; repo: string; ref: string; sourcePath: string | null };
+
+/**
  * What `resolve` settled, whichever kind of source the run was given: the id,
  * the marketplace Claude Code will address, and where the files are or how to
  * get them. Every stage after it reads only these, which is what lets a
- * directory on disk and a registry entry share the rest of the flow.
+ * directory on disk, a repository and a registry entry share the rest of the
+ * flow.
  */
 interface Resolution {
   id: PluginId;
   origin: NamedMarketplace;
   description: string;
-  /** Already on disk: the directory the user pointed at. Nothing to fetch. */
-  localDir: DirectoryPath | null;
-  /** Where in the marketplace repository the files are, for the kind that fetches. */
-  sourcePath: string | null;
+  files: PluginFiles;
 }
 
 /**
@@ -128,19 +135,20 @@ export class InstallAction {
 
     if (!parsed.ok) return failed(parsed.error);
     const source = parsed.value;
+    // A directory has no ref to record, and recording the run's would claim the
+    // files came from a version of something. A repository carries its own,
+    // which is the run's unless the spec spelled one after an `@`.
+    report.ref = source.kind === 'local' ? null : source.ref;
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
 
-    const settled = await this.resolve(source, brand, ref);
+    const settled = await this.resolve(source, brand);
     if (!settled.ok) return failed(settled.error);
     const resolved = settled.value;
     const { origin } = resolved;
     const plugin = resolved.id.toString();
     const marketplace = origin.name;
     report.marketplace = marketplace;
-    // A directory has no ref to record, and recording the run's would claim the
-    // files came from a version of something.
-    if (source.kind === 'local') report.ref = null;
 
     this.at = 'harnesses';
     const targets = resolveTargets(req.targets);
@@ -157,11 +165,18 @@ export class InstallAction {
     const recorded = records.find(key);
 
     this.prompts.intro(plugin, brand, report.ref, marketplace, resolved.description, source);
+    // A `--ref` the spec overrode. Said rather than swallowed, the way
+    // `targetsIgnored` is: a flag that quietly did nothing reads as the user
+    // having chosen what happened.
+    if (req.ref && source.kind === 'github' && source.ref !== ref) {
+      this.prompts.refIgnored(req.ref, source.ref);
+    }
 
     // Asked before anything is fetched or copied, and only for a source this
     // program was not shipped pointing at: a plugin from an arbitrary directory
-    // can carry hooks and MCP servers that run commands, where the built-in
-    // marketplace is a source the user chose by installing this tool.
+    // or repository can carry hooks and MCP servers that run commands, where
+    // the built-in marketplace is a source the user chose by installing this
+    // tool.
     if (source.kind !== 'marketplace') {
       const trusted = await this.prompts.confirmSource(source, assumeYes || !this.canAsk());
       if (trusted === 'cancelled') return ActionResult.cancelled(done());
@@ -197,14 +212,27 @@ export class InstallAction {
     // refresh them.
     report.untouched = (recorded?.targets ?? []).filter((n) => !want.includes(n));
 
-    let srcDir: DirectoryPath | null = resolved.localDir;
-    if (!srcDir && want.some((name) => harnesses.byName(name).needsSource)) {
+    const { files } = resolved;
+    let srcDir: DirectoryPath | null = files.kind === 'on-disk' ? files.dir : null;
+    // Claude Code installs from a marketplace and nothing else, so a plugin
+    // that came from anywhere else is staged into the one this tool generates
+    // - but only when Claude Code is actually being installed into, or a run
+    // that never touched it would leave a marketplace behind holding a plugin
+    // it never got. That needs the files whether or not any editor copies
+    // them, which is the second half of the fetch condition: `needsSource`
+    // stays a fact about an editor, this is the fact about the origin, and the
+    // action is where the two meet.
+    const mustStage = origin.kind === 'directory' && want.includes('claude');
+    if (
+      files.kind === 'remote' &&
+      (mustStage || want.some((name) => harnesses.byName(name).needsSource))
+    ) {
       this.at = 'fetch';
       this.prompts.fetching();
       const fetched = await this.session.source({
-        repo: brand.repo,
-        ref,
-        sourcePath: resolved.sourcePath ?? '',
+        repo: files.repo,
+        ref: files.ref,
+        sourcePath: files.sourcePath,
       });
       if (!fetched.ok) return failed(fetched.error);
       srcDir = fetched.value;
@@ -212,16 +240,12 @@ export class InstallAction {
     }
 
     this.at = 'install';
-    // Claude Code installs from a marketplace and nothing else, so a plugin that
-    // came from a directory is put into the one this tool generates - but only
-    // when Claude Code is actually being installed into, or a run that never
-    // touched it would leave a marketplace behind holding a plugin it never got.
-    // `localDir` is what `srcDir` was seeded from for this origin, so there is
-    // nothing to guard against here: a directory origin is produced only by the
-    // local arm of `resolve`, which always answers with the directory it read.
-    if (origin.kind === 'directory' && resolved.localDir && want.includes('claude')) {
+    // Reads as a guard and is really the type saying it out loud: staging is
+    // one of the two reasons the fetch above runs, so by the time this is
+    // reached the files are here.
+    if (mustStage && srcDir) {
       const staged = stageLocalPlugin(
-        { plugin, srcDir: resolved.localDir, description: resolved.description },
+        { plugin, srcDir, description: resolved.description },
         this.pathOpts,
       );
       if (!staged.ok) return failed(staged.error);
@@ -273,11 +297,7 @@ export class InstallAction {
    * directory by asking the directory what it is. A local plugin's id is only
    * known here, so this is also where the action learns what to report.
    */
-  private async resolve(
-    source: PluginSource,
-    brand: Brand,
-    ref: string,
-  ): Promise<Result<Resolution, Failure>> {
+  private async resolve(source: PluginSource, brand: Brand): Promise<Result<Resolution, Failure>> {
     if (source.kind === 'local') {
       const read = readLocalPlugin(source.dir, this.pathOpts);
       if (!read.ok) return err(read.error);
@@ -288,17 +308,40 @@ export class InstallAction {
         // staged there depends on Claude Code being one of the editors.
         origin: localMarketplace(this.pathOpts),
         description: read.value.description,
-        localDir: read.value.dir,
-        sourcePath: null,
+        files: { kind: 'on-disk', dir: read.value.dir },
       });
     }
 
-    const catalog = await this.session.catalog({ repo: source.repo, ref });
+    if (source.kind === 'github') {
+      const manifest = await this.session.manifest({
+        repo: source.repo,
+        ref: source.ref,
+        path: source.path,
+      });
+      if (!manifest.ok) return err(manifest.error);
+      this.id = manifest.value.id;
+      return ok({
+        id: manifest.value.id,
+        // No registry anywhere lists this plugin, so Claude Code addresses it
+        // through the same generated marketplace a directory install uses -
+        // staged from the checkout rather than from a folder the user has.
+        origin: localMarketplace(this.pathOpts),
+        description: manifest.value.description,
+        files: {
+          kind: 'remote',
+          repo: source.repo,
+          ref: source.ref,
+          sourcePath: source.path,
+        },
+      });
+    }
+
+    const catalog = await this.session.catalog({ repo: source.repo, ref: source.ref });
     if (!catalog.ok) return err(catalog.error);
     const found = resolvePlugin(catalog.value, {
       plugin: source.plugin.toString(),
       repo: source.repo,
-      ref,
+      ref: source.ref,
       marketplace: brand.id,
       label: brand.label,
     });
@@ -307,8 +350,12 @@ export class InstallAction {
       id: source.plugin,
       origin: found.value.origin,
       description: found.value.description,
-      localDir: null,
-      sourcePath: found.value.sourcePath,
+      files: {
+        kind: 'remote',
+        repo: source.repo,
+        ref: source.ref,
+        sourcePath: found.value.sourcePath,
+      },
     });
   }
 

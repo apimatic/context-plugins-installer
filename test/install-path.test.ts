@@ -9,6 +9,7 @@ import { readRaw } from '../src/infrastructure/manifest-store.js';
 import * as paths from '../src/infrastructure/paths.js';
 import {
   brandFor,
+  claudeMachine,
   flat,
   installPlugin,
   machine,
@@ -17,7 +18,6 @@ import {
   sinkInto,
   uninstallPlugin,
   updateAll,
-  withClaude,
   wiring as marketWiring,
   type Machine,
   type Tracked,
@@ -50,32 +50,6 @@ function pluginDir(name = 'my-sdk', over: Record<string, unknown> = {}): string 
 
 const rowsOf = (m: Machine): Record<string, unknown>[] =>
   readRaw(paths.manifestPath(m.pathOpts)).plugins as Record<string, unknown>[];
-
-/**
- * A machine with a `claude` that answers every call, and a record of what was
- * asked of it. The shared `withClaude` fake refuses anything but a listing,
- * which is right for the tests that assert a skip and wrong for these: here the
- * install has to get all the way through.
- */
-type ClaudeMachine = ReturnType<typeof withClaude> & { calls: string[] };
-
-function claudeMachine(): ClaudeMachine {
-  const m = withClaude(machine());
-  const calls: string[] = [];
-  const runner = {
-    which: m.pathOpts.runner?.which ?? ((): string | null => null),
-    run: async (_file: string, args: string[]) => {
-      const line = args.join(' ');
-      calls.push(line);
-      // Nothing registered and nothing installed, so every question is a clean
-      // "not here" and every command succeeds.
-      if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
-      if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
-      return { code: 0, stdout: '', stderr: '' };
-    },
-  };
-  return { ...m, pathOpts: { ...m.pathOpts, runner }, calls };
-}
 
 test('a directory is installed into the file-copying editors, with no registry read', async () => {
   const m = machine();

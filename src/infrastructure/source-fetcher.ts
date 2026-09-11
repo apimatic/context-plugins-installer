@@ -113,6 +113,49 @@ interface SparseRequest {
   notify?: MarketplaceListener;
 }
 
+/**
+ * What was asked for, as a message names it. A `null` path is the repository
+ * itself, which is what a repo that *is* a plugin checks out - there is no
+ * folder to name, and "plugin folder '' is empty" names nothing.
+ */
+const nothingThere = (repo: string, ref: string, sourcePath: string | null): Failure =>
+  new Failure(
+    sourcePath === null
+      ? `${repo}@${ref} is empty.`
+      : `Plugin folder '${sourcePath}' is empty or missing in ${repo}@${ref}.`,
+  );
+
+/** A checkout that is on disk, counted and announced - or why it is not there. */
+function present(
+  dir: string,
+  {
+    repo,
+    ref,
+    sourcePath,
+    notify,
+  }: { repo: string; ref: string; sourcePath: string | null; notify: MarketplaceListener },
+): Result<string, Failure> {
+  if (!isDirNonEmpty(dir)) return err(nothingThere(repo, ref, sourcePath));
+  notify({ kind: 'checked-out', files: countFiles(dir) });
+  return ok(dir);
+}
+
+/**
+ * Fill the working tree, for a repository that is itself the plugin. The clone
+ * is made `--sparse`, which checks out the top level and nothing else, and
+ * `sparse-checkout add ''` is not a way to ask for everything - so sparse
+ * checkout is turned off instead, and the clone directory is the checkout.
+ */
+export async function disableSparse(
+  { git, clone }: { git: string; clone: string },
+  { run }: ProcessRunner,
+): Promise<Result<RunResult, Failure>> {
+  return expect(
+    run(git, ['-C', clone, 'sparse-checkout', 'disable']),
+    'git sparse-checkout disable',
+  );
+}
+
 // `add` rather than `set`, so later plugins join the same working tree
 // instead of replacing what is already checked out.
 export async function addSparsePath(
@@ -125,12 +168,7 @@ export async function addSparsePath(
   );
   if (!added.ok) return err(added.error);
 
-  const dir = path.join(clone, ...sourcePath.split('/'));
-  if (!isDirNonEmpty(dir)) {
-    return err(new Failure(`Plugin folder '${sourcePath}' is empty or missing in ${repo}@${ref}.`));
-  }
-  notify({ kind: 'checked-out', files: countFiles(dir) });
-  return ok(dir);
+  return present(path.join(clone, ...sourcePath.split('/')), { repo, ref, sourcePath, notify });
 }
 
 async function expect(
@@ -204,7 +242,8 @@ export async function fetchTree(
 interface DownloadRequest {
   repo: string;
   ref: string;
-  sourcePath: string;
+  /** `null` takes every blob in the repository: the repo is itself the plugin. */
+  sourcePath: string | null;
   notify?: MarketplaceListener;
   tree: GitTree;
   work: string;
@@ -215,12 +254,20 @@ export async function downloadPath(
   ports: HttpPorts,
 ): Promise<Result<string, Failure>> {
   // Mirrors the repository layout so two plugins never share a destination.
-  const dest = new DirectoryPath(ensureDir(path.join(work, 'files', ...sourcePath.split('/'))));
+  const under = sourcePath === null ? [] : sourcePath.split('/');
+  const dest = new DirectoryPath(ensureDir(path.join(work, 'files', ...under)));
 
-  const prefix = `${sourcePath}/`;
+  // An empty prefix matches every blob, which is exactly the repository itself.
+  const prefix = sourcePath === null ? '' : `${sourcePath}/`;
   const blobs = tree.tree.filter((n) => n.type === 'blob' && n.path.startsWith(prefix));
   if (!blobs.length) {
-    return err(new Failure(`Plugin folder '${sourcePath}' has no files in ${repo}@${ref}.`));
+    return err(
+      new Failure(
+        sourcePath === null
+          ? `${repo}@${ref} has no files.`
+          : `Plugin folder '${sourcePath}' has no files in ${repo}@${ref}.`,
+      ),
+    );
   }
 
   // One mkdir per directory rather than one per file: a plugin is mostly flat,
@@ -286,23 +333,46 @@ export async function openRepo(
 
   if (git) {
     let cloning: Promise<Result<string, Failure>> | null = null;
+    // Whether the working tree holds the whole repository. Once it does, a
+    // later `sparse-checkout add` would narrow it again and take files out from
+    // under a directory this handle has already answered with - so from then on
+    // a folder is simply read off the tree that is there.
+    let full = false;
     return {
       via: 'git',
       cleanup,
       async checkout(sourcePath) {
-        const cached = done.get(sourcePath);
+        const key = sourcePath ?? '';
+        const cached = done.get(key);
         if (cached) return ok(cached);
         // The promise is cached, not the result, so concurrent callers share one clone.
         cloning ??= cloneRepo({ git, repo, ref, work, notify }, ports.runner);
         const clone = await cloning;
         if (!clone.ok) return err(clone.error);
-        const dir = await addSparsePath(
-          { git, clone: clone.value, repo, ref, sourcePath, notify },
-          ports.runner,
-        );
+
+        if (sourcePath === null && !full) {
+          const off = await disableSparse({ git, clone: clone.value }, ports.runner);
+          if (!off.ok) return err(off.error);
+          full = true;
+        }
+        // The first half of the condition is redundant after the block above,
+        // which sets `full` for exactly that case. It is written anyway so the
+        // compiler can see that the other arm has a folder to add.
+        const dir =
+          sourcePath === null || full
+            ? present(path.join(clone.value, ...(sourcePath?.split('/') ?? [])), {
+                repo,
+                ref,
+                sourcePath,
+                notify,
+              })
+            : await addSparsePath(
+                { git, clone: clone.value, repo, ref, sourcePath, notify },
+                ports.runner,
+              );
         if (!dir.ok) return err(dir.error);
         const at = new DirectoryPath(dir.value);
-        done.set(sourcePath, at);
+        done.set(key, at);
         return ok(at);
       },
     };
@@ -314,7 +384,8 @@ export async function openRepo(
     via: 'api',
     cleanup,
     async checkout(sourcePath) {
-      const cached = done.get(sourcePath);
+      const key = sourcePath ?? '';
+      const cached = done.get(key);
       if (cached) return ok(cached);
       fetching ??= fetchTree({ repo, ref, notify }, ports);
       const tree = await fetching;
@@ -325,7 +396,7 @@ export async function openRepo(
       );
       if (!dir.ok) return err(dir.error);
       const at = new DirectoryPath(dir.value);
-      done.set(sourcePath, at);
+      done.set(key, at);
       return ok(at);
     },
   };

@@ -1,6 +1,6 @@
 import { createPrompter } from './prompter.js';
 import type { Brand } from '../types/brand.js';
-import type { LocalSource, PluginSource } from '../types/plugin-source.js';
+import type { PluginSource, UntrustedSource } from '../types/plugin-source.js';
 import {
   NAMES,
   TITLES,
@@ -42,8 +42,16 @@ export class InstallPrompts {
 
   /** Where the plugin is coming from, as the banner says it. */
   private origin(brand: Brand, ref: string | null, source: PluginSource): string {
-    if (source.kind === 'local') return f.path(source.dir, this.home);
+    if (source.kind !== 'marketplace') return this.where(source);
     return ref && ref !== 'main' ? `${brand.label} (${ref})` : brand.label;
+  }
+
+  /**
+   * A source the user named, as they would recognise it: a directory shortened
+   * against home, or the repository, folder and ref that were asked for.
+   */
+  private where(source: UntrustedSource): string {
+    return source.kind === 'local' ? f.path(source.dir, this.home) : source.toString();
   }
 
   intro(
@@ -56,9 +64,9 @@ export class InstallPrompts {
   ): void {
     log.banner(`Installing '${plugin}' from ${this.origin(brand, ref, source)}`);
     log.debug(
-      source.kind === 'local'
-        ? `source: ${source.dir}, marketplace: ${marketplace}`
-        : `source: ${brand.repo}@${ref}, marketplace: ${marketplace}`,
+      source.kind === 'marketplace'
+        ? `source: ${brand.repo}@${ref}, marketplace: ${marketplace}`
+        : `source: ${source}, marketplace: ${marketplace}`,
     );
     if (about) log.info(about);
     log.rule();
@@ -74,8 +82,8 @@ export class InstallPrompts {
    * with nobody in it. The line is still printed in that case: the source is
    * exactly what a run doing this unattended should say out loud.
    */
-  async confirmSource(source: LocalSource, assumed: boolean): Promise<boolean | 'cancelled'> {
-    const where = f.path(source.dir, this.home);
+  async confirmSource(source: UntrustedSource, assumed: boolean): Promise<boolean | 'cancelled'> {
+    const where = this.where(source);
     log.warn(`This installs a plugin from ${where}, not from ${TITLES.claude}'s marketplace.`);
     log.info('A plugin can run commands through its hooks and MCP servers.');
     if (assumed) return true;
@@ -87,6 +95,15 @@ export class InstallPrompts {
     } finally {
       prompter.close();
     }
+  }
+
+  /**
+   * A `--ref` the spec itself overrode. Said rather than swallowed: a flag
+   * that quietly did nothing is the one thing that reads as the user having
+   * chosen what happened.
+   */
+  refIgnored(flag: string, used: string): void {
+    log.warn(`Using ref '${used}' from the plugin spec - --ref ${flag} was not used.`);
   }
 
   /** The source was declined, which is not the same as choosing no editor. */

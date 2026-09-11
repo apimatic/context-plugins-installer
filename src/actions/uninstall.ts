@@ -15,14 +15,8 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
-import { DirectoryPath } from '../types/file/paths.js';
 import { RepoMarketplace, type MarketplaceOrigin } from '../types/marketplace-origin.js';
-import {
-  LocalSource,
-  MarketplaceSource,
-  localDirOf,
-  type PluginSource,
-} from '../types/plugin-source.js';
+import { restoreSource, type PluginSource, type SourceKind } from '../types/plugin-source.js';
 import type { RegistryClient } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
 import { errorMessage, nonEmptyString } from '../types/util.js';
@@ -83,11 +77,12 @@ export class UninstallAction {
     plugin: string,
     recorded: Record<string, unknown> | null,
     want: readonly HarnessName[],
-    local: boolean,
+    kind: SourceKind,
   ): Promise<{ origin: MarketplaceOrigin } | { failure: Failure }> {
-    // A row installed from a directory is addressed through the marketplace this
-    // tool generated for it, and there is no registry anywhere to look up.
-    if (local) return { origin: localMarketplace(this.pathOpts) };
+    // A row installed from a directory or a repository that was itself a
+    // plugin is addressed through the marketplace this tool generated for it,
+    // and there is no registry anywhere to look up.
+    if (kind !== 'marketplace') return { origin: localMarketplace(this.pathOpts) };
     const at = (name: string | null): { origin: MarketplaceOrigin } => ({
       origin: new RepoMarketplace(brand.repo, name),
     });
@@ -131,21 +126,21 @@ export class UninstallAction {
     // One read, and the raw row: uninstall must also clear rows the sanitized
     // view hides, and their recorded marketplace is what keeps Claude offline.
     const { key, row: recorded } = records.locate(plugin, brand.repo);
-    const dir = localDirOf(key.repo);
     // Rebuilt from the key so the command can ask it the same two questions an
     // install asks: which kind to report, and whether the id may be reported at
     // all. A plugin removed from a directory withholds the name that directory
     // gave it, exactly as installing it did.
-    this.from =
-      dir === null
-        ? new MarketplaceSource(id.value, String(key.repo ?? brand.repo), brand.ref)
-        : new LocalSource(new DirectoryPath(dir));
+    this.from = restoreSource(key.repo ?? brand.repo, {
+      plugin: id.value,
+      ref: brand.ref,
+      rules: paths.pathContext(this.pathOpts).rules,
+    });
 
     const targets = resolveTargets(req.targets);
     if (!targets.ok) return ActionResult.failed(nothing(), targets.error);
     const want = targets.value;
 
-    const found = await this.marketplaceFor(brand, plugin, recorded, want, dir !== null);
+    const found = await this.marketplaceFor(brand, plugin, recorded, want, this.from.kind);
     if ('failure' in found) return ActionResult.failed(nothing(), found.failure);
 
     this.prompts.intro(plugin, brand, want);

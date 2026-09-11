@@ -1,4 +1,5 @@
 import { titlesOf, type HarnessName } from '../types/harness.js';
+import type { SourceKind } from '../types/plugin-source.js';
 import { log } from './terminal.js';
 import { InstallPrompts } from './install.js';
 
@@ -75,11 +76,13 @@ export class UpdatePrompts {
   }
 
   /**
-   * A row installed from a directory. Not a failure, and worth naming what does
-   * refresh it: nothing here can read a path as a marketplace.
+   * A row installed from a directory or a repository rather than a
+   * marketplace. Not a failure, and worth naming what does refresh it: nothing
+   * here can read either of those as a registry.
    */
-  localSource(plugin: string): void {
-    log.warn(`${this.cell(plugin)}  installed from a path - re-run install to re-sync`);
+  notFromMarketplace(plugin: string, kind: SourceKind): void {
+    const from = kind === 'local' ? 'a path' : 'a repository';
+    log.warn(`${this.cell(plugin)}  installed from ${from} - re-run install to re-sync`);
   }
 
   updated(plugin: string, targets: readonly HarnessName[]): void {

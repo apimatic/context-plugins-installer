@@ -4,6 +4,7 @@ import type { FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
+import type { PluginManifest } from './plugin-manifest.js';
 import type { DomainEvent } from './events/domain-event.js';
 import type { TelemetryLine, TelemetryStatus } from './telemetry.js';
 import type { MarketplaceListener, RepoHandle } from './session.js';
@@ -132,6 +133,19 @@ export interface RegistryClient {
     ref: string;
     notify?: MarketplaceListener;
   }): Promise<Result<Catalog | null, Failure>>;
+  /**
+   * A plugin's own manifest, for a repository that is itself a plugin rather
+   * than a marketplace listing others. Beside the registry read because it is
+   * the same two-host fetch of one file out of one repository, and a caller
+   * that had to reach a second client for it would need the ports to build one.
+   */
+  readPluginManifest(req: {
+    repo: string;
+    ref: string;
+    /** A folder inside the repository, or null for the repository itself. */
+    path: string | null;
+    notify?: MarketplaceListener;
+  }): Promise<Result<PluginManifest, Failure>>;
 }
 
 export interface SourceFetcher {

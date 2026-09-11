@@ -201,6 +201,7 @@ reads correctly. There is no migration.
 | ----------- | ----------------------------- | --------------------------------------------- |
 | marketplace | `acme/plugin-marketplace`     | Byte-identical to today.                      |
 | github      | `github:acme/mono//tools/foo` | Two plugins from one repo stay distinct rows. |
+| github      | `github:acme/my-plugin`       | No `//`: the repository itself is the plugin. |
 | local       | `local:C:\dev\my-plugin`      | Absolute, as resolved at install time.        |
 
 `RepoSlug.same` case-folds this column, which is right for a GitHub slug and right for a
@@ -221,7 +222,7 @@ sentence widens from "a different marketplace" to "a different source"; the rule
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `install`   | Parses the spec at `resolve`. Confirms a non-marketplace source once, before anything is fetched or copied, through the existing `Ask` seam - `--yes` skips it, and a non-interactive shell prints the resolved source and proceeds, the way `nobodyToAsk` already does. A cancel is `ActionResult.cancelled`, so exit 130 and the session still cleans up. |
 | `uninstall` | Skips the registry lookup entirely for a path origin - there is nothing to look up, and the row's recorded `marketplace` is already what keeps this offline. The Claude arm addresses the generated marketplace; when its last plugin leaves, the generated directory and its `claude` registration go too.                                                 |
-| `update`    | Branches on `PluginSource.restore(row.repo)`. A github row re-fetches at its recorded ref; a local row re-reads its directory. A source that has vanished - or an origin scheme this build cannot parse - is a warned skip, never a failure.                                                                                                                |
+| `update`    | Branches on `restoreSource(row.repo)`. A github row re-fetches at its recorded ref; a local row re-reads its directory. A source that has vanished - or an origin scheme this build cannot parse - is a warned skip, never a failure. Phases 2 and 3 ship the warned skip for both kinds; phase 4 is the re-sync.                                           |
 | `installed` | Renders the origin: a slug as today, or a local path shortened through `f.path`. `--json` keeps its shape; `repo` simply carries the new key.                                                                                                                                                                                                               |
 | `list`      | Nothing. It lists a marketplace catalog; a path row's key never matches one, so its installed marks and gap warnings stay correctly scoped.                                                                                                                                                                                                                 |
 | `doctor`    | Nothing required. Worth one check later: a generated marketplace holding an entry whose folder is gone.                                                                                                                                                                                                                                                     |
@@ -314,7 +315,7 @@ the feature.
 | --- | ------------------------------------------ | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Route today's flow through the new types   | `refactor:` | `MarketplaceOrigin` on `HarnessContext` (as `origin`) and `ResolvedPlugin`, with `NamedMarketplace` for the resolved case. Done: 544 tests pass and behaviour is unchanged. Assertions did move - three in `plugin-resolution.test.ts` from `.marketplace` to `.origin.name` - and one was added for `ClaudeHarness.needsSource`, which nothing had pinned. Three things were cut from this phase after review: `plugin-source.ts` and `plugin-manifest.ts` (phase 2, where their first callers are - a `PluginSource` whose only reachable arm is `marketplace` keys the manifest by the string that column already holds), and `needsSource` as a method (see the open items). |
 | 2   | Install from a local directory             | `feat:`     | The parser's local arm, `local-plugin.ts`, `local-marketplace.ts`, the Claude directory arm, the trust prompt, the manifest key, `installed` rendering, `source_kind`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 3   | Install from a GitHub repo or subdirectory | `feat:`     | The parser's github arm, `readPluginManifest`, the root checkout in both fetch arms, the marketplace-not-a-plugin hint.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 3   | Install from a GitHub repo or subdirectory | `feat:`     | The parser's github arm, `readPluginManifest`, the root checkout in both fetch arms, the marketplace-not-a-plugin hint. Done: 651 tests pass. Four things the plan did not have: `restoreSource` / `sourceKindOf`, because three key shapes is where two readers became one; `reportableId(learned)`, because a github source does not know its id until the manifest is read; `ManifestContext.locate` widened from "a local row" to "a row not keyed by a marketplace", without which a github row was unreachable by id; and the fetch condition becoming compound, which is what settles the `needsSource` open item below.                                                  |
 | 4   | Re-sync path plugins on update             | `feat:`     | The `restore` branch per row and the `unavailable` arm. Held back so phases 2 and 3 ship without `update` having to know about either yet.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 5   | Document the new sources                   | `docs:`     | README examples and the `--help` block. Contributor and agent knowledge goes to `CLAUDE.md` as each phase lands, not here.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
@@ -334,21 +335,22 @@ shape above.
   genuinely read in place, staging a plugin needs no `marketplace update` at all - only
   the uninstall/install pair. Confirming this simplifies the harness rather than changing
   the design.
-- **Should a bare `owner/repo` that turns out to be a marketplace offer to list it?** The
-  plan fails with a hint naming `--repo` and `list`. Running the listing right there would
-  be friendlier, and the machinery is one `ListAction` away - but it makes one command do
-  two things, and the hint is already actionable. Deferred, not rejected.
-- **Where does "the files must be staged locally" live?** Phase 1 changed
-  `Harness.needsSource` from a constant to `needsSource(origin)` and reverted it: no
-  implementation could use the parameter, a test could not even pass one, and phase 2
-  would have had to edit Claude Code's signature regardless. Two candidate shapes, to be
-  decided with the caller in hand. `needsSource(origin)` per harness reads as one
-  question, but asks N editors to re-derive one fact. The alternative keeps
-  `needsSource: boolean` as a property of the editor - Cursor and VS Code copy files,
-  Claude Code does not - and puts the second, origin-shaped fact where there is exactly
-  one of it, for the action to combine. The second is the better guess; what has to be
-  checked before committing to it is the compound condition at the two call sites.
-- **Should the origin hold a `RepoSlug` rather than a `string`?** `brand.repo` is already
+- **Should a bare `owner/repo` that turns out to be a marketplace offer to list it?**
+  Phase 3 shipped the hint, naming both `install <plugin> --repo` and `list --repo`.
+  Running the listing right there would be friendlier, and the machinery is one
+  `ListAction` away - but it makes one command do two things, and the hint is already
+  actionable. Deferred, not rejected.
+- ~~**Where does "the files must be staged locally" live?**~~ Settled in phase 3, as the
+  second shape: `needsSource` stays a boolean property of the editor, and the
+  origin-shaped fact (`mustStage`) is one expression in the action, combined into the
+  fetch condition and re-read at the staging call. Phase 2 could not settle it, because
+  a directory source always carries its own files and nothing ever depended on the
+  combination. Phase 3 is where it bites: a `github` install whose only target is Claude
+  Code needs the files even though no editor copies them.
+- **Should the origin hold a `RepoSlug` rather than a `string`?** (Phase 3 answered the
+  same question for `GithubSource` the other way, and deliberately: the slug is validated
+  at parse time and then carried as a string, so `restoreSource` can be total over a
+  hand-edited row. The two decisions want reconciling.) `brand.repo` is already
   parsed at brand resolution, so nothing new would fail - and it would give `key()` the
   existing `toSearchKey()` instead of a third hand-rolled case fold, and let
   `isSameOrigin` stop rebuilding a `RepoSlug` per listing row. It touches `Brand`, which

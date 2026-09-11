@@ -12,7 +12,7 @@ import {
   type ManifestEntry,
 } from './installed-record.js';
 import { isPlainObject } from './util.js';
-import { isLocalKey } from './plugin-source.js';
+import { sourceKindOf } from './plugin-source.js';
 import type { ManifestStore } from './ports.js';
 import type { UninstallDecision } from './uninstall.js';
 
@@ -82,11 +82,11 @@ export class ManifestContext {
   /**
    * The row an argument names and the key that writes it, in one read.
    *
-   * A plugin installed from a directory is keyed by that directory, and an id
-   * is what a user types to remove one - so when the configured key matches
-   * nothing, a row for the same id from a path is what they meant. The
-   * configured key is tried first, so nothing about the spelling this program
-   * has always taken changes.
+   * A plugin installed from a directory or a repository is keyed by where it
+   * came from, and an id is what a user types to remove one - so when the
+   * configured key matches nothing, a row for the same id from one of those is
+   * what they meant. The configured key is tried first, so nothing about the
+   * spelling this program has always taken changes.
    *
    * Over the raw rows, not the read view: a row the view hides is exactly the
    * one this has to reach. `['cursor','zed']` shortened by an earlier
@@ -99,12 +99,12 @@ export class ManifestContext {
     const matching = rows.filter((r): r is Record<string, unknown> => matchesKey(r, configured));
     if (matching.length) return { key: configured, row: foldRows(matching) };
 
-    const local = rows.find(
+    const named = rows.find(
       (r): r is Record<string, unknown> =>
-        isPlainObject(r) && r.plugin === plugin && isLocalKey(r.repo),
+        isPlainObject(r) && r.plugin === plugin && sourceKindOf(r.repo) !== 'marketplace',
     );
-    if (!local) return { key: configured, row: null };
-    const key: EntryKey = { plugin, repo: local.repo };
+    if (!named) return { key: configured, row: null };
+    const key: EntryKey = { plugin, repo: named.repo };
     const found = rows.filter((r): r is Record<string, unknown> => matchesKey(r, key));
     return { key, row: foldRows(found) };
   }

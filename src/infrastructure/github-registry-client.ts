@@ -1,9 +1,11 @@
+import { BIN } from '../types/brand.js';
 import type { Catalog } from '../types/catalog.js';
 import { REGISTRY_FILES, normalize } from '../types/catalog.js';
 import type { Env } from '../types/env.js';
 import { Failure } from '../types/failure.js';
 import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
+import { MANIFEST_FILES, readManifest, type PluginManifest } from '../types/plugin-manifest.js';
 import type { FetchResponseLike, HttpPorts, RegistryClient } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
 import type { MarketplaceListener } from '../types/session.js';
@@ -225,7 +227,84 @@ export async function readRegistry(
   return ok(null);
 }
 
+export interface PluginManifestRequest {
+  repo: string;
+  ref: string;
+  /** A folder inside the repository, or null for the repository itself. */
+  path: string | null;
+  notify?: MarketplaceListener;
+}
+
+/** Whether the repository declares a marketplace registry at its root. */
+async function isMarketplace(
+  slug: RepoSlug,
+  ref: string,
+  notify: MarketplaceListener,
+  ports: HttpPorts,
+): Promise<boolean> {
+  for (const file of REGISTRY_FILES) {
+    const read = await getJson({ repo: slug, ref, filePath: file, notify }, ports);
+    if (read.ok && isPlainObject(read.value)) return true;
+  }
+  return false;
+}
+
+/**
+ * The plugin a repository - or a folder inside one - declares itself to be.
+ * The same three manifest locations `infrastructure/local-plugin.ts` probes on
+ * disk, read here over the two hosts that can serve them, so a raw CDN outage
+ * fails a `github` install no more often than it fails a marketplace one. A
+ * file that exists but cannot be used is remembered rather than skipped
+ * silently, for the reason it is there: "no plugin manifest" is a useless
+ * answer when `.claude-plugin/plugin.json` is sitting in the repository with a
+ * name this build cannot accept.
+ *
+ * Pointing at a marketplace and spelling it as a plugin is the one wrong turn
+ * worth its own answer, because the repository *is* installable - just through
+ * `--repo`. That probe costs two requests and only happens once nothing else
+ * worked, so the ordinary install still reads one file.
+ */
+export async function readPluginManifest(
+  { repo, ref, path, notify = nothing }: PluginManifestRequest,
+  ports: HttpPorts,
+): Promise<Result<PluginManifest, Failure>> {
+  const slug = RepoSlug.parse(repo);
+  if (!slug.ok) return err(slug.error);
+  const gitRef = GitRef.parse(ref);
+  if (!gitRef.ok) return err(gitRef.error);
+
+  const prefix = path === null ? '' : `${path}/`;
+  const where = path === null ? `${repo}@${ref}` : `'${path}' in ${repo}@${ref}`;
+
+  let problem: Failure | null = null;
+  for (const file of MANIFEST_FILES) {
+    const read = await getJson({ repo: slug.value, ref, filePath: prefix + file, notify }, ports);
+    if (!read.ok) return err(read.error);
+    if (read.value === null) continue;
+    const manifest = readManifest(read.value, `${prefix}${file} in ${repo}@${ref}`);
+    if (manifest.ok) return ok(manifest.value);
+    problem ??= manifest.error;
+  }
+  if (problem) return err(problem);
+
+  if (await isMarketplace(slug.value, ref, notify, ports)) {
+    return err(
+      new Failure(
+        `${where} has no plugin manifest, but ${repo} is a marketplace.`,
+        `Install one of its plugins with \`${BIN} install <plugin> --repo ${repo}\`, or see what it offers with \`${BIN} list --repo ${repo}\`.`,
+      ),
+    );
+  }
+  return err(
+    new Failure(
+      `${where} does not look like a plugin.`,
+      `No plugin manifest there. Looked for ${MANIFEST_FILES.join(', ')}.`,
+    ),
+  );
+}
+
 /** The client the composition root builds, and everything above it takes. */
 export const registryClient = (ports: HttpPorts): RegistryClient => ({
   readRegistry: (req) => readRegistry(req, ports),
+  readPluginManifest: (req) => readPluginManifest(req, ports),
 });
