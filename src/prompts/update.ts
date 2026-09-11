@@ -80,7 +80,7 @@ export class UpdatePrompts {
    * marketplace. Not a failure, and worth naming what does refresh it: nothing
    * here can read either of those as a registry.
    */
-  notFromMarketplace(plugin: string, kind: SourceKind): void {
+  notFromMarketplace(plugin: string, kind: Exclude<SourceKind, 'marketplace'>): void {
     const from = kind === 'local' ? 'a path' : 'a repository';
     log.warn(`${this.cell(plugin)}  installed from ${from} - re-run install to re-sync`);
   }

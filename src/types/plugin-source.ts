@@ -47,8 +47,9 @@ export class MarketplaceSource {
     return this.plugin;
   }
 
+  /** Where the plugin came from, the question every arm's `toString` answers. */
   toString(): string {
-    return `${this.plugin}@${this.repo}`;
+    return `${this.repo}@${this.ref}`;
   }
 }
 
@@ -221,13 +222,32 @@ const notARepo = (spec: string): Failure =>
   );
 
 /**
+ * What a folder inside a repository may be spelled with. Validated here for
+ * exactly the reason a ref and an id are: it reaches `git sparse-checkout add`
+ * as argv, where a leading `-` reads as an option, and a
+ * raw.githubusercontent.com URL as a path, where a `?` or a `#` truncates the
+ * request - which would read some other file as the plugin's manifest.
+ */
+const PATH_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.+-]*$/;
+
+const badFolder = (spec: string, segment: string): Failure =>
+  new Failure(
+    `'${segment}' is not a usable folder name in '${spec}'.`,
+    'A folder inside a repository may hold letters, digits, dots, dashes and underscores.',
+  );
+
+/**
  * A folder inside a repository, as a clean relative path. `..` is refused
  * rather than resolved: the segments name a checkout this program will make,
  * and climbing out of one is never what the user meant.
  */
 function repoPath(segments: readonly string[], spec: string): Result<string | null, Failure> {
   if (!segments.length) return ok(null);
-  if (segments.some((s) => s === '..' || s === '.')) return err(notARepo(spec));
+  for (const segment of segments) {
+    if (segment === '.' || segment === '..' || !PATH_SEGMENT.test(segment)) {
+      return err(badFolder(spec, segment));
+    }
+  }
   return ok(segments.join('/'));
 }
 

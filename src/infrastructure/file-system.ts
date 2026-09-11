@@ -71,11 +71,26 @@ export function isDirNonEmpty(dir: PathArg): boolean {
   }
 }
 
+/**
+ * What a directory holds that is not part of the plugin in it. Both ways this
+ * tool acquires a plugin's files put a repository in the middle of them: a
+ * folder install is usually the folder a developer is working in, and a
+ * repository that is itself a plugin is checked out whole, so the clone
+ * directory *is* the source. Copying that into an editor's plugin folder ships
+ * the full history and the origin URL with the plugin, and counting it reports
+ * the clone's file count as the plugin's.
+ *
+ * Skipped by both readers below rather than by their callers, because this
+ * module copies and counts exactly one kind of thing: a plugin's files.
+ */
+const NOT_THE_PLUGIN = new Set(['.git']);
+
 // Hand-written so it never emits fs.cp's experimental warning.
 export function copyDir(src: PathArg, dest: PathArg): void {
   const target = ensureDir(dest);
   const source = pathString(src);
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    if (NOT_THE_PLUGIN.has(entry.name)) continue;
     const from = path.join(source, entry.name);
     const to = path.join(target, entry.name);
     if (entry.isDirectory()) {
@@ -108,6 +123,7 @@ export function countFiles(dir: PathArg): number {
   const target = pathString(dir);
   let n = 0;
   for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    if (NOT_THE_PLUGIN.has(entry.name)) continue;
     n += entry.isDirectory() ? countFiles(path.join(target, entry.name)) : 1;
   }
   return n;

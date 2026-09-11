@@ -172,11 +172,12 @@ export class InstallAction {
       this.prompts.refIgnored(req.ref, source.ref);
     }
 
-    // Asked before anything is fetched or copied, and only for a source this
-    // program was not shipped pointing at: a plugin from an arbitrary directory
-    // or repository can carry hooks and MCP servers that run commands, where
-    // the built-in marketplace is a source the user chose by installing this
-    // tool.
+    // Asked before any of the plugin's files are fetched or copied, and only
+    // for a source this program was not shipped pointing at: a plugin from an
+    // arbitrary directory or repository can carry hooks and MCP servers that
+    // run commands, where the built-in marketplace is a source the user chose
+    // by installing this tool. `resolve` above has already read the manifest -
+    // one file, which is what lets the question name the plugin.
     if (source.kind !== 'marketplace') {
       const trusted = await this.prompts.confirmSource(source, assumeYes || !this.canAsk());
       if (trusted === 'cancelled') return ActionResult.cancelled(done());

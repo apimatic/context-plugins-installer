@@ -63,11 +63,7 @@ export class InstallPrompts {
     source: PluginSource,
   ): void {
     log.banner(`Installing '${plugin}' from ${this.origin(brand, ref, source)}`);
-    log.debug(
-      source.kind === 'marketplace'
-        ? `source: ${brand.repo}@${ref}, marketplace: ${marketplace}`
-        : `source: ${source}, marketplace: ${marketplace}`,
-    );
+    log.debug(`source: ${source}, marketplace: ${marketplace}`);
     if (about) log.info(about);
     log.rule();
     log.step('[Harnesses]');
@@ -75,8 +71,11 @@ export class InstallPrompts {
 
   /**
    * Whether to install from a source this program was not shipped pointing at.
-   * Asked before anything is fetched or copied, because a plugin from an
-   * arbitrary directory can carry hooks and MCP servers that run commands.
+   * Asked before any of the plugin's files are fetched or copied, because a
+   * plugin from an arbitrary directory or repository can carry hooks and MCP
+   * servers that run commands. Not before *every* request: a repository's own
+   * manifest is read first, which is what lets this name the plugin rather
+   * than only the place it would come from.
    *
    * `assumed` covers both ways of having already answered - `--yes`, and a shell
    * with nobody in it. The line is still printed in that case: the source is

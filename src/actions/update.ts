@@ -75,7 +75,8 @@ export class UpdateAction {
       // `update` forever is the one thing this command must never produce, and
       // re-running the install re-syncs it.
       const kind = sourceKindOf(entry.repo);
-      if (kind !== 'marketplace') {
+      // Narrowed, not asserted: the guard is what proves the other two arms.
+      if (kind === 'local' || kind === 'github') {
         rows.push({ outcome: 'skipped', plugin: entry.plugin });
         this.prompts.notFromMarketplace(entry.plugin, kind);
         continue;

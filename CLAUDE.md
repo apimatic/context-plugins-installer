@@ -245,7 +245,11 @@ that ends up somewhere else is a rule two callers can disagree about.
   back into a source and is **total**: a key this build cannot parse is a
   marketplace repo, because a row that no command could reach is worse than a
   row that reads oddly. `sourceKindOf` is the same question for a caller that
-  only needs to branch. It is pure: whether a directory or a repository really
+  only needs to branch. A repository's folder is validated here the way an id
+  and a ref are, and for the same reason: it reaches `git sparse-checkout add`
+  as argv, where a leading `-` is an option, and a raw.githubusercontent.com
+  URL as a path, where a `?` or a `#` truncates the request and some other file
+  would be read as the manifest. It is pure: whether a directory or a repository really
   holds a plugin is a question for `infrastructure/local-plugin.ts` and
   `readPluginManifest`, which go and look.
 - **`types/plugin-manifest.ts`** - a plugin's own `plugin.json` as this build
@@ -332,8 +336,9 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   and said it once per plugin; that is a real regression this rule prevents.
 
 - **Two hosts, one file** (`fetchRepoFile` in `infrastructure/github-registry-client.ts`):
-  every file read by URL - the registry, and every blob of a plugin on the
-  no-git path - is asked of `raw.githubusercontent.com` first and of the API's
+  every file read by URL - the registry, a plugin's own manifest, and
+  every blob of a plugin on the no-git path - is asked of
+  `raw.githubusercontent.com` first and of the API's
   contents endpoint second (`RepoSlug.contentsUrl`, with
   `Accept: application/vnd.github.raw`, so the body is the file itself and not a
   base64 envelope of it). They are separate services, and the raw CDN's own 503

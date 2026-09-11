@@ -310,3 +310,31 @@ test('without a session the marketplace is registered per call, as before', asyn
 
   assert.equal(calls.filter((c) => c === `plugin marketplace add ${repo}`).length, 2);
 });
+
+const MANIFEST_REPO = 'acme/mono';
+
+test('one plugin manifest is read once per repo, ref and folder', async () => {
+  const fetchImpl = stubFetch({
+    [rawUrl(MANIFEST_REPO, 'main', 'tools/foo/.claude-plugin/plugin.json')]: {
+      body: { name: 'foo' },
+    },
+    [rawUrl(MANIFEST_REPO, 'main', 'tools/bar/.claude-plugin/plugin.json')]: {
+      body: { name: 'bar' },
+    },
+  });
+  const session = createSession({
+    registry: registryClient(portsFor(fetchImpl)),
+    fetcher: sourceFetcher(portsFor(fetchImpl)),
+  });
+  try {
+    await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });
+    await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });
+    // The folder is part of the key: two plugins in one repository are two
+    // manifests, not one answer served twice.
+    const bar = await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/bar' });
+    assert.ok(bar.ok && bar.value.id.toString() === 'bar');
+  } finally {
+    await session.cleanup();
+  }
+  assert.equal(fetchImpl.calls.length, 2, fetchImpl.calls.join(' | '));
+});

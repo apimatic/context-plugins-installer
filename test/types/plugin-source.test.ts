@@ -177,8 +177,29 @@ test('a path beats a repository, so a relative folder is never read as a slug', 
   assert.equal(value(parse('acme/repo')).kind, 'github');
 });
 
+test('a folder inside a repository is validated the way a ref and an id are', () => {
+  // It reaches `git sparse-checkout add` as argv and a raw.githubusercontent
+  // URL as a path, so the two things that change meaning there are refused
+  // where they enter: a leading `-` reads as an option, and a `?` or `#`
+  // truncates the URL - which would read some other file as the manifest.
+  for (const spec of [
+    'acme/mono/--upload-pack=evil',
+    'acme/mono/-x',
+    'acme/mono/a?b/c',
+    'acme/mono/x#y',
+    'acme/mono/a b',
+    'acme/mono/tools/../../etc',
+  ]) {
+    const result = parse(spec);
+    assert.equal(result.ok, false, `expected ${spec} to be refused`);
+    if (!result.ok) assert.match(result.error.message, /is not a usable folder name/);
+  }
+  // And the ordinary spellings still pass.
+  assert.equal(shape('acme/mono/tools/my-plugin.v2/_inner').path, 'tools/my-plugin.v2/_inner');
+});
+
 test('anything that is not a github repository says so, rather than talking about ids', () => {
-  for (const spec of ['https://example.com/a/b', 'acme/', 'acme/mono/tools/../../etc']) {
+  for (const spec of ['https://example.com/a/b', 'acme/', 'a c m e/repo']) {
     const result = parse(spec);
     assert.equal(result.ok, false, `expected ${spec} to be refused`);
     if (!result.ok) assert.match(result.error.message, /not a plugin id, a path, or a GitHub/);

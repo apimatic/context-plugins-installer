@@ -132,8 +132,8 @@ own name is not used, so renaming either does not rename the plugin.
 A few things worth knowing:
 
 - **You are asked first.** A plugin can run commands through its hooks and MCP servers, so a
-  source outside the marketplace is confirmed before anything is fetched or copied. `-y` skips the
-  question.
+  source outside the marketplace is confirmed before any of its files are fetched or copied — a
+  repository's own manifest is read first, so the question can name the plugin. `-y` skips it.
 - **It is a snapshot.** The files are copied as they are now. After editing the plugin, or after
   the repository moves on, run the same install again to re-sync it; `update` reports these
   plugins rather than refreshing them.

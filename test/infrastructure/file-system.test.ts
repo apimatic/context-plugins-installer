@@ -47,3 +47,25 @@ test('a path value works wherever a string does', () => {
   assert.equal(countFiles(dest), 1);
   assert.ok(fs.existsSync(path.join(dest.toString(), 'plugin.json')));
 });
+
+test('a repository that carried the plugin is not part of the plugin', () => {
+  // Two ways this arrives, and both are ordinary: a developer installs the
+  // plugin folder they are working in, and a repository that is itself a
+  // plugin is checked out whole - so the clone's own `.git` is the directory
+  // handed over. Copying it puts the full history and the origin URL inside
+  // the editor's plugin folder, and counts it as the plugin's own files.
+  const src = tmpDir('cp-fs-src-');
+  fs.mkdirSync(path.join(src, '.git', 'objects'), { recursive: true });
+  fs.writeFileSync(path.join(src, '.git', 'config'), '[remote "origin"]');
+  fs.writeFileSync(path.join(src, '.git', 'objects', 'pack'), 'blob');
+  fs.mkdirSync(path.join(src, 'skills'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'plugin.json'), '{}');
+  fs.writeFileSync(path.join(src, 'skills', 'SKILL.md'), '# skill');
+
+  const dest = path.join(tmpDir('cp-fs-dest-'), 'out');
+  copyDir(src, dest);
+
+  assert.ok(!fs.existsSync(path.join(dest, '.git')), 'no repository in the installed copy');
+  assert.ok(fs.existsSync(path.join(dest, 'skills', 'SKILL.md')));
+  assert.equal(countFiles(src), 2, 'and it is not counted as the plugin either');
+});

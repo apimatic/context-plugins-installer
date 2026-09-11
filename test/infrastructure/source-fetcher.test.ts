@@ -496,7 +496,11 @@ function fakeGit(): { ports: SourcePorts; argv: string[][] } {
     argv.push(args);
     if (args[0] === 'clone') {
       const clone = args[args.length - 1] as string;
-      fs.mkdirSync(clone, { recursive: true });
+      // Including the `.git` a real clone leaves behind, which is the whole
+      // difference between a checkout of a folder and one of a repository.
+      fs.mkdirSync(path.join(clone, '.git', 'objects'), { recursive: true });
+      fs.writeFileSync(path.join(clone, '.git', 'config'), '[remote "origin"]');
+      fs.writeFileSync(path.join(clone, '.git', 'objects', 'pack'), 'blob');
       fs.writeFileSync(path.join(clone, 'plugin.json'), '{ "name": "whole-repo" }');
     }
     if (args[2] === 'sparse-checkout') {
@@ -602,6 +606,25 @@ test('a repository with no files says so without naming a folder that does not e
     const dir = await handle.checkout(null);
     assert.equal(dir.ok, false);
     if (!dir.ok) assert.equal(dir.error.message, `${REPO}@main has no files.`);
+  } finally {
+    handle.cleanup();
+  }
+});
+
+test('a whole-repository checkout counts the plugins files, not the clones', async () => {
+  // `plugin.json` and the one file `disable` fills in - not the three-file
+  // `.git` beside them, which is not part of the plugin and must not be
+  // reported as though a user were getting it.
+  const { ports } = fakeGit();
+  const { events, notify } = recorder();
+  const handle = await openRepo({ repo: REPO, ref: 'main', notify }, ports);
+  try {
+    const dir = await handle.checkout(null);
+    assert.ok(dir.ok, dir.ok ? '' : dir.error.message);
+    assert.deepEqual(
+      events.filter((e) => e.kind === 'checked-out'),
+      [{ kind: 'checked-out', files: 2 }],
+    );
   } finally {
     handle.cleanup();
   }

@@ -65,15 +65,19 @@ interface GithubSpec {
  * out, because which folder of which repository at which ref is exactly what
  * the `github` arm has to get right.
  */
-function githubWiring(spec: GithubSpec): { wiring: Wiring; fetched: Fetched[]; srcDir: string } {
+function githubWiring(spec: GithubSpec): {
+  wiring: Wiring;
+  fetched: Fetched[];
+  /** Every URL asked for, so a test can pin what precedes the trust question. */
+  asked: string[];
+} {
   const { repo, ref = 'main', path: under = null, manifest = { name: 'my-sdk' } } = spec;
   const at = under === null ? MANIFEST : `${under}/${MANIFEST}`;
-  const ports = portsFor(
-    stubFetch({
-      ...(manifest ? { [rawUrl(repo, ref, at)]: { body: manifest } } : {}),
-      ...(spec.routes ?? {}),
-    }),
-  );
+  const fetchImpl = stubFetch({
+    ...(manifest ? { [rawUrl(repo, ref, at)]: { body: manifest } } : {}),
+    ...(spec.routes ?? {}),
+  });
+  const ports = portsFor(fetchImpl);
   const srcDir = pluginSource('my-sdk');
   const fetched: Fetched[] = [];
   const fetcher: SourceFetcher = {
@@ -86,7 +90,11 @@ function githubWiring(spec: GithubSpec): { wiring: Wiring; fetched: Fetched[]; s
       },
     }),
   };
-  return { wiring: { ports, registry: registryClient(ports), fetcher }, fetched, srcDir };
+  return {
+    wiring: { ports, registry: registryClient(ports), fetcher },
+    fetched,
+    asked: fetchImpl.calls,
+  };
 }
 
 const rowsOf = (m: Machine): Record<string, unknown>[] =>
@@ -165,7 +173,7 @@ test('two folders of one repository are two rows, not one overwriting the other'
   for (const [under, name] of [
     ['tools/foo', 'foo-sdk'],
     ['tools/bar', 'bar-sdk'],
-  ]) {
+  ] as const) {
     const { wiring } = githubWiring({
       repo: 'acme/mono',
       path: under,
@@ -174,7 +182,7 @@ test('two folders of one repository are two rows, not one overwriting the other'
     await quietly(() =>
       installPlugin({
         brand: brand(),
-        plugin: `acme/mono/${under as string}`,
+        plugin: `acme/mono/${under}`,
         targets: ['cursor'],
         assumeYes: true,
         pathOpts: m.pathOpts,
@@ -316,7 +324,7 @@ test('the repository is named, and the warning about what a plugin can run is sa
 
 test('declining the repository installs nothing and is not a failure', async () => {
   const m = machine();
-  const { wiring, fetched } = githubWiring({ repo: 'acme/thing' });
+  const { wiring, fetched, asked } = githubWiring({ repo: 'acme/thing' });
 
   const report = await quietly(() =>
     installPlugin({
@@ -331,7 +339,11 @@ test('declining the repository installs nothing and is not a failure', async () 
 
   assert.deepEqual(report.targets, []);
   assert.deepEqual(rowsOf(m), [], 'nothing recorded');
-  assert.deepEqual(fetched, [], 'and nothing fetched: the question comes first');
+  assert.deepEqual(fetched, [], 'and none of its files fetched: the question comes first');
+  // One request did precede the question - the manifest, which is how the
+  // line above it names the plugin. That is the whole of what "before
+  // anything is fetched" means here, so it is pinned rather than implied.
+  assert.equal(asked.length, 1);
 });
 
 test('telemetry reports the repository kind, and never the repository', async () => {

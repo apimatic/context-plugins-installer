@@ -577,3 +577,29 @@ test('a path row the read view hides is still reachable by uninstall', () => {
     assert.deepEqual(rowsOf(m), [], 'the stranded row is clearable');
   });
 });
+
+test('the repository a developer works in is not installed along with the plugin', () => {
+  // The ordinary case, not an exotic one: a plugin folder is a git checkout,
+  // so `install ./my-plugin` used to copy the full history and the origin URL
+  // into the editor's plugin directory. The same rule covers a repository that
+  // is itself a plugin, where the clone directory *is* the source.
+  return quietly(async () => {
+    const m = machine();
+    const dir = pluginDir();
+    fs.mkdirSync(path.join(dir, '.git', 'objects'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]');
+
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    const installed = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk');
+    assert.ok(fs.existsSync(path.join(installed, 'skills', 'thing', 'SKILL.md')), 'the plugin');
+    assert.ok(!fs.existsSync(path.join(installed, '.git')), 'and not the repository');
+  });
+});
