@@ -1,12 +1,15 @@
 import { harnesses } from '../harnesses/index.js';
+import { exists } from '../infrastructure/file-system.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UpdatePrompts } from '../prompts/update.js';
 import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { HarnessOpts } from '../types/harness.js';
+import { PluginId } from '../types/ids/plugin-id.js';
+import type { ManifestEntry } from '../types/installed-record.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
 import type { Session } from '../types/session.js';
-import { sourceKindOf } from '../types/plugin-source.js';
+import { restoreSource, sourceKindOf, type PluginSource } from '../types/plugin-source.js';
 import { errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 import { InstallAction } from './install.js';
@@ -33,6 +36,46 @@ export class UpdateAction {
     private readonly session: Session,
     private readonly pathOpts?: HarnessOpts,
   ) {}
+
+  /**
+   * The source a row restores to, or why it cannot be refreshed at all.
+   *
+   * `null` is a marketplace row: its key is a repository, the registry read is
+   * what resolves it, and nothing about that path changes. The other two carry
+   * where they came from in the key itself, so refreshing them is re-running
+   * the install they came from rather than a registry read.
+   *
+   * Only a directory that is gone answers with a reason. A repository that
+   * cannot be read is left to fail like any other install: a 404 and an outage
+   * are not distinguishable here, and reporting "your plugin's source is gone"
+   * during a GitHub outage is worse than reporting the outage.
+   */
+  private sourceFor(
+    entry: ManifestEntry,
+    brand: Brand,
+  ): { source: PluginSource | null } | { reason: string } {
+    if (sourceKindOf(entry.repo) === 'marketplace') return { source: null };
+
+    const id = PluginId.parse(entry.plugin);
+    // Only a hand edit reaches this - `recordInstall` writes a validated id -
+    // but the record is a file a user can open, and a row this build cannot
+    // even address is still not a reason to fail every `update` for ever.
+    if (!id.ok) return { reason: 'the name on its record is not one this build can read' };
+
+    const source = restoreSource(entry.repo, {
+      plugin: id.value,
+      ref: entry.ref || brand.ref,
+      rules: paths.pathContext(this.pathOpts).rules,
+    });
+    // Moving a plugin folder is an ordinary day for whoever is writing one, so
+    // it is the case this arm exists for. A folder that is still there but is
+    // no longer a plugin is a failure like any other: something went wrong
+    // with a source that is present, and the install says what.
+    if (source.kind === 'local' && !exists(source.dir)) {
+      return { reason: 'the folder it was installed from is gone' };
+    }
+    return { source };
+  }
 
   readonly execute = async (brand: Brand): Promise<ActionResult<UpdateReport>> => {
     const {
@@ -69,25 +112,32 @@ export class UpdateAction {
     // registry once and clone it once.
     const { session } = this;
     for (const entry of entries) {
-      // A row that did not come from a marketplace has a path or a repository
-      // where a marketplace slug would be, so refreshing it is not a registry
-      // read at all. Skipped rather than failed: a row that fails every
-      // `update` forever is the one thing this command must never produce, and
-      // re-running the install re-syncs it.
-      const kind = sourceKindOf(entry.repo);
-      // Narrowed, not asserted: the guard is what proves the other two arms.
-      if (kind === 'local' || kind === 'github') {
-        rows.push({ outcome: 'skipped', plugin: entry.plugin });
-        this.prompts.notFromMarketplace(entry.plugin, kind);
+      // Where the row came from, which decides almost everything below: a
+      // marketplace row is refreshed against its own registry, and the other
+      // two carry everything they need in the key itself.
+      const from = this.sourceFor(entry, brand);
+      if ('reason' in from) {
+        rows.push({ outcome: 'unavailable', plugin: entry.plugin, reason: from.reason });
+        this.prompts.unavailable(entry.plugin, from.reason);
         continue;
       }
-      const entryBrand: Brand = Object.freeze({
-        ...brand,
-        repo: entry.repo || brand.repo,
-        ref: entry.ref || brand.ref,
-        id: entry.marketplace || brand.id,
-      });
-      const marketplace = MarketplaceLabel.of(entryBrand);
+      const { source } = from;
+      // A prefixed key is not a repository, so only a marketplace row moves the
+      // brand onto its own. The other kinds never reach the code that reads it.
+      const entryBrand: Brand =
+        source === null
+          ? Object.freeze({
+              ...brand,
+              repo: entry.repo || brand.repo,
+              ref: entry.ref || brand.ref,
+              id: entry.marketplace || brand.id,
+            })
+          : brand;
+      // `forSource` rather than `of`, for the reason it exists: a row that came
+      // from a path or a repository must not be labelled with the built-in
+      // marketplace, and one command answering that for itself is how the
+      // question comes to have two answers.
+      const marketplace = MarketplaceLabel.forSource(source, entryBrand);
 
       const reachable = harnesses.detected(entry.targets, this.pathOpts);
       if (!reachable.length) {
@@ -101,7 +151,10 @@ export class UpdateAction {
         const result = await this.prompts.collapsed(() =>
           install.execute({
             brand: entryBrand,
-            plugin: entry.plugin,
+            // The row's own source, not its id re-read against the run's
+            // marketplace - which for a path row would install a different
+            // plugin that happens to share a name.
+            plugin: source ?? entry.plugin,
             ref: entry.ref,
             targets: reachable,
             force: true,

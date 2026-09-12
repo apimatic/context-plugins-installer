@@ -562,6 +562,19 @@ and the install it delegates to speaks through the `InstallPrompts` that
 `UpdatePrompts.installPrompts()` hands it - so whether a row is a line in the
 grid or a full install report is one class's decision, taken once.
 
+What a row is refreshed _from_ is `sourceFor`: a marketplace row keeps today's
+path - its own brand, its own registry - and the other two hand the install a
+`PluginSource` rebuilt from the key rather than an id to re-read. That
+distinction is load-bearing: `parseSource('my-sdk')` against the run's
+marketplace is a different plugin that happens to share a name, so a path row
+whose id was passed as a string would install the wrong thing. The one source
+that answers `unavailable` instead is a directory that is gone, which is an
+ordinary day for whoever is writing a plugin; a repository that cannot be read
+fails its row like any other install, because a 404 and an outage are not
+distinguishable from here and "your plugin's source is gone" must not be what
+a bad network day says. `unavailable` sends no event - nothing reached an
+install, and its reason names a directory.
+
 ### `src/commands/` - flags in, telemetry events out
 
 `args.ts` is a typed flag table - no oclif, no clack - and `parseArgs` answers
@@ -653,7 +666,10 @@ that arrived that way, and saying nothing left the user needing a second
 `--force` run nothing had mentioned. `update` skips an entry whose every
 recorded editor is undetected rather than failing on it: refreshing a plugin
 for an editor that is not installed is a no-op, and treating it as a failure
-made such a row exit 1 forever. `uninstall` catches per harness, so one editor's I/O failure
+made such a row exit 1 forever. The same rule is why a row whose source has
+left the machine is `unavailable` rather than `failed`, and why the row itself
+stays on the record: the copy in the editor is still there, so forgetting it
+would strand exactly what `uninstall` is for. `uninstall` catches per harness, so one editor's I/O failure
 neither hides the others nor loses the removals already done; it records
 `'failed'`, finishes the run, prints the summary, and only then throws — which
 is also why the write is _not_ in a `finally` (that would let a write failure on

@@ -472,8 +472,39 @@ test('uninstall telemetry reports the repository kind without a registry read', 
   assert.equal(removed[0]?.properties.marketplace, 'custom');
 });
 
-test('update reports a repository row rather than failing on it forever', async () => {
+test('update re-fetches a repository row at the ref its own row recorded', async () => {
   const m = machine();
+  const { wiring, fetched } = githubWiring({ repo: 'acme/mono', ref: 'v2', path: 'tools/foo' });
+
+  await quietly(() =>
+    installPlugin({
+      brand: brand(),
+      plugin: 'acme/mono/tools/foo@v2',
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring,
+    }),
+  );
+
+  const report = await quietly(() => updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring }));
+
+  assert.deepEqual(
+    report.rows.map((r) => r.outcome),
+    ['updated'],
+  );
+  assert.deepEqual(report.failed, []);
+  // Rebuilt from the row's own key rather than from the run's flags: same
+  // repository, same folder, same ref, without the user re-typing any of them.
+  assert.deepEqual(fetched, [
+    { repo: 'acme/mono', ref: 'v2', sourcePath: 'tools/foo' },
+    { repo: 'acme/mono', ref: 'v2', sourcePath: 'tools/foo' },
+  ]);
+});
+
+test('a repository row reports its kind and its id when it re-syncs', async () => {
+  const m = machine();
+  const events: Tracked[] = [];
   const { wiring } = githubWiring({ repo: 'acme/thing' });
 
   await quietly(() =>
@@ -486,21 +517,43 @@ test('update reports a repository row rather than failing on it forever', async 
       wiring,
     }),
   );
+  await quietly(() =>
+    updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring, sink: sinkInto(events) }),
+  );
 
-  const con = silenceConsole();
-  let report;
-  try {
-    report = await updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring });
-  } finally {
-    con.restore();
-  }
+  const installed = events.filter((e) => e.name === 'Context Plugin Installed');
+  assert.equal(installed.length, 1);
+  assert.equal(installed[0]?.properties.source_kind, 'github');
+  assert.equal(installed[0]?.properties.plugin, 'my-sdk');
+  assert.equal(installed[0]?.properties.marketplace, 'custom');
+});
 
-  // Skipped, not failed: `github:acme/thing` is not a marketplace slug, and a
-  // row that fails every update forever is the one thing this must not make.
+test('a repository that is no longer readable fails its row, rather than reading as gone', async () => {
+  // The asymmetry with a path row, and it is deliberate: a 404 and an outage
+  // are not distinguishable from here, so "your plugin's source is gone" is
+  // not something this may say about a repository on a bad network day.
+  const m = machine();
+  const { wiring } = githubWiring({ repo: 'acme/thing' });
+  await quietly(() =>
+    installPlugin({
+      brand: brand(),
+      plugin: 'acme/thing',
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring,
+    }),
+  );
+
+  const { wiring: gone } = githubWiring({ repo: 'acme/thing', manifest: null });
+  const report = await quietly(() =>
+    updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring: gone }),
+  );
+
   assert.deepEqual(
     report.rows.map((r) => r.outcome),
-    ['skipped'],
+    ['failed'],
   );
-  assert.deepEqual(report.failed, []);
-  assert.match(flat(con), /installed from a repository - re-run install to re-sync/);
+  assert.equal(report.failed.length, 1);
+  assert.match(report.failed[0]?.error ?? '', /does not look like a plugin/);
 });

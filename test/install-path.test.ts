@@ -430,9 +430,82 @@ test('one path plugin leaving does not unstage another', () => {
   });
 });
 
-test('update reports a path row rather than failing on it forever', () => {
+test('update re-syncs a path row from the folder it was installed from', () => {
   return quietly(async () => {
     const m = machine();
+    const dir = pluginDir();
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    // What a developer does between two updates.
+    fs.writeFileSync(path.join(dir, 'skills', 'thing', 'NEW.md'), '# added since');
+    fs.rmSync(path.join(dir, 'skills', 'thing', 'SKILL.md'));
+
+    const report = await updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring: wiring() });
+
+    assert.deepEqual(
+      report.rows.map((r) => r.outcome),
+      ['updated'],
+    );
+    assert.deepEqual(report.updated, ['my-sdk']);
+    const installed = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk');
+    assert.ok(fs.existsSync(path.join(installed, 'skills', 'thing', 'NEW.md')), 'the new file');
+    // Wholesale, like every other install: a shrinking plugin leaves no
+    // orphans behind, which is the reason `replaceDir` exists.
+    assert.ok(!fs.existsSync(path.join(installed, 'skills', 'thing', 'SKILL.md')));
+  });
+});
+
+test('a path row whose folder is gone is reported, and never fails the run', () => {
+  return quietly(async () => {
+    const m = machine();
+    const dir = pluginDir();
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    const con = silenceConsole();
+    let report;
+    try {
+      report = await updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring: wiring() });
+    } finally {
+      con.restore();
+    }
+
+    // The whole reason this arm exists: moving a plugin folder is an ordinary
+    // day, and a row that fails every `update` for ever is what the other
+    // three outcomes would have made of it.
+    assert.deepEqual(report.rows, [
+      {
+        outcome: 'unavailable',
+        plugin: 'my-sdk',
+        reason: 'the folder it was installed from is gone',
+      },
+    ]);
+    assert.deepEqual(report.failed, [], 'exit 0');
+    assert.match(flat(con), /the folder it was installed from is gone - install it again/);
+    // And the row stays: the copy in the editor is still there, so forgetting
+    // it would strand exactly what `uninstall` is for.
+    assert.equal(rowsOf(m).length, 1);
+  });
+});
+
+test('a path row reports the folders plugin name to nobody when it re-syncs', () => {
+  return quietly(async () => {
+    const m = machine();
+    const events: Tracked[] = [];
     await installPlugin({
       brand: brand(),
       plugin: pluginDir(),
@@ -442,11 +515,46 @@ test('update reports a path row rather than failing on it forever', () => {
       wiring: wiring(),
     });
 
-    const report = await updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring: wiring() });
-    // Skipped, not failed: a row that fails every `update` forever is the one
-    // thing that command must never produce. Re-running install re-syncs it.
-    assert.deepEqual(report.failed, []);
-    assert.deepEqual(report.rows, [{ outcome: 'skipped', plugin: 'my-sdk' }]);
+    await updateAll({
+      brand: brand(),
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+      sink: sinkInto(events),
+    });
+
+    const installed = events.filter((e) => e.name === 'Context Plugin Installed');
+    assert.equal(installed.length, 1);
+    assert.equal(installed[0]?.properties.source_kind, 'local');
+    assert.equal(installed[0]?.properties.plugin, null, 'the same rule as the install');
+    assert.equal(installed[0]?.properties.marketplace, 'custom');
+  });
+});
+
+test('a row whose folder is gone sends nothing at all', () => {
+  return quietly(async () => {
+    const m = machine();
+    const events: Tracked[] = [];
+    const dir = pluginDir();
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    await updateAll({
+      brand: brand(),
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+      sink: sinkInto(events),
+    });
+
+    // Nothing reached an install, and the reason names a directory - which is
+    // the one thing that may never leave the machine.
+    assert.deepEqual(events, []);
   });
 });
 

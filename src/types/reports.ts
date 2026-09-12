@@ -83,6 +83,12 @@ export interface UpdateResult {
  *   this is not a boolean. `report` is absent for a throw; `stage` survives it.
  * - `unreadable`: this build cannot read the row. A record problem, not an
  *   install that failed, so it fails the run and reports nothing.
+ * - `unavailable`: the source is not on this machine any more - a directory
+ *   that was moved or deleted. Reported with its reason and warned about, and
+ *   deliberately **not** a failure: a dev folder moving is an ordinary day, and
+ *   a row that fails every `update` for ever is the one thing this command must
+ *   never produce. `skipped` would lose the reason and `unreadable` would exit
+ *   1, which is the shape of bug this repo has already fixed twice.
  * - `skipped`: no editor for it on this machine. Nothing was asked of it.
  */
 export type UpdatedRow =
@@ -110,6 +116,7 @@ export type UpdatedRow =
       errorKind: ErrorKind;
     }
   | { outcome: 'unreadable'; plugin: string; error: string }
+  | { outcome: 'unavailable'; plugin: string; reason: string }
   | { outcome: 'skipped'; plugin: string };
 
 export interface UpdateReport extends UpdateResult {

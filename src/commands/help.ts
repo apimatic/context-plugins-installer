@@ -30,9 +30,10 @@ Install sources
                         github.com URL. An @ref after it wins over --ref.
 
   A plugin from a path or a repo is named by its own manifest rather than by
-  the folder or the repository. Claude Code installs it through a marketplace
-  this tool generates under ~/.context-plugins; ${bin} update reports such
-  a plugin rather than refreshing it - re-run install to re-sync.
+  the folder or the repository, and Claude Code installs it through a
+  marketplace this tool generates under ~/.context-plugins. ${bin} update
+  re-syncs it from wherever it came from; a folder that has moved away is
+  reported rather than failing the run.
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})

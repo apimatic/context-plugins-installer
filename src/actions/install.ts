@@ -22,8 +22,14 @@ import { ActionResult } from './action-result.js';
 
 export interface InstallRequest {
   brand: Brand;
-  /** What the user typed: a plugin id, or a path to a plugin directory. */
-  plugin: string;
+  /**
+   * What the user typed - a plugin id, a path, or a repository - or the source
+   * a recorded row restores to, for `update`. Already-parsed rather than
+   * re-spelled as a string and read back: a row's `repo` column is the one
+   * definition of where a plugin came from, and turning it into an argument
+   * for this to re-derive would be a second one.
+   */
+  plugin: string | PluginSource;
   ref?: string;
   /** Harness names, `all`, or nothing for "ask". */
   targets?: readonly string[] | null;
@@ -101,12 +107,17 @@ export class InstallAction {
     const ref = req.ref || brand.ref;
     const explicit = Array.isArray(req.targets) && req.targets.length > 0;
     // Parsed before the report exists rather than written into it after, so
-    // there is no arm on which the report holds the string the user typed.
-    const parsed = parseSource(req.plugin, {
-      repo: brand.repo,
-      ref,
-      ...paths.pathContext(this.pathOpts),
-    });
+    // there is no arm on which the report holds the string the user typed - and
+    // a caller that already holds a source hands it over rather than spelling
+    // it back out for this to re-read.
+    const parsed =
+      typeof req.plugin === 'string'
+        ? parseSource(req.plugin, {
+            repo: brand.repo,
+            ref,
+            ...paths.pathContext(this.pathOpts),
+          })
+        : ok(req.plugin);
     if (parsed.ok) {
       this.from = parsed.value;
       // A local source learns its id at the resolve stage below; a marketplace
