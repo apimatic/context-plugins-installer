@@ -146,3 +146,22 @@ test('a path serializes to its string, not to its innards', () => {
   assert.equal(JSON.stringify({ dir: new DirectoryPath('/a/b', POSIX) }), '{"dir":"/a/b"}');
   assert.deepEqual(JSON.parse(JSON.stringify([new DirectoryPath('/a', POSIX)])), ['/a']);
 });
+
+test('overlaps folds case on both platforms rules, where contains does not', () => {
+  // The guard on a destructive copy: `replaceDir` deletes its destination
+  // before reading its source, so two spellings of one directory that compare
+  // unequal cost the user their plugin. cmd.exe alone produces the mismatch,
+  // handing out a lower-case drive letter after `cd /d c:\...`.
+  for (const platform of ['win32', 'linux']) {
+    const rules = rulesFor(platform);
+    const sep = platform === 'win32' ? WIN.sep : POSIX.sep;
+    const root = platform === 'win32' ? WIN.join('C:', 'Users', 'Dev') : '/Users/Dev';
+    const dir = new DirectoryPath(root, rules);
+    const same = new DirectoryPath(root.toLowerCase(), rules);
+
+    assert.equal(dir.overlaps(same), true, `${platform}: one directory, two spellings`);
+    assert.equal(dir.overlaps(new DirectoryPath(`${root}${sep}inner`, rules)), true, 'holds it');
+    assert.equal(new DirectoryPath(`${root}${sep}inner`, rules).overlaps(dir), true, 'inside it');
+    assert.equal(dir.overlaps(new DirectoryPath(`${root}-elsewhere`, rules)), false, 'a sibling');
+  }
+});

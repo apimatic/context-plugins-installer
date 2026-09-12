@@ -162,7 +162,12 @@ test('a differently cased spelling of a destination is still a destination', () 
     JSON.stringify({ name: 'my-sdk' }),
   );
 
-  for (const spelling of [dest.toString(), dest.toString().toLowerCase()]) {
+  // A lower-cased spelling is the same directory only where the filesystem
+  // says so; on Linux it is simply a path that does not exist, and the case
+  // rule itself is asserted over both platforms' rules in paths.test.ts.
+  const folds = fs.existsSync(dest.toString().toLowerCase());
+  const spellings = folds ? [dest.toString(), dest.toString().toLowerCase()] : [dest.toString()];
+  for (const spelling of spellings) {
     const read = readLocalPlugin(new DirectoryPath(spelling), opts);
     assert.equal(read.ok, false, `expected ${spelling} to be refused`);
     if (!read.ok) assert.match(read.error.message, /is where installing 'my-sdk' would write/);
