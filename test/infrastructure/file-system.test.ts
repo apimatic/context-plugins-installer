@@ -49,11 +49,6 @@ test('a path value works wherever a string does', () => {
 });
 
 test('a repository that carried the plugin is not part of the plugin', () => {
-  // Two ways this arrives, and both are ordinary: a developer installs the
-  // plugin folder they are working in, and a repository that is itself a
-  // plugin is checked out whole - so the clone's own `.git` is the directory
-  // handed over. Copying it puts the full history and the origin URL inside
-  // the editor's plugin folder, and counts it as the plugin's own files.
   const src = tmpDir('cp-fs-src-');
   fs.mkdirSync(path.join(src, '.git', 'objects'), { recursive: true });
   fs.writeFileSync(path.join(src, '.git', 'config'), '[remote "origin"]');
@@ -68,4 +63,15 @@ test('a repository that carried the plugin is not part of the plugin', () => {
   assert.ok(!fs.existsSync(path.join(dest, '.git')), 'no repository in the installed copy');
   assert.ok(fs.existsSync(path.join(dest, 'skills', 'SKILL.md')));
   assert.equal(countFiles(src), 2, 'and it is not counted as the plugin either');
+});
+
+test('replaceDir refuses to copy a directory over itself', () => {
+  // Without the check this is silent: `rmrf` takes the source away and the copy
+  // reports success.
+  const dir = tmpDir('cp-self-');
+  fs.writeFileSync(path.join(dir, 'keep.md'), '# keep');
+
+  assert.throws(() => replaceDir(dir, dir), /over itself/);
+  assert.throws(() => replaceDir(dir, dir.toUpperCase()), /over itself/);
+  assert.ok(fs.existsSync(path.join(dir, 'keep.md')), 'and nothing was deleted');
 });

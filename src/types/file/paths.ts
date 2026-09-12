@@ -14,11 +14,7 @@ export interface PathRules {
   dirname(p: string): string;
   basename(p: string): string;
   normalize(p: string): string;
-  /**
-   * Absolute, against the directory given first. Always called with an explicit
-   * base rather than letting it read the host's own cwd - that is what keeps a
-   * foreign platform's rules deterministic from this one.
-   */
+  /** Always called with an explicit base first: a bare `resolve` reads the host's own cwd. */
   resolve(...parts: string[]): string;
   isAbsolute(p: string): boolean;
   readonly sep: string;
@@ -124,21 +120,24 @@ export class DirectoryPath {
   }
 
   /**
-   * Whether two paths name the same directory. Normalized on both sides like
-   * `contains`, so a trailing separator or an uncollapsed `..` is harmless -
-   * and case-insensitive under Windows rules, where a path's case does not
-   * distinguish one directory from another.
-   *
-   * POSIX rules compare exactly, which under-matches on macOS: its filesystem
-   * is usually case-insensitive too, and nothing in `PathRules` can tell darwin
-   * from linux. Under-matching is the safe direction for the caller that reads
-   * this - a marketplace it fails to recognise is re-added under a name that is
-   * then found to be its own.
+   * Case-folded under Windows rules only, so it under-matches on a
+   * case-insensitive macOS filesystem: nothing here can tell darwin from linux.
    */
   samePlace(other: PathArg): boolean {
     const windows = this.rules.sep !== '/';
     const fold = (value: string): string => (windows ? value.toLowerCase() : value);
     return fold(this.settled(pathString(other))) === fold(this.settled(this.dir));
+  }
+
+  /**
+   * Same directory or one inside the other, case folded whatever the platform:
+   * this guards a copy against eating its own source, so it errs at over-matching.
+   */
+  overlaps(other: DirectoryPath): boolean {
+    const sep = this.rules.sep;
+    const a = this.settled(this.dir).toLowerCase();
+    const b = this.settled(other.toString()).toLowerCase();
+    return a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
   }
 
   toString(): string {

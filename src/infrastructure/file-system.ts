@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { pathString, type PathArg } from '../types/file/paths.js';
+import { DirectoryPath, pathString, type PathArg } from '../types/file/paths.js';
 
 // Every one of these walks the filesystem of the machine it runs on, so it joins
 // with the host's rules: a path's own rules describe where it points, not where
@@ -71,18 +71,8 @@ export function isDirNonEmpty(dir: PathArg): boolean {
   }
 }
 
-/**
- * What a directory holds that is not part of the plugin in it. Both ways this
- * tool acquires a plugin's files put a repository in the middle of them: a
- * folder install is usually the folder a developer is working in, and a
- * repository that is itself a plugin is checked out whole, so the clone
- * directory *is* the source. Copying that into an editor's plugin folder ships
- * the full history and the origin URL with the plugin, and counting it reports
- * the clone's file count as the plugin's.
- *
- * Skipped by both readers below rather than by their callers, because this
- * module copies and counts exactly one kind of thing: a plugin's files.
- */
+// A plugin's source is often a working folder or a whole-repo checkout, so
+// `.git` sits among its files and would be copied and counted with them.
 const NOT_THE_PLUGIN = new Set(['.git']);
 
 // Hand-written so it never emits fs.cp's experimental warning.
@@ -112,8 +102,19 @@ export function copyDir(src: PathArg, dest: PathArg): void {
   }
 }
 
-/** Wholesale replace, so a shrinking plugin leaves no orphan files behind. */
+/**
+ * Wholesale replace, so a shrinking plugin leaves no orphan files behind.
+ *
+ * Throws rather than deleting when the two are one directory. `local-plugin.ts`
+ * refuses that install before it starts, but this is the line the files die on
+ * - and the failure is silent without this check, because `rmrf` takes the
+ * source away and `copyDir` then recreates it and reads an empty directory.
+ */
 export function replaceDir(src: PathArg, dest: PathArg): string {
+  const from = new DirectoryPath(pathString(src));
+  if (from.overlaps(new DirectoryPath(pathString(dest)))) {
+    throw new Error(`Refusing to copy ${pathString(src)} over itself at ${pathString(dest)}`);
+  }
   rmrf(dest);
   copyDir(src, dest);
   return pathString(dest);

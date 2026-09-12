@@ -43,9 +43,8 @@ export function createSession({
     },
 
     manifest({ repo, ref, path }) {
-      // The folder joins the key: two plugins out of one monorepo are two
-      // different manifests at the same repo and ref.
-      const key = `${keyOf(repo, ref)}/${path ?? ''}`;
+      // JSON rather than joined: a ref and a folder can both hold a slash.
+      const key = JSON.stringify([repo.toLowerCase(), ref, path]);
       let pending = manifests.get(key);
       if (!pending) {
         pending = registry.readPluginManifest({ repo, ref, path, notify });

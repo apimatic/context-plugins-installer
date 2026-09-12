@@ -54,7 +54,6 @@ export class UninstallAction {
     return this.id;
   }
 
-  /** The row's own source, for the command's catch to report on. */
   get source(): PluginSource | null {
     return this.from;
   }
@@ -65,13 +64,7 @@ export class UninstallAction {
     private readonly pathOpts?: HarnessOpts,
   ) {}
 
-  /**
-   * Where the marketplace lives and what Claude Code knows it by. The repo is
-   * always the run's; only the name has to be found, and a row's own recorded
-   * name is what keeps this offline. A lookup is needed only when there is
-   * none - and with a row to correct, a failed lookup must not block cleaning
-   * it up, so the origin comes back nameless and the harness asks the CLI.
-   */
+  /** A nameless origin is the answer when the lookup fails: the harness asks the CLI. */
   private async marketplaceFor(
     brand: Brand,
     plugin: string,
@@ -79,9 +72,6 @@ export class UninstallAction {
     want: readonly HarnessName[],
     kind: SourceKind,
   ): Promise<{ origin: MarketplaceOrigin } | { failure: Failure }> {
-    // A row installed from a directory or a repository that was itself a
-    // plugin is addressed through the marketplace this tool generated for it,
-    // and there is no registry anywhere to look up.
     if (kind !== 'marketplace') return { origin: localMarketplace(this.pathOpts) };
     const at = (name: string | null): { origin: MarketplaceOrigin } => ({
       origin: new RepoMarketplace(brand.repo, name),
@@ -123,24 +113,22 @@ export class UninstallAction {
     const plugin = id.value.toString();
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
-    // One read, and the raw row: uninstall must also clear rows the sanitized
-    // view hides, and their recorded marketplace is what keeps Claude offline.
+    // The raw row: uninstall must also clear rows the sanitized view hides.
     const { key, row: recorded } = records.locate(plugin, brand.repo);
-    // Rebuilt from the key so the command can ask it the same two questions an
-    // install asks: which kind to report, and whether the id may be reported at
-    // all. A plugin removed from a directory withholds the name that directory
-    // gave it, exactly as installing it did.
-    this.from = restoreSource(key.repo ?? brand.repo, {
+    const restored = restoreSource(key.repo ?? brand.repo, {
       plugin: id.value,
       ref: brand.ref,
       rules: paths.pathContext(this.pathOpts).rules,
     });
+    // Without a row, `restored` is a guess built from the run's own marketplace
+    // and must not be reported as where the plugin came from.
+    this.from = recorded ? restored : null;
 
     const targets = resolveTargets(req.targets);
     if (!targets.ok) return ActionResult.failed(nothing(), targets.error);
     const want = targets.value;
 
-    const found = await this.marketplaceFor(brand, plugin, recorded, want, this.from.kind);
+    const found = await this.marketplaceFor(brand, plugin, recorded, want, restored.kind);
     if ('failure' in found) return ActionResult.failed(nothing(), found.failure);
 
     this.prompts.intro(plugin, brand, want);

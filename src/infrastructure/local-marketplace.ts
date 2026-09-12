@@ -10,45 +10,29 @@ import { errorMessage, isPlainObject, nonEmptyString, stripBom } from '../types/
 import { copyDir, exists, rmrf, writeFileAtomic } from './file-system.js';
 import * as paths from './paths.js';
 
-// The marketplace this tool generates so that Claude Code can install a plugin
-// that came from a path: `claude plugin marketplace add` takes a directory
-// holding `.claude-plugin/marketplace.json`, so we write one.
-//
-// One shared marketplace rather than one per plugin, so a machine with five
-// path plugins still shows a single row in `claude plugin marketplace list`.
-// That makes its registry file shared state, and it follows the same rule the
-// installed-plugins record does: every row that is not the one being written
-// rides through verbatim, and so does every other field of the document - a
-// hand edit and a newer CLI both reach this file.
-//
-// The directory under `plugins/` is the authority on what is staged, not the
-// registry: the registry can be truncated by a kill mid-write or a hand edit,
-// and reading "no rows" from a file we could not parse must never be what
-// decides to delete five plugins.
+// `claude plugin install` only takes `<id>@<marketplace>`, so a plugin
+// installed from a path gets one generated here, shared by every path plugin.
+// `plugins/` is the authority on what is staged, never the registry file.
 
 const NEWLINE = String.fromCharCode(10);
 
-/** Where a staged plugin's files live, relative to the marketplace root. */
 const PLUGINS = 'plugins';
 
 const registryFile = (root: DirectoryPath): FilePath =>
   root.file('.claude-plugin', 'marketplace.json');
 
-/**
- * The origin a path install addresses, staged or not. Constructing it is free
- * and reads nothing, which is what lets the action hand it to every harness
- * while only actually staging files when Claude Code is one of them.
- */
 export const localMarketplace = (opts?: PathOpts): DirectoryMarketplace =>
   new DirectoryMarketplace(paths.localMarketplaceDir(opts), LOCAL_MARKETPLACE);
 
-/** The plugin folders actually present, which is what "staged" means. */
 function stagedPlugins(root: DirectoryPath): string[] {
   try {
-    return fs
-      .readdirSync(root.join(PLUGINS).toString(), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+    return (
+      fs
+        .readdirSync(root.join(PLUGINS).toString(), { withFileTypes: true })
+        // A `.<plugin>.staging` scratch left by a kill mid-copy is not a plugin.
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+        .map((e) => e.name)
+    );
   } catch {
     return [];
   }
@@ -58,7 +42,7 @@ interface Registry {
   /** Every other field of the document, so a rewrite carries them through. */
   doc: Record<string, unknown>;
   rows: unknown[];
-  /** False when the file is there but this build could not read it. */
+  /** False only when the file is there and could not be read; absent is true. */
   readable: boolean;
 }
 
@@ -67,7 +51,10 @@ function readRegistry(file: FilePath): Registry {
   try {
     const data: unknown = JSON.parse(stripBom(fs.readFileSync(file.toString(), 'utf8')));
     if (!isPlainObject(data)) return { doc: {}, rows: [], readable: false };
-    return { doc: data, rows: Array.isArray(data.plugins) ? data.plugins : [], readable: true };
+    // A `plugins` present and not an array is unreadable, not empty.
+    const rows: unknown = data.plugins;
+    if (rows !== undefined && !Array.isArray(rows)) return { doc: data, rows: [], readable: false };
+    return { doc: data, rows: Array.isArray(rows) ? rows : [], readable: true };
   } catch {
     return { doc: {}, rows: [], readable: false };
   }
@@ -89,13 +76,8 @@ function write(file: FilePath, registry: Registry, rows: unknown[]): void {
   );
 }
 
-/**
- * Replace one plugin's folder without a window in which it is half-written.
- * `replaceDir` removes its destination first, so a copy that fails partway
- * leaves the registry naming a directory that is now broken. This copies
- * beside it and swaps, which is the pattern `writeFileAtomic` already uses for
- * the registry itself.
- */
+// Copy beside and swap rather than `replaceDir`, which removes the destination
+// first and leaves a half-written folder if the copy fails partway.
 function stageFiles(root: DirectoryPath, plugin: string, srcDir: DirectoryPath): void {
   const dest = root.join(PLUGINS, plugin);
   const pending = root.join(PLUGINS, `.${plugin}.staging`);
@@ -111,21 +93,11 @@ function stageFiles(root: DirectoryPath, plugin: string, srcDir: DirectoryPath):
 
 export interface StageRequest {
   plugin: string;
-  /** Where the plugin's files are now - the user's own directory. */
   srcDir: DirectoryPath;
   description?: string;
 }
 
-/**
- * Put a plugin's files under the generated marketplace and name it in the
- * registry, so `claude plugin install <id>@<name>` can find it.
- *
- * A snapshot, not a link: what Claude installs is what was on disk when this
- * ran, and running the install again is what re-takes it. The `source` is a
- * relative path because that is what a marketplace entry may hold - it
- * resolves against the marketplace root, which is the directory Claude is
- * given.
- */
+/** A snapshot of `srcDir`, not a link: re-running the install re-takes it. */
 export function stageLocalPlugin(
   { plugin, srcDir, description }: StageRequest,
   opts?: PathOpts,
@@ -135,10 +107,8 @@ export function stageLocalPlugin(
   try {
     stageFiles(origin.dir, plugin, srcDir);
     const registry = readRegistry(file);
-    // A registry this build cannot read is rebuilt from the folders that are
-    // there, not replaced by this one entry: the alternative drops every other
-    // path plugin's row while its files sit right beside it, and the rows are
-    // reconstructible - only their descriptions are not.
+    // An unreadable registry is rebuilt from the folders present, so the other
+    // path plugins keep a row (their descriptions are lost).
     const rows = registry.readable
       ? registry.rows.filter((row) => nameOf(row) !== plugin)
       : stagedPlugins(origin.dir)
@@ -157,23 +127,11 @@ export function stageLocalPlugin(
 }
 
 export interface Unstaged {
-  /** How many plugins the generated marketplace still holds. */
   remaining: number;
-  /** Whether the marketplace directory itself is gone, so nothing should address it. */
+  /** The marketplace directory itself is gone, not just the plugin's folder. */
   removed: boolean;
 }
 
-/**
- * Take a plugin back out. When it was the last one the whole directory goes,
- * because an empty generated marketplace is a row in
- * `claude plugin marketplace list` that offers nothing - the caller is told so
- * it can drop the registration too.
- *
- * What "the last one" means is read off `plugins/`, never off the registry: a
- * file this build could not parse looks exactly like a marketplace holding
- * nothing, and deleting four other plugins because of a truncated write is not
- * a trade this is allowed to make.
- */
 export function unstageLocalPlugin(
   { plugin }: { plugin: string },
   opts?: PathOpts,
@@ -189,8 +147,8 @@ export function unstageLocalPlugin(
       rmrf(origin.dir);
       return ok({ remaining: 0, removed: true });
     }
-    // Left alone when it could not be read: rewriting it from nothing would
-    // tell Claude Code that the plugins still on disk beside it do not exist.
+    // Left alone when unreadable: rewriting it from nothing would hide the
+    // plugins still staged beside it.
     const registry = readRegistry(file);
     if (registry.readable) {
       write(

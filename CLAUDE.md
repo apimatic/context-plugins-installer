@@ -516,8 +516,10 @@ the loop rather than asking a harness. The Claude path also removes the plugin
 before installing it when the origin is a directory: `claude plugin list --json`
 shows a plugin cached at `plugins/cache/<marketplace>/<id>/<version>`, so an
 edited plugin whose manifest version did not move would re-install and
-copy nothing. That call reports nothing and its result is ignored - absence is
-the state it wants. To add an editor, use the
+copy nothing. That call reports nothing, and its exit code is kept rather than
+ignored: it is the one signal that tells a failed install whether the user's
+previous copy is already gone, which is the only thing the hint after it can
+say that no other line would. To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
 editor names and CI steps the compiler cannot flag.
 

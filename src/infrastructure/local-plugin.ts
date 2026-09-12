@@ -10,36 +10,23 @@ import { errorMessage, stripBom } from '../types/util.js';
 import { exists } from './file-system.js';
 import * as paths from './paths.js';
 
-// A directory the user pointed at, once this build has gone and looked. Every
-// way it can turn out not to be a plugin is a `Failure` naming the path: each
-// one is something the user can fix, and none of them is a throw.
-
 export interface LocalPlugin extends PluginManifest {
   dir: DirectoryPath;
 }
 
-/**
- * Everywhere installing this id would write. The guard below refuses a source
- * that overlaps any of them, because `replaceDir` removes its destination
- * before copying: a source that *is* a destination would be deleted before it
- * was read, and a source containing one would be copied into itself.
- */
 const destinations = (plugin: PluginId, opts?: PathOpts): DirectoryPath[] => [
   paths.cursorLocalDir(opts).join(plugin.toString()),
   paths.vscodeStoreDir(opts).join(plugin.toString()),
-  // The whole generated marketplace, not just this plugin's folder in it: its
-  // registry file is rewritten too, and a source holding that is as broken.
+  // The whole generated marketplace, not just this plugin's folder: its
+  // registry file is rewritten too.
   paths.localMarketplaceDir(opts),
 ];
 
-/**
- * Both directions. A destination inside the source is copied into itself; a
- * source inside a destination is removed with it. `contains` answers true for
- * equality as well, which is the case that loses the user's work outright.
- */
+// `replaceDir` removes its destination before copying, so a source overlapping
+// one would be deleted before it was read, or copied into itself.
 function overlap(dir: DirectoryPath, plugin: PluginId, opts?: PathOpts): DirectoryPath | null {
   for (const dest of destinations(plugin, opts)) {
-    if (dir.contains(dest) || dest.contains(dir)) return dest;
+    if (dir.overlaps(dest)) return dest;
   }
   return null;
 }
@@ -52,16 +39,6 @@ function readJsonFile(file: string): Result<unknown, Failure> {
   }
 }
 
-/**
- * The plugin a directory declares itself to be, or why it does not.
- *
- * The three manifest locations are tried in order and the first with a usable
- * name wins, so a plugin that put its manifest where another editor looks is
- * still readable. A file that exists but cannot be used is remembered rather
- * than skipped silently: "no plugin manifest here" is a useless answer when
- * `.claude-plugin/plugin.json` is sitting right there with a name this build
- * cannot accept.
- */
 export function readLocalPlugin(dir: DirectoryPath, opts?: PathOpts): Result<LocalPlugin, Failure> {
   const at = dir.toString();
   let stat: fs.Stats;

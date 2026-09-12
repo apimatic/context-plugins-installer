@@ -37,41 +37,22 @@ export class UpdateAction {
     private readonly pathOpts?: HarnessOpts,
   ) {}
 
-  /**
-   * The source a row restores to, or why it cannot be refreshed at all.
-   *
-   * `null` is a marketplace row: its key is a repository, the registry read is
-   * what resolves it, and nothing about that path changes. The other two carry
-   * where they came from in the key itself, so refreshing them is re-running
-   * the install they came from rather than a registry read.
-   *
-   * Two things answer with a reason instead: a directory that is gone, and a
-   * row this build cannot even address. A repository that cannot be *read* is
-   * not one of them - it fails like any other install, because a 404 and an
-   * outage are not distinguishable here and reporting "your plugin's source is
-   * gone" during a GitHub outage is worse than reporting the outage.
-   */
+  /** `null` is a marketplace row: the registry read is what resolves it. */
   private sourceFor(
     entry: ManifestEntry,
     brand: Brand,
   ): { source: PluginSource | null } | { reason: string } {
-    if (sourceKindOf(entry.repo) === 'marketplace') return { source: null };
-
+    // An install re-reads a string argument as a source, so a record holding a
+    // path where an id belongs would be installed from there.
     const id = PluginId.parse(entry.plugin);
-    // Only a hand edit reaches this - `recordInstall` writes a validated id -
-    // but the record is a file a user can open, and a row this build cannot
-    // even address is still not a reason to fail every `update` for ever.
     if (!id.ok) return { reason: 'the name on its record is not one this build can read' };
+    if (sourceKindOf(entry.repo) === 'marketplace') return { source: null };
 
     const source = restoreSource(entry.repo, {
       plugin: id.value,
       ref: entry.ref || brand.ref,
       rules: paths.pathContext(this.pathOpts).rules,
     });
-    // Moving a plugin folder is an ordinary day for whoever is writing one, so
-    // it is the case this arm exists for. A folder that is still there but is
-    // no longer a plugin is a failure like any other: something went wrong
-    // with a source that is present, and the install says what.
     if (source.kind === 'local' && !exists(source.dir)) {
       return { reason: 'the folder it was installed from is gone' };
     }
@@ -113,9 +94,6 @@ export class UpdateAction {
     // registry once and clone it once.
     const { session } = this;
     for (const entry of entries) {
-      // Where the row came from, which decides almost everything below: a
-      // marketplace row is refreshed against its own registry, and the other
-      // two carry everything they need in the key itself.
       const from = this.sourceFor(entry, brand);
       if ('reason' in from) {
         rows.push({ outcome: 'unavailable', plugin: entry.plugin, reason: from.reason });
@@ -123,8 +101,6 @@ export class UpdateAction {
         continue;
       }
       const { source } = from;
-      // A prefixed key is not a repository, so only a marketplace row moves the
-      // brand onto its own. The other kinds never reach the code that reads it.
       const entryBrand: Brand =
         source === null
           ? Object.freeze({
@@ -134,10 +110,6 @@ export class UpdateAction {
               id: entry.marketplace || brand.id,
             })
           : brand;
-      // `forSource` rather than `of`, for the reason it exists: a row that came
-      // from a path or a repository must not be labelled with the built-in
-      // marketplace, and one command answering that for itself is how the
-      // question comes to have two answers.
       const marketplace = MarketplaceLabel.forSource(source, entryBrand);
 
       const reachable = harnesses.detected(entry.targets, this.pathOpts);
@@ -152,9 +124,6 @@ export class UpdateAction {
         const result = await this.prompts.collapsed(() =>
           install.execute({
             brand: entryBrand,
-            // The row's own source, not its id re-read against the run's
-            // marketplace - which for a path row would install a different
-            // plugin that happens to share a name.
             plugin: source ?? entry.plugin,
             ref: entry.ref,
             targets: reachable,
@@ -170,8 +139,6 @@ export class UpdateAction {
           rows.push({
             outcome: 'failed',
             plugin: entry.plugin,
-            // The reportable id, not the one the run knew: a row that came from
-            // a directory keeps its plugin's name on this machine.
             id: result.report.source?.reportableId() ?? null,
             sourceKind: result.report.source?.kind ?? null,
             marketplace,
@@ -190,12 +157,6 @@ export class UpdateAction {
           report: result.report,
         });
         this.prompts.updated(entry.plugin, result.report.targets);
-        // A plugin named by its own manifest can rename itself between two
-        // updates, and the record is keyed by name as well as by source - so
-        // the new name installs beside the old one rather than replacing it,
-        // and the old copy stays loaded by the editor. Said rather than
-        // silently left, because nothing here can remove the old copy without
-        // deciding that two rows sharing a source are the same install.
         const renamed = result.report.plugin?.toString();
         if (source !== null && renamed && renamed !== entry.plugin) {
           this.prompts.renamed(entry.plugin, renamed);
