@@ -3,7 +3,7 @@ import assert from 'node:assert';
 
 import { announceHarness } from '../../src/prompts/harness/index.js';
 import { log } from '../../src/prompts/terminal.js';
-import { DirectoryPath, FilePath } from '../../src/types/file/paths.js';
+import { DirectoryPath, FilePath, rulesFor } from '../../src/types/file/paths.js';
 import { NAMES, type HarnessEvent } from '../../src/types/harness.js';
 
 // Every line a harness can say, once each. The harnesses assert which event
@@ -17,13 +17,7 @@ import { NAMES, type HarnessEvent } from '../../src/types/harness.js';
 
 const HOME = '/home/dev';
 /** POSIX rules, so the expected strings read the same from either host. */
-const POSIX = {
-  join: (...parts: string[]) => parts.join('/'),
-  dirname: (p: string) => p.slice(0, p.lastIndexOf('/')),
-  basename: (p: string) => p.slice(p.lastIndexOf('/') + 1),
-  normalize: (p: string) => p,
-  sep: '/',
-};
+const POSIX = rulesFor('linux');
 const CURSOR_ROOT = new DirectoryPath('/home/dev/.cursor', POSIX);
 const CODE_USER = new DirectoryPath('/home/dev/.config/Code/User', POSIX);
 const DEST = new DirectoryPath('/home/dev/.cursor/plugins/local/my-sdk', POSIX);
@@ -175,6 +169,14 @@ const CASES: [HarnessEvent, Line[]][] = [
   [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'install' },
     [['warn', 'No marketplace name to install from - skipping Claude Code.']],
+  ],
+  [
+    { harness: 'claude', kind: 'marketplace-removed', known: 'context-plugins-local' },
+    [['info', "Removed the generated marketplace 'context-plugins-local' - it holds nothing now."]],
+  ],
+  [
+    { harness: 'claude', kind: 'staging-left', detail: 'Could not remove x from /tmp/m.' },
+    [['warn', 'Could not remove x from /tmp/m. You can remove that directory by hand.']],
   ],
   [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' },

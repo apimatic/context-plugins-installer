@@ -51,6 +51,12 @@ export function announceClaude(event: ClaudeEvent): void {
     case 'plugin-uninstalled':
       log.ok(`Uninstalled ${event.target}`);
       return;
+    case 'marketplace-removed':
+      log.info(`Removed the generated marketplace '${event.known}' - it holds nothing now.`);
+      return;
+    case 'staging-left':
+      log.warn(`${event.detail} You can remove that directory by hand.`);
+      return;
     case 'plugin-uninstall-failed':
       log.warn(
         `claude plugin uninstall ${event.target} returned ${event.code}. ${event.detail}`.trim(),

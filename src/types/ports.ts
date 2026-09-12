@@ -4,6 +4,7 @@ import type { FilePath } from './file/paths.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { EntryKey, RawManifest } from './installed-record.js';
+import type { PluginManifest } from './plugin-manifest.js';
 import type { DomainEvent } from './events/domain-event.js';
 import type { TelemetryLine, TelemetryStatus } from './telemetry.js';
 import type { MarketplaceListener, RepoHandle } from './session.js';
@@ -132,6 +133,13 @@ export interface RegistryClient {
     ref: string;
     notify?: MarketplaceListener;
   }): Promise<Result<Catalog | null, Failure>>;
+  readPluginManifest(req: {
+    repo: string;
+    ref: string;
+    /** A folder inside the repository, or null for the repository itself. */
+    path: string | null;
+    notify?: MarketplaceListener;
+  }): Promise<Result<PluginManifest, Failure>>;
 }
 
 export interface SourceFetcher {

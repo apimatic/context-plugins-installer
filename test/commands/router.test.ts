@@ -76,7 +76,7 @@ test('help text uses the configured bin name', () => {
     label: 'Acme AI Plugins Marketplace',
     ref: 'main',
   });
-  assert.ok(text.includes('acme-plugins install <plugin>'));
+  assert.ok(text.includes('acme-plugins install <plugin|path|repo>'));
   assert.ok(text.includes('Acme AI Plugins'));
   assert.ok(!text.toLowerCase().includes('apimatic'));
 });
@@ -401,7 +401,7 @@ test('the router forwards install --force, which is what overrides a marketplace
   assert.equal(first.code, 1);
   // The sentence goes to stderr and the hint to stdout, so a `--json` payload
   // stays parseable; this is about the flag, so read both.
-  assert.match(first.err, /already installed from a different marketplace/);
+  assert.match(first.err, /already installed from a different source/);
   assert.match(first.text, /re-run with --force/);
 
   // And with the flag, it replaces it - so `--force` reached the action.

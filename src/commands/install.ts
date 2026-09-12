@@ -5,7 +5,7 @@ import { MarketplaceLabel } from '../types/brand.js';
 import type { EventSink } from '../types/events/domain-event.js';
 import { PluginInstallFailedEvent } from '../types/events/plugin-install-failed.js';
 import { PluginInstalledEvent } from '../types/events/plugin-installed.js';
-import type { PluginId } from '../types/ids/plugin-id.js';
+import type { PluginSource, SourceKind } from '../types/plugin-source.js';
 import type { InstallReport, InstallStage } from '../types/reports.js';
 import type { Session } from '../types/session.js';
 import type { ErrorKind } from '../types/telemetry.js';
@@ -20,36 +20,55 @@ export class InstallCommand {
 
   async run(req: InstallRequest, session: Session): Promise<ActionResult<InstallReport>> {
     const prompts = new InstallPrompts(req.pathOpts?.home, req.ask);
-    const marketplace = MarketplaceLabel.of(req.brand);
     const action = new InstallAction(prompts, session, req.pathOpts);
     try {
       const result = await action.execute(req);
-      const { plugin, targets, targetsExplicit, durationMs } = result.report;
-      // An editor can only be on the list once the id validated, so this reads
-      // as a guard and is really the type saying that out loud.
-      if (plugin) {
+      const { source, targets, targetsExplicit, durationMs } = result.report;
+      const marketplace = MarketplaceLabel.forSource(source, req.brand);
+      if (source) {
         for (const harness of targets) {
           this.sink(
-            new PluginInstalledEvent(plugin, harness, marketplace, targetsExplicit, durationMs),
+            new PluginInstalledEvent(
+              source.reportableId(),
+              harness,
+              marketplace,
+              source.kind,
+              targetsExplicit,
+              durationMs,
+            ),
           );
         }
       }
-      if (result.isFailed()) this.failed(plugin, marketplace, result.report.stage, 'user');
+      if (result.isFailed()) this.failed(source, marketplace, result.report.stage, 'user');
       return result;
     } catch (err) {
       // A throw from here is a bug, not a problem the user can fix. Both facts
       // it reports come off the action, because there is no report to read.
-      this.failed(action.plugin, marketplace, action.stage, 'unexpected');
+      this.failed(
+        action.source,
+        MarketplaceLabel.forSource(action.source, req.brand),
+        action.stage,
+        'unexpected',
+      );
       throw err;
     }
   }
 
   private failed(
-    plugin: PluginId | null,
+    source: PluginSource | null,
     marketplace: MarketplaceLabel,
     stage: InstallStage | null,
     kind: ErrorKind,
   ): void {
-    this.sink(new PluginInstallFailedEvent(plugin, marketplace, stage, kind));
+    const sourceKind: SourceKind | null = source?.kind ?? null;
+    this.sink(
+      new PluginInstallFailedEvent(
+        source?.reportableId() ?? null,
+        marketplace,
+        sourceKind,
+        stage,
+        kind,
+      ),
+    );
   }
 }

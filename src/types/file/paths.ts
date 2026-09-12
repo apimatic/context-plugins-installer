@@ -14,6 +14,9 @@ export interface PathRules {
   dirname(p: string): string;
   basename(p: string): string;
   normalize(p: string): string;
+  /** Always called with an explicit base first: a bare `resolve` reads the host's own cwd. */
+  resolve(...parts: string[]): string;
+  isAbsolute(p: string): boolean;
   readonly sep: string;
 }
 
@@ -28,6 +31,8 @@ const extract = (rules: typeof nodePath): PathRules => ({
   dirname: rules.dirname.bind(rules),
   basename: rules.basename.bind(rules),
   normalize: rules.normalize.bind(rules),
+  resolve: rules.resolve.bind(rules),
+  isAbsolute: rules.isAbsolute.bind(rules),
   sep: rules.sep,
 });
 
@@ -112,6 +117,27 @@ export class DirectoryPath {
     const inner = this.settled(pathString(target));
     const outer = this.settled(this.dir);
     return inner === outer || inner.startsWith(outer + this.rules.sep);
+  }
+
+  /**
+   * Case-folded under Windows rules only, so it under-matches on a
+   * case-insensitive macOS filesystem: nothing here can tell darwin from linux.
+   */
+  samePlace(other: PathArg): boolean {
+    const windows = this.rules.sep !== '/';
+    const fold = (value: string): string => (windows ? value.toLowerCase() : value);
+    return fold(this.settled(pathString(other))) === fold(this.settled(this.dir));
+  }
+
+  /**
+   * Same directory or one inside the other, case folded whatever the platform:
+   * this guards a copy against eating its own source, so it errs at over-matching.
+   */
+  overlaps(other: DirectoryPath): boolean {
+    const sep = this.rules.sep;
+    const a = this.settled(this.dir).toLowerCase();
+    const b = this.settled(other.toString()).toLowerCase();
+    return a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
   }
 
   toString(): string {

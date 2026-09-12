@@ -2,6 +2,7 @@ import type { PathOpts } from './env.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { DirectoryPath, FilePath } from './file/paths.js';
+import type { MarketplaceOrigin } from './marketplace-origin.js';
 import type { ProcessRunner } from './ports.js';
 import type { Session } from './session.js';
 
@@ -133,6 +134,8 @@ export type ClaudeEvent = { harness: 'claude' } & (
   | { kind: 'plugin-installed'; target: string; scope: string }
   | { kind: 'plugin-absent'; plugin: string; scope: string }
   | { kind: 'plugin-uninstalled'; target: string }
+  | { kind: 'marketplace-removed'; known: string }
+  | { kind: 'staging-left'; detail: string }
   | { kind: 'plugin-uninstall-failed'; target: string; code: number; detail: string }
   | { kind: 'reload'; after: HarnessVerb }
 );
@@ -154,8 +157,7 @@ export type HarnessListener = (event: HarnessEvent) => void;
 
 export interface HarnessContext {
   plugin: string;
-  marketplace: string | null;
-  repo: string;
+  origin: MarketplaceOrigin;
   /** Where the plugin's files are, for a harness whose install is a copy. */
   srcDir?: DirectoryPath | null;
   session?: Session;

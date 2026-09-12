@@ -1,4 +1,5 @@
 import { claudeCli, findClaude, type ClaudeCli } from '../infrastructure/claude-cli.js';
+import { unstageLocalPlugin } from '../infrastructure/local-marketplace.js';
 import { processRunner } from '../infrastructure/process-runner.js';
 import { BIN } from '../types/brand.js';
 import { Failure } from '../types/failure.js';
@@ -14,7 +15,9 @@ import {
   type MarketplaceListing,
   type UninstallOutcome,
 } from '../types/harness.js';
+import type { DirectoryPath } from '../types/file/paths.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
+import type { MarketplaceOrigin, NamedMarketplace } from '../types/marketplace-origin.js';
 import type { ProcessRunner, RunResult } from '../types/ports.js';
 import { err, ok, type Result } from '../types/result.js';
 import type { Session } from '../types/session.js';
@@ -67,16 +70,21 @@ function repoOf(entry: MarketplaceListing): RepoSlug | null {
   return null;
 }
 
-const isSameRepo = (entry: MarketplaceListing, repo: RepoSlug): boolean => {
+// A directory marketplace lists as `{ source: 'directory', path, installLocation }`
+// - measured against claude 2.1.266.
+const isSameDirectory = (entry: MarketplaceListing, dir: DirectoryPath): boolean =>
+  [entry.path, entry.installLocation].some((at) => nonEmptyString(at) && dir.samePlace(at));
+
+const isSameOrigin = (entry: MarketplaceListing, origin: MarketplaceOrigin): boolean => {
+  if (origin.kind === 'directory') return isSameDirectory(entry, origin.dir);
+  const repo = new RepoSlug(origin.repo);
   const from = repoOf(entry);
   if (from) return from.matches(repo);
   return JSON.stringify(entry).toLowerCase().includes(repo.toSearchKey());
 };
 
-export interface MarketplaceIds {
-  marketplace: string;
-  repo: string;
-}
+const addressOf = (origin: MarketplaceOrigin): string =>
+  origin.kind === 'repo' ? origin.repo : origin.dir.toString();
 
 export interface Registration {
   known: string;
@@ -140,9 +148,9 @@ export class ClaudeHarness implements Harness {
   // Claude keys a marketplace by the name it had when added, which drifts from
   // the current `name` in marketplace.json; installing under the file's name
   // then fails with a bare "plugin not found in marketplace".
-  private async registeredName(cli: ClaudeCli, repo: string): Promise<string | null> {
+  private async registeredName(cli: ClaudeCli, origin: MarketplaceOrigin): Promise<string | null> {
     const entries = await cli.listMarketplaces();
-    const hit = entries?.find((e) => isSameRepo(e, new RepoSlug(repo)));
+    const hit = entries?.find((e) => isSameOrigin(e, origin));
     return hit && nonEmptyString(hit.name) ? hit.name : null;
   }
 
@@ -150,11 +158,12 @@ export class ClaudeHarness implements Harness {
   // entry is refreshed rather than assumed current.
   private async ensureMarketplace(
     cli: ClaudeCli,
-    { marketplace, repo }: MarketplaceIds,
+    origin: NamedMarketplace,
     say: Say,
   ): Promise<Result<Registration, Failure>> {
+    const { name: marketplace } = origin;
     const entries = await cli.listMarketplaces();
-    const existing = entries?.find((e) => isSameRepo(e, new RepoSlug(repo)));
+    const existing = entries?.find((e) => isSameOrigin(e, origin));
 
     if (existing) {
       const known = nonEmptyString(existing.name) ? existing.name : marketplace;
@@ -174,7 +183,7 @@ export class ClaudeHarness implements Harness {
       if (from) {
         return err(
           new Failure(
-            `Claude Code already has a marketplace named '${marketplace}', from ${from} rather than ${repo}.`,
+            `Claude Code already has a marketplace named '${marketplace}', from ${from} rather than ${origin}.`,
             `Remove it with \`claude plugin marketplace remove ${marketplace}\`, then run this again.`,
           ),
         );
@@ -184,10 +193,10 @@ export class ClaudeHarness implements Harness {
       return ok({ known: marketplace, updated: true });
     }
 
-    const added = await cli.marketplaceAdd(repo);
+    const added = await cli.marketplaceAdd(addressOf(origin));
     if (added.code === 0) {
       say({ harness: 'claude', kind: 'marketplace-added', marketplace });
-      return ok({ known: (await this.registeredName(cli, repo)) || marketplace, updated: false });
+      return ok({ known: (await this.registeredName(cli, origin)) || marketplace, updated: false });
     }
 
     // `add` failing with nothing listed usually means an older CLI that cannot
@@ -214,48 +223,45 @@ export class ClaudeHarness implements Harness {
    */
   ensureMarketplaceOnce(
     cli: ClaudeCli,
-    ids: MarketplaceIds,
+    origin: NamedMarketplace,
     session: Session | null | undefined,
     listener: HarnessListener,
   ): Promise<Result<Registration, Failure>> {
     if (!session?.marketplaces) {
-      return this.ensureMarketplace(cli, ids, listener);
+      return this.ensureMarketplace(cli, origin, listener);
     }
-    // Case-folded on the repo, like the session's own keys: `isSameRepo` already
-    // reads two spellings as one marketplace, so registering it twice would be a
-    // second `marketplace add` for something already added.
-    const key = `${ids.repo.toLowerCase()}::${ids.marketplace}`;
+    const key = origin.key();
     let pending = session.marketplaces.get(key);
     if (!pending) {
-      pending = this.ensureMarketplace(cli, ids, listener);
+      pending = this.ensureMarketplace(cli, origin, listener);
       session.marketplaces.set(key, pending);
     }
     return pending;
   }
 
   async install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>> {
-    const { plugin, marketplace, repo, session } = ctx;
+    const { plugin, origin, session } = ctx;
     const say: Say = ctx.listener;
     const claude = this.binary(opts);
     if (!claude) {
       say({ harness: 'claude', kind: 'cli-missing' });
       return ok('skipped');
     }
-    if (!marketplace) {
+    if (!origin.hasName()) {
       say({ harness: 'claude', kind: 'no-marketplace-name', after: 'install' });
       return ok('skipped');
     }
     const cli = this.cliFor(claude, opts);
 
-    const registered = await this.ensureMarketplaceOnce(
-      cli,
-      { marketplace, repo },
-      session,
-      ctx.listener,
-    );
+    const registered = await this.ensureMarketplaceOnce(cli, origin, session, ctx.listener);
     if (!registered.ok) return registered;
     const { known, updated } = registered.value;
     const target = `${plugin}@${known}`;
+
+    // A plugin is cached under `<marketplace>/<id>/<version>`, so re-installing
+    // one whose manifest version did not move copies nothing.
+    const replaced =
+      origin.kind === 'directory' && (await cli.pluginUninstall(target, SCOPE)).code === 0;
 
     let res = await cli.pluginInstall(target, SCOPE);
     if (res.code !== 0 && !updated && LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)) {
@@ -266,9 +272,11 @@ export class ClaudeHarness implements Harness {
       return err(
         new Failure(
           `claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim(),
-          LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
-            ? `'${plugin}' is not in marketplace '${known}'. Run \`npx ${BIN} list\` to see what it offers.`
-            : undefined,
+          replaced
+            ? `The previous copy of '${plugin}' was removed first, so Claude Code has none now. Run the same install again once the cause is fixed.`
+            : LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
+              ? `'${plugin}' is not in marketplace '${known}'. Run \`npx ${BIN} list\` to see what it offers.`
+              : undefined,
         ),
       );
     }
@@ -292,8 +300,27 @@ export class ClaudeHarness implements Harness {
     return !rows.some((r) => r.plugin === plugin && ours(r.scope));
   }
 
+  private async unstage(
+    cli: ClaudeCli,
+    origin: MarketplaceOrigin,
+    plugin: string,
+    known: string,
+    say: Say,
+    opts?: HarnessOpts,
+  ): Promise<void> {
+    if (origin.kind !== 'directory') return;
+    const unstaged = unstageLocalPlugin({ plugin }, opts);
+    if (!unstaged.ok) {
+      say({ harness: 'claude', kind: 'staging-left', detail: unstaged.error.message });
+      return;
+    }
+    if (!unstaged.value.removed) return;
+    const dropped = await cli.marketplaceRemove(known);
+    if (dropped.code === 0) say({ harness: 'claude', kind: 'marketplace-removed', known });
+  }
+
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {
-    const { plugin, marketplace, repo } = ctx;
+    const { plugin, origin } = ctx;
     const say: Say = ctx.listener;
     const claude = this.binary(opts);
     // A skip, not a failure: Claude Code is not here to fail, and the record
@@ -303,7 +330,7 @@ export class ClaudeHarness implements Harness {
       return 'skipped';
     }
     const cli = this.cliFor(claude, opts);
-    const known = (await this.registeredName(cli, repo)) || marketplace;
+    const known = (await this.registeredName(cli, origin)) || origin.name;
     if (!known) {
       say({ harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' });
       return 'skipped';
@@ -314,6 +341,7 @@ export class ClaudeHarness implements Harness {
       // True whether it was never installed or a command removed it and then failed.
       if (await this.isAbsent(cli, plugin, res)) {
         say({ harness: 'claude', kind: 'plugin-absent', plugin, scope: SCOPE });
+        await this.unstage(cli, origin, plugin, known, say, opts);
         return 'absent';
       }
       say({
@@ -326,6 +354,7 @@ export class ClaudeHarness implements Harness {
       return 'failed';
     }
     say({ harness: 'claude', kind: 'plugin-uninstalled', target });
+    await this.unstage(cli, origin, plugin, known, say, opts);
     say({ harness: 'claude', kind: 'reload', after: 'uninstall' });
     return 'removed';
   }

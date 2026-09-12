@@ -236,6 +236,25 @@ export function withClaude(m: Machine) {
   };
 }
 
+/** Unlike `withClaude`, this fake answers every call, not just a listing. */
+export type ClaudeMachine = ReturnType<typeof withClaude> & { calls: string[] };
+
+export function claudeMachine(): ClaudeMachine {
+  const m = withClaude(machine());
+  const calls: string[] = [];
+  const runner = {
+    which: m.pathOpts.runner?.which ?? ((): string | null => null),
+    run: async (_file: string, args: string[]) => {
+      const line = args.join(' ');
+      calls.push(line);
+      if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
+      if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+  };
+  return { ...m, pathOpts: { ...m.pathOpts, runner }, calls };
+}
+
 /** Console output as one line, with `log`'s column wrapping collapsed. */
 export const flat = (con: { lines: string[] }): string => con.lines.join(' ').replace(/\s+/g, ' ');
 

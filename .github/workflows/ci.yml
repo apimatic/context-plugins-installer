@@ -94,3 +94,45 @@ jobs:
           test -f "$CP_VSCODE_USER_DIR/settings.json"
           node bin/cli.js installed
           node bin/cli.js uninstall paypal --targets cursor,vscode
+      # The other two sources this CLI takes, against the real thing. Every
+      # other job runs the TypeScript through tsx with a stubbed fetch, so this
+      # is the only place a path or a repository install meets the compiled
+      # `lib/`, a real clone, and a tree with no devDependencies in it.
+      - name: install from a folder on this machine
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state"
+          export CP_CURSOR_DIR="$RUNNER_TEMP/.cursor"
+          export CP_VSCODE_USER_DIR="$RUNNER_TEMP/code-user"
+          mkdir -p "$CP_CURSOR_DIR" "$CP_VSCODE_USER_DIR"
+          # A space in the name, because the path reaches argv and every join
+          # below it - and a git repository around it, because a plugin folder
+          # almost always is one and its history is not part of the plugin.
+          src="$RUNNER_TEMP/my plugin"
+          mkdir -p "$src/.claude-plugin" "$src/skills"
+          echo '{"name":"smoke-plugin","description":"a folder on this machine"}' \
+            > "$src/.claude-plugin/plugin.json"
+          echo '# skill' > "$src/skills/SKILL.md"
+          git -C "$src" init -q
+          node bin/cli.js install "$src" --targets cursor,vscode -y
+          test -f "$CP_CURSOR_DIR/plugins/local/smoke-plugin/skills/SKILL.md"
+          test ! -d "$CP_CURSOR_DIR/plugins/local/smoke-plugin/.git"
+          # The record keys on the folder, and `update` re-reads it.
+          echo '# edited' > "$src/skills/SKILL.md"
+          node bin/cli.js update
+          grep -q edited "$CP_CURSOR_DIR/plugins/local/smoke-plugin/skills/SKILL.md"
+          node bin/cli.js uninstall smoke-plugin --targets cursor,vscode
+          # The one thing an uninstall may never do to a source it was given.
+          test -f "$src/.claude-plugin/plugin.json"
+      - name: install from a folder inside a real repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state"
+          export CP_CURSOR_DIR="$RUNNER_TEMP/.cursor"
+          export CP_VSCODE_USER_DIR="$RUNNER_TEMP/code-user"
+          mkdir -p "$CP_CURSOR_DIR" "$CP_VSCODE_USER_DIR"
+          node bin/cli.js install context-plugins/plugin-marketplace/plugins/slack \
+            --targets cursor -y
+          test -d "$CP_CURSOR_DIR/plugins/local/slack"
+          node bin/cli.js installed
+          node bin/cli.js uninstall slack --targets cursor

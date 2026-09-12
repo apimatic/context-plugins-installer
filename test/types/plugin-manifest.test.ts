@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert';
+
+import type { Failure } from '../../src/types/failure.js';
+import { MANIFEST_FILES, readManifest } from '../../src/types/plugin-manifest.js';
+import type { Result } from '../../src/types/result.js';
+
+// Probing a real directory is test/infrastructure/local-plugin.test.ts.
+
+const FROM = '.claude-plugin/plugin.json';
+
+const failure = <T>(result: Result<T, Failure>): Failure => {
+  assert.ok(!result.ok, 'expected a failure');
+  return result.error;
+};
+
+test('the id and the description are read', () => {
+  const read = readManifest({ name: 'my-sdk', description: 'A plugin' }, FROM);
+  assert.ok(read.ok, read.ok ? '' : read.error.message);
+  assert.equal(read.value.id.toString(), 'my-sdk');
+  assert.equal(read.value.description, 'A plugin');
+});
+
+test('a description is optional, and absent means empty', () => {
+  const read = readManifest({ name: 'my-sdk' }, FROM);
+  assert.ok(read.ok);
+  assert.equal(read.value.description, '');
+});
+
+test('a description of the wrong type reads as absent rather than being carried through', () => {
+  const read = readManifest({ name: 'my-sdk', description: 42 }, FROM);
+  assert.ok(read.ok);
+  assert.equal(read.value.description, '');
+});
+
+test('an unusable name names the file and the value it found', () => {
+  const err = failure(readManifest({ name: 'My Plugin' }, FROM));
+  assert.match(err.message, /\.claude-plugin\/plugin\.json/);
+  assert.match(err.message, /"My Plugin"/);
+  assert.match(err.hint ?? '', /kebab-case/);
+});
+
+test('a missing name says so rather than quoting nothing', () => {
+  for (const data of [{}, { name: '' }, { name: 42 }, { description: 'only this' }]) {
+    assert.match(failure(readManifest(data, FROM)).message, /declares no plugin name/);
+  }
+});
+
+test('anything that is not an object is not a manifest', () => {
+  for (const data of [null, undefined, 'a string', 42, ['an', 'array']]) {
+    assert.match(failure(readManifest(data, FROM)).message, /not a JSON object/);
+  }
+});
+
+test('the probe order leads with the location Claude Code uses', () => {
+  assert.equal(MANIFEST_FILES[0], '.claude-plugin/plugin.json');
+  assert.deepEqual(
+    [...MANIFEST_FILES],
+    ['.claude-plugin/plugin.json', '.cursor-plugin/plugin.json', 'plugin.json'],
+  );
+});

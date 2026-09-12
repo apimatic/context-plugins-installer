@@ -16,6 +16,16 @@ npx context-plugins install paypal
 `npx context-plugins list` shows every plugin the marketplace offers. Assistants that aren't
 installed are skipped. Nothing is installed globally; `npx` runs the CLI from a cache.
 
+You can also install a plugin that is not in the marketplace at all — a folder on your own
+machine, or a GitHub repository that is itself a plugin:
+
+```bash
+npx context-plugins install ./my-plugin
+npx context-plugins install acme/my-plugin
+```
+
+See [Installing from a folder or a repository](#installing-from-a-folder-or-a-repository).
+
 ## Requirements
 
 - **Node.js 18 or newer** — the only requirement for the CLI itself.
@@ -28,6 +38,8 @@ installed are skipped. Nothing is installed globally; `npx` runs the CLI from a 
 
 ```bash
 context-plugins install <plugin> [options]     # install into the assistants you choose
+context-plugins install <path> [options]       # install a plugin from a folder on this machine
+context-plugins install <owner/repo> [options] # install a plugin from a GitHub repository
 context-plugins uninstall <plugin> [options]   # remove it again
 context-plugins update                         # refresh everything already installed
 context-plugins list                           # what the marketplace offers
@@ -92,6 +104,51 @@ The question is skipped when the answer is already known: with `--targets`, with
 `update` (which reuses your earlier choices), and in a non-interactive shell such as CI, where it
 falls back to every detected assistant rather than waiting on input.
 
+## Installing from a folder or a repository
+
+`install` also takes a plugin that no marketplace lists: a directory on this machine, or a GitHub
+repository — or a folder inside one — that is itself a plugin.
+
+```bash
+npx context-plugins install ./my-plugin          # relative to where you are
+npx context-plugins install ~/dev/my-plugin      # absolute, or under your home
+npx context-plugins install . --targets claude   # the folder you are in
+
+npx context-plugins install acme/my-plugin              # the repository is the plugin
+npx context-plugins install acme/monorepo/tools/foo     # a folder inside it
+npx context-plugins install acme/my-plugin@v1.2         # at a tag, branch or commit
+npx context-plugins install https://github.com/acme/monorepo/tree/v2/tools/foo
+```
+
+Which one you meant is read off the argument, so there is no extra flag: anything starting with
+`.`, `/`, `~` or a drive letter is a path, anything holding a `/` after that is a repository, and
+a plain name is a plugin in the marketplace as it has always been. An `@ref` on a repository wins
+over `--ref`.
+
+Either way the plugin needs a manifest — `.claude-plugin/plugin.json`, or the Cursor or root
+equivalent — and the `name` in it is what the plugin is called. The folder's or the repository's
+own name is not used, so renaming either does not rename the plugin.
+
+A few things worth knowing:
+
+- **You are asked first.** A plugin can run commands through its hooks and MCP servers, so a
+  source outside the marketplace is confirmed before any of its files are fetched or copied — a
+  repository's own manifest is read first, so the question can name the plugin. `-y` skips it.
+- **It is a snapshot.** The files are copied as they are now. `context-plugins update` re-takes
+  it — re-reading the folder, or re-fetching the repository at the ref the row recorded — so
+  editing a plugin and running `update` is the loop. A folder you have since moved or deleted is
+  reported and skipped rather than failing the run; install it again from its new home, or
+  uninstall it.
+- **Claude Code needs a marketplace**, so one is generated at `~/.context-plugins/marketplace/`
+  holding every plugin you installed this way. It appears once in
+  `claude plugin marketplace list`, as `context-plugins-local`, and goes away when the last such
+  plugin is uninstalled.
+- **Uninstall by name**, not by path or repository: `context-plugins uninstall my-plugin`. Your
+  source folder is never touched.
+- **A marketplace is still named by `--repo`.** `install acme/plugin-marketplace` reads that
+  repository as a plugin and tells you it is a marketplace; `install <plugin> --repo
+acme/plugin-marketplace` is how you install from one.
+
 ## What it does per assistant
 
 | Assistant       | Mechanism                                                                                                                   | Location                              |
@@ -118,6 +175,7 @@ rather than reporting a change it did not make.
   installed.json          what is installed, and from which marketplace
   telemetry.json          a random machine id and your telemetry choice
   vscode/<plugin>/        the copy VS Code points at
+  marketplace/            a generated marketplace, only if you installed from a folder
 ```
 
 ## Telemetry
@@ -196,20 +254,24 @@ The live plugin list and count are at [the Context Plugins directory](https://hu
 
 ## Troubleshooting
 
-| Symptom                                                                   | Cause / fix                                                                                                                                                 |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `'claude' CLI not on PATH - skipping`                                     | Claude Code isn't installed, or its CLI isn't on `PATH`. Other assistants still install.                                                                    |
-| `GitHub API request failed (403)`                                         | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`.                                                          |
-| `'<plugin>' is already installed from a different marketplace`            | Two marketplaces ship the same plugin id. Uninstall the first, or pass `--force`.                                                                           |
-| `Could not determine the marketplace name`                                | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`.                                                                       |
-| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run.                                         |
-| `'<plugin>' is not listed in <marketplace>`                               | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all.                                           |
-| A plugin fails during `update`                                            | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`.                                      |
-| `Nothing was installed in <assistant> - cleared that from the record`     | The record claimed an assistant that no longer had the plugin (removed by hand, or renamed upstream). The record is now correct.                            |
-| `Still recorded for <assistant>`                                          | Nothing on this machine could confirm either way - usually the assistant is not installed here. Re-run with `--force` to drop it from the record anyway.    |
-| `<settings.json> names <path> in a form this tool did not write`          | A `chat.pluginLocations` entry was hand-edited, so it cannot be spliced out safely. Delete that line yourself - the uninstall did everything else it could. |
-| Plugin doesn't appear after install                                       | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`.                                                                           |
-| `Could not edit <settings.json> - add this entry yourself`                | The file has no JSON object to splice into. Paste the printed line into `settings.json`; the plugin files are already in place.                             |
+| Symptom                                                                   | Cause / fix                                                                                                                                                             |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `'claude' CLI not on PATH - skipping`                                     | Claude Code isn't installed, or its CLI isn't on `PATH`. Other assistants still install.                                                                                |
+| `GitHub API request failed (403)`                                         | Unauthenticated API limit (60/hour) with no `git` available. Install `git`, or set `GITHUB_TOKEN`.                                                                      |
+| `Could not determine the marketplace name`                                | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`.                                                                                   |
+| `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run.                                                     |
+| `'<plugin>' is not listed in <marketplace>`                               | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all.                                                       |
+| A plugin fails during `update`                                            | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`.                                                  |
+| `Nothing was installed in <assistant> - cleared that from the record`     | The record claimed an assistant that no longer had the plugin (removed by hand, or renamed upstream). The record is now correct.                                        |
+| `Still recorded for <assistant>`                                          | Nothing on this machine could confirm either way - usually the assistant is not installed here. Re-run with `--force` to drop it from the record anyway.                |
+| `<owner/repo> has no plugin manifest, but <owner/repo> is a marketplace`  | You pointed at a marketplace and spelled it as a plugin. Use `--repo <owner/repo> install <plugin>`, or `list --repo <owner/repo>` to see what it offers.               |
+| `<source> does not look like a plugin`                                    | No `.claude-plugin/plugin.json` (or the Cursor or root equivalent) there. Check the folder or the `owner/repo/folder` you named, and that the ref you asked for has it. |
+| `'<folder>' is not a usable folder name`                                  | A folder inside a repository may hold letters, digits, dots, dashes and underscores. Anything else could change the meaning of the request this tool makes for it.      |
+| `<path> is where installing '<plugin>' would write`                       | The source folder is one of the places this install copies to. Move the plugin somewhere else — installing it there would delete it before reading it.                  |
+| `'<plugin>' is already installed from a different source`                 | The same plugin id from another marketplace, folder or repository; they share one destination folder. Uninstall the first, or `--force` to replace it.                  |
+| `<settings.json> names <path> in a form this tool did not write`          | A `chat.pluginLocations` entry was hand-edited, so it cannot be spliced out safely. Delete that line yourself - the uninstall did everything else it could.             |
+| Plugin doesn't appear after install                                       | Reload the editor window. For VS Code, check the entry in `chat.pluginLocations`.                                                                                       |
+| `Could not edit <settings.json> - add this entry yourself`                | The file has no JSON object to splice into. Paste the printed line into `settings.json`; the plugin files are already in place.                                         |
 
 ## License
 

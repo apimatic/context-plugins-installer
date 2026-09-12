@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`context-plugins` installs plugins from a plugin marketplace (a GitHub repo carrying a
-`.claude-plugin/marketplace.json` registry) into Claude Code, Cursor, and VS Code with one
-command. Published to npm; users run it via `npx`. The README is end-user documentation
+`context-plugins` installs plugins into Claude Code, Cursor, and VS Code with one
+command - from a plugin marketplace (a GitHub repo carrying a
+`.claude-plugin/marketplace.json` registry), from a directory on the machine
+that is itself a plugin, or from a GitHub repository (or a folder inside one)
+that is itself a plugin. Published to npm; users run it via `npx`. The README is end-user documentation
 only, by explicit decision — contributor and agent knowledge belongs here, not there.
 
 ## Commands
@@ -71,9 +73,20 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   `api.mixpanel.com`. Properties are
   primitives only, and `COLLECTED` in `types/telemetry.ts` is the one prose inventory the
   notice and `telemetry status` print; keep it, `common`, and the properties each event
-  class in `types/events/` declares (`plugin` once validated, `harness`, `marketplace` as
-  the built-in repo or `custom`, `stage`, `error_kind`, `targets_explicit`,
-  `duration_ms`) in step. Never send
+  class in `types/events/` declares (`plugin` once validated - and withheld entirely for a
+  plugin installed from a directory, whose name came from a folder the user chose - `harness`,
+  `marketplace` as the built-in repo or `custom`, `source_kind` as `marketplace`,
+  `github` or `local`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step.
+  `PluginSource.reportableId` is where that id is decided and
+  `MarketplaceLabel.forSource` where a path or repo install is kept from naming the
+  built-in marketplace it never touched: both live on the types, so no command answers
+  either question for itself. Only the marketplace arm answers with an id at all: a
+  plugin installed from a path or a repository is named by its own author, and a
+  repository the user named is the same class of thing as the `--repo` this program
+  already refuses to send - it can be private, and nothing downstream could act on a
+  third party's plugin id anyway. `reportableId` therefore takes no argument: it was
+  given the id the run had learned while the `github` arm reported one, and with no arm
+  using it the parameter went the way `needsSource(origin)` did in phase 1. Never send
   a path, hostname, username, error message, env var, or a user-supplied `--repo`
   - which is why `MarketplaceLabel.of` answers with the built-in constant or
     `custom` and never with `brand.repo` (not to be confused with the rc file's
@@ -209,7 +222,70 @@ that ends up somewhere else is a rule two callers can disagree about.
   builds it.
 - **`types/harness.ts`** - the names and titles of the editors as static
   knowledge, so a pure decision can say "Cursor" without importing the code
-  that installs into it, and the `Harness` contract itself.
+  that installs into it, and the `Harness` contract itself. `HarnessContext`
+  carries the marketplace as an `origin`, named for what it holds so that no
+  reader has to rename it to read it.
+- **`types/plugin-source.ts`** - what the user asked to install, parsed once at
+  the front of the run: a marketplace id, a directory, or a GitHub repository
+  that is itself a plugin. The order the three are told apart in is the whole
+  contract. `PluginId` is tried first, which is the guarantee that no argument
+  this program already accepted changes meaning; anything starting with `.`, a
+  separator, `~` or a drive letter is a path, because that is the one shape no
+  slug can have; anything left holding a `/` - or spelled as a github.com URL
+  or an scp address - is a repository; and anything with none of those keeps
+  the id's own failure, so a typo still reads as a typo. The cost of that
+  order, stated rather than discovered: a relative folder has to be written
+  `./my-plugin/sub`, because `my-plugin/sub` is a repository. An `@ref` is
+  split at the **last** `@` rather than matched, since `release/1.0` is a
+  branch name a user will type. `key()` is the manifest's `repo` column - a
+  marketplace source's is the repo verbatim, so no record migrates, and the
+  other two are prefixed `local:` / `github:` so they can never collide with a
+  slug; a repository's folder is separated by `//`, which is what keeps two
+  plugins out of one monorepo in two rows. `restoreSource` reads that column
+  back into a source and is **total**: a key this build cannot parse is a
+  marketplace repo, because a row that no command could reach is worse than a
+  row that reads oddly. `sourceKindOf` is the same question for a caller that
+  only needs to branch. A repository's folder is validated here the way an id
+  and a ref are, and for the same reason: it reaches `git sparse-checkout add`
+  as argv, where a leading `-` is an option, and a raw.githubusercontent.com
+  URL as a path, where a `?` or a `#` truncates the request and some other file
+  would be read as the manifest. It is pure: whether a directory or a repository really
+  holds a plugin is a question for `infrastructure/local-plugin.ts` and
+  `readPluginManifest`, which go and look.
+- **`types/plugin-manifest.ts`** - a plugin's own `plugin.json` as this build
+  reads it, beside `normalize` in `types/catalog.ts` for the same reason: two
+  boundaries read those bytes (a directory, and a repo over both GitHub hosts)
+  and neither should decide what a usable manifest is. `MANIFEST_FILES` is the
+  probe order, Claude Code's location first. The `name` is the id everything
+  downstream uses - never the folder's name, which can be renamed without the
+  plugin changing what it is.
+- **`types/marketplace-origin.ts`** - where the marketplace a run installs from
+  lives, in the vocabulary `claude plugin marketplace list --json` answers in.
+  One value rather than the marketplace name and its repo as two fields, which
+  travelled side by side from the resolver through two contexts to the harness
+  with nothing stopping a caller from pairing a name with the wrong repository.
+  `name` is nullable because an offline uninstall genuinely has none - the
+  harness asks the CLI - and `key()` is the session's memo key, case-folded on
+  the repo so two spellings register once. It is a discriminated union with one
+  arm today; the discriminant is there from the start so a second kind is one
+  line here and a compile error at each site that has to learn about it.
+  `NamedMarketplace` is the same value with the name known, and the reason
+  registering a marketplace takes one value rather than an origin and a name
+  side by side - which would have been the very pairing this type removed.
+  `RepoMarketplace.named` and `hasName` are the only ways to hold one, so
+  `ResolvedPlugin` states "the name is always known here" as a type rather than
+  as a promise in a comment, and a nameless origin cannot reach the code that
+  needs a name. `named` takes the validated `MarketplaceName` rather than a
+  string, so the claim its return type makes is carried by the argument instead
+  of by a cast over user input, and `hasName` asks `nonEmptyString` - the same
+  question the harness asks of Claude's own listing, so an empty name cannot
+  clear one guard and be spelled into `plugin install <id>@`. `key()` leads
+  with the discriminant and folds only the repo: it is an in-memory per-run
+  key, so the format is free, but two origins of different kinds agreeing on
+  one would hand a caller the other's cached registration. The `directory` arm
+  is the marketplace this tool generates for plugins that came from a path; its
+  name is never unknown, because we chose it, so every instance of it is
+  already a `NamedMarketplace`.
 - **`types/installed-record.ts`** and **`types/manifest-context.ts`** - every
   rule about a manifest row, and the file as a domain object. See **State**.
 - **`types/util.ts`** - the pure helpers, and the reason they sit here: `types/`
@@ -238,7 +314,8 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
 `src/` root the boundary rule could not say what this directory may import.
 
 - **Session** (`src/infrastructure/session.ts`): work shared by every plugin in one run — the
-  registry fetch, the repo clone, the Claude marketplace registration — each done
+  registry fetch, the plugin-manifest read, the repo clone, the Claude marketplace
+  registration — each done
   once, keyed `repo@ref` with the repo lower-cased - two spellings are one
   repository, and keying on the spelling made one `update` read the registry
   twice and clone it twice, announcing both; `ensureMarketplaceOnce`'s key folds
@@ -259,8 +336,9 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   and said it once per plugin; that is a real regression this rule prevents.
 
 - **Two hosts, one file** (`fetchRepoFile` in `infrastructure/github-registry-client.ts`):
-  every file read by URL - the registry, and every blob of a plugin on the
-  no-git path - is asked of `raw.githubusercontent.com` first and of the API's
+  every file read by URL - the registry, a plugin's own manifest, and
+  every blob of a plugin on the no-git path - is asked of
+  `raw.githubusercontent.com` first and of the API's
   contents endpoint second (`RepoSlug.contentsUrl`, with
   `Accept: application/vnd.github.raw`, so the body is the file itself and not a
   base64 envelope of it). They are separate services, and the raw CDN's own 503
@@ -291,6 +369,16 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   stays parseable; `downloadPath` folds it to one line per folder rather than
   one per blob in flight.
 
+- **A checkout of a whole repository** (`RepoHandle.checkout(null)`): `null` is
+  the repository itself rather than a folder in it, which is what a repo that
+  _is_ a plugin needs. Neither arm could express it before: `sparse-checkout
+add ''` is an error, so the git arm turns the clone's sparseness off instead
+  and the clone directory is the checkout - and it **remembers**, because a
+  later `sparse-checkout add` would narrow the tree back down and take files
+  out from under a directory the handle has already answered with, so once the
+  tree is whole a folder is read off it rather than asked for. The API arm
+  takes every blob, an empty prefix being exactly that.
+
 - **`src/infrastructure/paths.ts`** resolves paths for the _target_ platform (`path.win32` /
   `path.posix` chosen by the `platform` override, not the host), so Windows paths are
   exactly assertable from Linux CI.
@@ -306,6 +394,40 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   hand-edited `"<key>": false`, because reporting "already registered" there is a
   green install of a plugin VS Code never loads, and splicing a second entry in
   would just leave a duplicate key.
+
+- **Installing from a path or a repository** (`infrastructure/local-plugin.ts`,
+  `infrastructure/local-marketplace.ts`, and `readPluginManifest` in
+  `infrastructure/github-registry-client.ts`): reading what a source declares
+  itself to be, and generating a marketplace for it. `readLocalPlugin` answers with the plugin a directory
+  declares itself to be, or a `Failure` naming the path - and it is also where
+  the overlap guard lives: `replaceDir` removes its destination before copying,
+  so a source that _is_ a destination would be deleted before it was read and
+  one containing a destination would be copied into itself. Both directions are
+  refused, for every editor's destination and for the generated marketplace.
+  That marketplace exists because `claude plugin install` only ever takes
+  `<id>@<marketplace>`: `claude plugin marketplace add` accepts a directory, so
+  one is written under the state dir - `CP_STATE_DIR` sandboxes it, which a test
+  run registering a marketplace with the developer's real `claude` would
+  otherwise not be. One shared marketplace, not one per plugin, so its registry
+  is shared state and follows the record's rule: every row but the one being
+  written rides through verbatim. Staging happens in the action and only when
+  Claude Code is actually a target, so a run that never touched it leaves no
+  marketplace holding a plugin it never got - and the last plugin out takes the
+  whole directory with it, since an empty generated marketplace is a row in
+  `claude plugin marketplace list` offering nothing. A `github` source stages
+  the same way from the checkout instead of from a folder the user has, which
+  is the reason the fetch condition is a compound one: `needsSource` stays a
+  fact about an editor, "this origin has to be staged" is the fact about the
+  run, and the action combines them - otherwise a run asking only for Claude
+  Code would fetch nothing and stage nothing.
+  `readPluginManifest` is the same read over the network, sharing
+  `types/plugin-manifest.ts` with the disk so the two boundaries cannot
+  disagree about what a usable manifest is. It probes the three files in the
+  same order and, only once none of them answered, asks whether the repository
+  carries a marketplace registry instead - because pointing at a marketplace
+  and spelling it as a plugin is the one wrong turn where the repository really
+  is installable, through `--repo`. The ordinary install still costs one
+  request.
 
 ### `src/harnesses/` - one editor's install strategy each
 
@@ -388,7 +510,16 @@ it - and a caller that only wants a title should read `TITLES` rather than
 reach for a harness. `byName` is total over `HarnessName` - narrow a string
 with `isHarnessName` first. Claude Code installs
 through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
-and VS Code copy files and need the fetched source. To add an editor, use the
+and VS Code copy files and need the fetched source - as does Claude Code for a
+`directory` origin, which is why a path or repo install stages the files before
+the loop rather than asking a harness. The Claude path also removes the plugin
+before installing it when the origin is a directory: `claude plugin list --json`
+shows a plugin cached at `plugins/cache/<marketplace>/<id>/<version>`, so an
+edited plugin whose manifest version did not move would re-install and
+copy nothing. That call reports nothing, and its exit code is kept rather than
+ignored: it is the one signal that tells a failed install whether the user's
+previous copy is already gone, which is the only thing the hint after it can
+say that no other line would. To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
 editor names and CI steps the compiler cannot flag.
 
@@ -432,6 +563,29 @@ through every row so three plugins from one marketplace read the registry once,
 and the install it delegates to speaks through the `InstallPrompts` that
 `UpdatePrompts.installPrompts()` hands it - so whether a row is a line in the
 grid or a full install report is one class's decision, taken once.
+
+What a row is refreshed _from_ is `sourceFor`: a marketplace row keeps today's
+path - its own brand, its own registry - and the other two hand the install a
+`PluginSource` rebuilt from the key rather than an id to re-read. That
+distinction is load-bearing: `parseSource('my-sdk')` against the run's
+marketplace is a different plugin that happens to share a name, so a path row
+whose id was passed as a string would install the wrong thing. The one source
+that answers `unavailable` instead is a directory that is gone, which is an
+ordinary day for whoever is writing a plugin; a repository that cannot be read
+fails its row like any other install, because a 404 and an outage are not
+distinguishable from here and "your plugin's source is gone" must not be what
+a bad network day says. `unavailable` sends no event - nothing reached an
+install, and its reason names a directory.
+
+One thing that follows from the record's keying and is worth knowing before
+changing either: a plugin named by its own manifest can **rename itself**
+between two updates, and a row is keyed by name as well as by source - so the
+new name installs beside the old one and the old copy stays on disk, still
+loaded by the editor. `update` says so rather than leaving it silent, and
+cannot do more than say it: removing the old copy means deciding that two rows
+sharing one source key are one install, which is a rule the record does not
+have today. Re-running `install` by hand has always done the same thing; what
+phase 4 changed is that `update` reaches it without anyone asking.
 
 ### `src/commands/` - flags in, telemetry events out
 
@@ -524,7 +678,10 @@ that arrived that way, and saying nothing left the user needing a second
 `--force` run nothing had mentioned. `update` skips an entry whose every
 recorded editor is undetected rather than failing on it: refreshing a plugin
 for an editor that is not installed is a no-op, and treating it as a failure
-made such a row exit 1 forever. `uninstall` catches per harness, so one editor's I/O failure
+made such a row exit 1 forever. The same rule is why a row whose source has
+left the machine is `unavailable` rather than `failed`, and why the row itself
+stays on the record: the copy in the editor is still there, so forgetting it
+would strand exactly what `uninstall` is for. `uninstall` catches per harness, so one editor's I/O failure
 neither hides the others nor loses the removals already done; it records
 `'failed'`, finishes the run, prints the summary, and only then throws — which
 is also why the write is _not_ in a `finally` (that would let a write failure on

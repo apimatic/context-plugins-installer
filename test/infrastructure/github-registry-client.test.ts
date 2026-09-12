@@ -7,6 +7,7 @@ import {
   hostOf,
   isUpstreamOutage,
   rawUrl,
+  readPluginManifest,
   readRegistry,
 } from '../../src/infrastructure/github-registry-client.js';
 import { RepoSlug } from '../../src/types/ids/repo-slug.js';
@@ -456,4 +457,114 @@ test('a body that is not JSON at all names the file it came from', async () => {
   const result = await read({ [CLAUDE_REG]: { body: 'not json' } });
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.error.message, /is not valid JSON/);
+});
+
+const CLAUDE_MANIFEST = '.claude-plugin/plugin.json';
+
+const manifest = (routes: Record<string, StubRoute>, path: string | null = null) =>
+  readPluginManifest({ repo: REPO, ref: 'main', path }, ports(routes));
+
+test('a repository that declares a plugin is read as that plugin', async () => {
+  const result = await manifest({
+    [rawUrl(REPO, 'main', CLAUDE_MANIFEST)]: {
+      body: { name: 'whole-repo', description: 'the repo is the plugin' },
+    },
+  });
+  assert.ok(result.ok, result.ok ? '' : result.error.message);
+  assert.equal(result.value.id.toString(), 'whole-repo');
+  assert.equal(result.value.description, 'the repo is the plugin');
+});
+
+test('a folder inside a repository is read from that folder', async () => {
+  const fetchImpl = stubFetch({
+    [rawUrl(REPO, 'main', `tools/foo/${CLAUDE_MANIFEST}`)]: { body: { name: 'foo' } },
+  });
+  const result = await readPluginManifest(
+    { repo: REPO, ref: 'main', path: 'tools/foo' },
+    portsFor(fetchImpl),
+  );
+  assert.ok(result.ok, result.ok ? '' : result.error.message);
+  assert.equal(result.value.id.toString(), 'foo');
+  assert.ok(!fetchImpl.calls.includes(rawUrl(REPO, 'main', CLAUDE_MANIFEST)));
+});
+
+test('the other two manifest locations are tried, in order', async () => {
+  const cursor = await manifest({
+    [rawUrl(REPO, 'main', '.cursor-plugin/plugin.json')]: { body: { name: 'cursor-shaped' } },
+  });
+  assert.ok(cursor.ok && cursor.value.id.toString() === 'cursor-shaped');
+
+  const bare = await manifest({
+    [rawUrl(REPO, 'main', 'plugin.json')]: { body: { name: 'bare' } },
+  });
+  assert.ok(bare.ok && bare.value.id.toString() === 'bare');
+});
+
+test('a manifest that is there but unusable is the answer, not a missing one', async () => {
+  const result = await manifest({
+    [rawUrl(REPO, 'main', CLAUDE_MANIFEST)]: { body: { name: 'Not An Id' } },
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error.message, /which is not a usable plugin id/);
+    assert.match(result.error.message, new RegExp(CLAUDE_MANIFEST.replace('.', '\\.')));
+  }
+});
+
+test('a repository that is a marketplace says so, rather than only what is missing', async () => {
+  const result = await manifest({
+    [rawUrl(REPO, 'main', CLAUDE_FILE)]: { body: registry() },
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error.message, /is a marketplace/);
+    assert.match(result.error.hint ?? '', /--repo context-plugins\/plugin-marketplace/);
+  }
+});
+
+test('a repository with nothing in it names the three files it looked for', async () => {
+  const result = await manifest({});
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error.message, /does not look like a plugin/);
+    assert.match(result.error.hint ?? '', /\.claude-plugin\/plugin\.json/);
+    assert.match(result.error.hint ?? '', /\.cursor-plugin\/plugin\.json/);
+  }
+});
+
+test('the marketplace probe only runs once nothing else worked', async () => {
+  const fetchImpl = stubFetch({
+    [rawUrl(REPO, 'main', CLAUDE_MANIFEST)]: { body: { name: 'whole-repo' } },
+  });
+  const result = await readPluginManifest(
+    { repo: REPO, ref: 'main', path: null },
+    portsFor(fetchImpl),
+  );
+  assert.ok(result.ok);
+  assert.deepEqual(fetchImpl.calls, [rawUrl(REPO, 'main', CLAUDE_MANIFEST)], 'one request');
+});
+
+test('a manifest the raw CDN cannot serve comes from the API instead', async () => {
+  const api = new RepoSlug(REPO).contentsUrl('main', CLAUDE_MANIFEST);
+  const result = await manifest({
+    [rawUrl(REPO, 'main', CLAUDE_MANIFEST)]: { status: 503 },
+    [api]: { body: { name: 'whole-repo' } },
+  });
+  assert.ok(result.ok, result.ok ? '' : result.error.message);
+  assert.equal(result.value.id.toString(), 'whole-repo');
+});
+
+test('a repo or ref this build cannot pass on is refused before any request', async () => {
+  const fetchImpl = stubFetch({});
+  const bad = await readPluginManifest(
+    { repo: 'not a repo', ref: 'main', path: null },
+    portsFor(fetchImpl),
+  );
+  assert.equal(bad.ok, false);
+  const worse = await readPluginManifest(
+    { repo: REPO, ref: '--upload-pack=evil', path: null },
+    portsFor(fetchImpl),
+  );
+  assert.equal(worse.ok, false);
+  assert.deepEqual(fetchImpl.calls, []);
 });

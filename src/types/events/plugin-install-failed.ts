@@ -1,5 +1,6 @@
 import type { MarketplaceLabel } from '../brand.js';
 import type { PluginId } from '../ids/plugin-id.js';
+import type { SourceKind } from '../plugin-source.js';
 import type { InstallStage } from '../reports.js';
 import type { ErrorKind, TelemetryValue } from '../telemetry.js';
 import { DomainEvent } from './domain-event.js';
@@ -18,6 +19,7 @@ export class PluginInstallFailedEvent extends DomainEvent {
   constructor(
     private readonly plugin: PluginId | null,
     private readonly marketplace: MarketplaceLabel,
+    private readonly sourceKind: SourceKind | null,
     private readonly stage: InstallStage | null,
     private readonly errorKind: ErrorKind,
   ) {
@@ -28,6 +30,7 @@ export class PluginInstallFailedEvent extends DomainEvent {
     return {
       plugin: this.plugin?.toString() ?? null,
       marketplace: this.marketplace.toString(),
+      source_kind: this.sourceKind,
       stage: this.stage,
       error_kind: this.errorKind,
     };

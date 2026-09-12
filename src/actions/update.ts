@@ -1,11 +1,15 @@
 import { harnesses } from '../harnesses/index.js';
+import { exists } from '../infrastructure/file-system.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UpdatePrompts } from '../prompts/update.js';
 import { MarketplaceLabel, type Brand } from '../types/brand.js';
 import type { HarnessOpts } from '../types/harness.js';
+import { PluginId } from '../types/ids/plugin-id.js';
+import type { ManifestEntry } from '../types/installed-record.js';
 import type { UpdateReport, UpdatedRow } from '../types/reports.js';
 import type { Session } from '../types/session.js';
+import { restoreSource, sourceKindOf, type PluginSource } from '../types/plugin-source.js';
 import { errorMessage } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 import { InstallAction } from './install.js';
@@ -32,6 +36,28 @@ export class UpdateAction {
     private readonly session: Session,
     private readonly pathOpts?: HarnessOpts,
   ) {}
+
+  /** `null` is a marketplace row: the registry read is what resolves it. */
+  private sourceFor(
+    entry: ManifestEntry,
+    brand: Brand,
+  ): { source: PluginSource | null } | { reason: string } {
+    // An install re-reads a string argument as a source, so a record holding a
+    // path where an id belongs would be installed from there.
+    const id = PluginId.parse(entry.plugin);
+    if (!id.ok) return { reason: 'the name on its record is not one this build can read' };
+    if (sourceKindOf(entry.repo) === 'marketplace') return { source: null };
+
+    const source = restoreSource(entry.repo, {
+      plugin: id.value,
+      ref: entry.ref || brand.ref,
+      rules: paths.pathContext(this.pathOpts).rules,
+    });
+    if (source.kind === 'local' && !exists(source.dir)) {
+      return { reason: 'the folder it was installed from is gone' };
+    }
+    return { source };
+  }
 
   readonly execute = async (brand: Brand): Promise<ActionResult<UpdateReport>> => {
     const {
@@ -68,13 +94,23 @@ export class UpdateAction {
     // registry once and clone it once.
     const { session } = this;
     for (const entry of entries) {
-      const entryBrand: Brand = Object.freeze({
-        ...brand,
-        repo: entry.repo || brand.repo,
-        ref: entry.ref || brand.ref,
-        id: entry.marketplace || brand.id,
-      });
-      const marketplace = MarketplaceLabel.of(entryBrand);
+      const from = this.sourceFor(entry, brand);
+      if ('reason' in from) {
+        rows.push({ outcome: 'unavailable', plugin: entry.plugin, reason: from.reason });
+        this.prompts.unavailable(entry.plugin, from.reason);
+        continue;
+      }
+      const { source } = from;
+      const entryBrand: Brand =
+        source === null
+          ? Object.freeze({
+              ...brand,
+              repo: entry.repo || brand.repo,
+              ref: entry.ref || brand.ref,
+              id: entry.marketplace || brand.id,
+            })
+          : brand;
+      const marketplace = MarketplaceLabel.forSource(source, entryBrand);
 
       const reachable = harnesses.detected(entry.targets, this.pathOpts);
       if (!reachable.length) {
@@ -88,7 +124,7 @@ export class UpdateAction {
         const result = await this.prompts.collapsed(() =>
           install.execute({
             brand: entryBrand,
-            plugin: entry.plugin,
+            plugin: source ?? entry.plugin,
             ref: entry.ref,
             targets: reachable,
             force: true,
@@ -103,7 +139,8 @@ export class UpdateAction {
           rows.push({
             outcome: 'failed',
             plugin: entry.plugin,
-            id: result.report.plugin,
+            id: result.report.source?.reportableId() ?? null,
+            sourceKind: result.report.source?.kind ?? null,
             marketplace,
             report: result.report,
             stage: result.report.stage,
@@ -120,6 +157,10 @@ export class UpdateAction {
           report: result.report,
         });
         this.prompts.updated(entry.plugin, result.report.targets);
+        const renamed = result.report.plugin?.toString();
+        if (source !== null && renamed && renamed !== entry.plugin) {
+          this.prompts.renamed(entry.plugin, renamed);
+        }
       } catch (err) {
         // A bug in one row is not the other rows' business, and `update` has
         // to be able to finish and say which one it was. `unexpected`,
@@ -132,7 +173,8 @@ export class UpdateAction {
         rows.push({
           outcome: 'failed',
           plugin: entry.plugin,
-          id: install.plugin,
+          id: install.source?.reportableId() ?? null,
+          sourceKind: install.source?.kind ?? null,
           marketplace,
           report: null,
           stage: install.stage,

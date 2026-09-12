@@ -1,4 +1,5 @@
 import { RepoSlug } from './ids/repo-slug.js';
+import type { PluginSource } from './plugin-source.js';
 
 // Which marketplace this run installs from, what it calls itself, and whether it
 // reports anything. Resolved from a flag, then `CP_*` env, then an rc file, then
@@ -10,6 +11,9 @@ import { RepoSlug } from './ids/repo-slug.js';
  * so `package.json`'s `bin` key is the only other place it appears.
  */
 export const BIN = 'context-plugins';
+
+/** The one generated marketplace every plugin installed from a path is filed under. */
+export const LOCAL_MARKETPLACE = 'context-plugins-local';
 
 /**
  * Which marketplace a run used, as telemetry may say it: the built-in one by
@@ -29,6 +33,19 @@ export class MarketplaceLabel {
     return new MarketplaceLabel(
       RepoSlug.same(repo, telemetry.defaultRepo) ? telemetry.defaultRepo : 'custom',
     );
+  }
+
+  static custom(): MarketplaceLabel {
+    return new MarketplaceLabel('custom');
+  }
+
+  static forSource(
+    source: PluginSource | null,
+    brand: Pick<Brand, 'repo' | 'telemetry'>,
+  ): MarketplaceLabel {
+    return source && source.kind !== 'marketplace'
+      ? MarketplaceLabel.custom()
+      : MarketplaceLabel.of(brand);
   }
 
   toString(): string {

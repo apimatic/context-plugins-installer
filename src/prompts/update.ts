@@ -74,6 +74,16 @@ export class UpdatePrompts {
     log.warn(`${this.cell(plugin)}  no editor for it on this machine - skipping`);
   }
 
+  unavailable(plugin: string, reason: string): void {
+    log.warn(`${this.cell(plugin)}  ${reason} - install it again, or uninstall it`);
+  }
+
+  renamed(was: string, now: string): void {
+    log.warn(
+      `${this.cell(was)}  now calls itself '${now}' - the copy under the old name is still installed (uninstall '${was}')`,
+    );
+  }
+
   updated(plugin: string, targets: readonly HarnessName[]): void {
     if (this.collapse) log.ok(`${this.cell(plugin)}  ${log.dim(titlesOf(targets))}`);
   }

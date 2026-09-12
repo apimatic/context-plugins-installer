@@ -22,32 +22,38 @@ export class UpdateCommand {
     return result;
   }
 
-  /**
-   * Which events one row is worth, decided by its shape alone. The two silent
-   * arms are silent for different reasons: a row this build cannot read is a
-   * record problem rather than an install that failed, and a row with no editor
-   * on this machine was asked nothing at all.
-   */
   private report(row: UpdatedRow): void {
     switch (row.outcome) {
-      case 'updated':
+      case 'updated': {
+        const { source } = row.report;
+        if (!source) return;
         for (const harness of row.report.targets) {
-          if (!row.report.plugin) continue;
           this.sink(
             new PluginInstalledEvent(
-              row.report.plugin,
+              source.reportableId(),
               harness,
               row.marketplace,
+              source.kind,
               row.report.targetsExplicit,
               row.report.durationMs,
             ),
           );
         }
         return;
+      }
       case 'failed':
-        this.sink(new PluginInstallFailedEvent(row.id, row.marketplace, row.stage, row.errorKind));
+        this.sink(
+          new PluginInstallFailedEvent(
+            row.id,
+            row.marketplace,
+            row.sourceKind,
+            row.stage,
+            row.errorKind,
+          ),
+        );
         return;
       case 'unreadable':
+      case 'unavailable':
       case 'skipped':
         return;
     }
