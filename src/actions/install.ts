@@ -22,13 +22,6 @@ import { ActionResult } from './action-result.js';
 
 export interface InstallRequest {
   brand: Brand;
-  /**
-   * What the user typed - a plugin id, a path, or a repository - or the source
-   * a recorded row restores to, for `update`. Already-parsed rather than
-   * re-spelled as a string and read back: a row's `repo` column is the one
-   * definition of where a plugin came from, and turning it into an argument
-   * for this to re-derive would be a second one.
-   */
   plugin: string | PluginSource;
   ref?: string;
   /** Harness names, `all`, or nothing for "ask". */
@@ -41,22 +34,10 @@ export interface InstallRequest {
   pathOpts?: HarnessOpts;
 }
 
-/**
- * Where a run's files are, which is all the fetch stage reads. Two shapes
- * rather than nullable fields, because "already here" and "not fetched yet"
- * were the same `null` the moment a second kind of source could be either.
- */
 type PluginFiles =
   | { kind: 'on-disk'; dir: DirectoryPath }
   | { kind: 'remote'; repo: string; ref: string; sourcePath: string | null };
 
-/**
- * What `resolve` settled, whichever kind of source the run was given: the id,
- * the marketplace Claude Code will address, and where the files are or how to
- * get them. Every stage after it reads only these, which is what lets a
- * directory on disk, a repository and a registry entry share the rest of the
- * flow.
- */
 interface Resolution {
   id: PluginId;
   origin: NamedMarketplace;
@@ -90,7 +71,6 @@ export class InstallAction {
     return this.id;
   }
 
-  /** What the run was asked to install, for the command's catch to report on. */
   get source(): PluginSource | null {
     return this.from;
   }
@@ -106,10 +86,6 @@ export class InstallAction {
     const startedAt = Date.now();
     const ref = req.ref || brand.ref;
     const explicit = Array.isArray(req.targets) && req.targets.length > 0;
-    // Parsed before the report exists rather than written into it after, so
-    // there is no arm on which the report holds the string the user typed - and
-    // a caller that already holds a source hands it over rather than spelling
-    // it back out for this to re-read.
     const parsed =
       typeof req.plugin === 'string'
         ? parseSource(req.plugin, {
@@ -120,8 +96,7 @@ export class InstallAction {
         : ok(req.plugin);
     if (parsed.ok) {
       this.from = parsed.value;
-      // A local source learns its id at the resolve stage below; a marketplace
-      // one has it already, and a failure before then must still report it.
+      // A local or github source only learns its id at the resolve stage below.
       if (parsed.value.kind === 'marketplace') this.id = parsed.value.plugin;
     }
     const report: Omit<InstallReport, 'stage' | 'durationMs' | 'plugin' | 'source'> = {
@@ -131,9 +106,6 @@ export class InstallAction {
       ref,
       targetsExplicit: explicit,
     };
-    // The id and the source are read back off the action rather than captured,
-    // because a local source learns its id after this was built and before most
-    // of the arms below are taken.
     const done = (): InstallReport => ({
       ...report,
       plugin: this.id,
@@ -146,9 +118,6 @@ export class InstallAction {
 
     if (!parsed.ok) return failed(parsed.error);
     const source = parsed.value;
-    // A directory has no ref to record, and recording the run's would claim the
-    // files came from a version of something. A repository carries its own,
-    // which is the run's unless the spec spelled one after an `@`.
     report.ref = source.kind === 'local' ? null : source.ref;
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
@@ -166,29 +135,18 @@ export class InstallAction {
     if (!targets.ok) return failed(targets.error);
     const requested = targets.value;
 
-    // Keyed by the source rather than by the run's repo: a directory keys on
-    // its own path, and a marketplace source on exactly what it always has.
-    // Two sources with one id still clash - they share a destination folder
-    // under Cursor and VS Code - which is what `conflictFor` reports.
     const key = { plugin, repo: source.key() };
     const conflict = force ? null : records.conflictFor(key);
     if (conflict) return failed(conflict);
     const recorded = records.find(key);
 
     this.prompts.intro(plugin, brand, report.ref, marketplace, resolved.description, source);
-    // A `--ref` the spec overrode. Said rather than swallowed, the way
-    // `targetsIgnored` is: a flag that quietly did nothing reads as the user
-    // having chosen what happened.
     if (req.ref && source.kind === 'github' && source.ref !== ref) {
       this.prompts.refIgnored(req.ref, source.ref);
     }
 
-    // Asked before any of the plugin's files are fetched or copied, and only
-    // for a source this program was not shipped pointing at: a plugin from an
-    // arbitrary directory or repository can carry hooks and MCP servers that
-    // run commands, where the built-in marketplace is a source the user chose
-    // by installing this tool. `resolve` above has already read the manifest -
-    // one file, which is what lets the question name the plugin.
+    // Must stay ahead of any fetch or copy: a plugin from an arbitrary
+    // directory or repository can carry hooks and MCP servers that run commands.
     if (source.kind !== 'marketplace') {
       const trusted = await this.prompts.confirmSource(source, assumeYes || !this.canAsk());
       if (trusted === 'cancelled') return ActionResult.cancelled(done());
@@ -226,14 +184,9 @@ export class InstallAction {
 
     const { files } = resolved;
     let srcDir: DirectoryPath | null = files.kind === 'on-disk' ? files.dir : null;
-    // Claude Code installs from a marketplace and nothing else, so a plugin
-    // that came from anywhere else is staged into the one this tool generates
-    // - but only when Claude Code is actually being installed into, or a run
-    // that never touched it would leave a marketplace behind holding a plugin
-    // it never got. That needs the files whether or not any editor copies
-    // them, which is the second half of the fetch condition: `needsSource`
-    // stays a fact about an editor, this is the fact about the origin, and the
-    // action is where the two meet.
+    // Claude Code installs only from a marketplace, so a plugin from anywhere
+    // else is staged into the generated one - which needs the files fetched
+    // even when no editor in this run copies them.
     const mustStage = origin.kind === 'directory' && want.includes('claude');
     if (
       files.kind === 'remote' &&
@@ -252,9 +205,6 @@ export class InstallAction {
     }
 
     this.at = 'install';
-    // Reads as a guard and is really the type saying it out loud: staging is
-    // one of the two reasons the fetch above runs, so by the time this is
-    // reached the files are here.
     if (mustStage && srcDir) {
       const staged = stageLocalPlugin(
         { plugin, srcDir, description: resolved.description },
@@ -263,7 +213,6 @@ export class InstallAction {
       if (!staged.ok) return failed(staged.error);
     }
 
-    // Every field is settled before the loop, so one context serves every editor.
     const ctx: HarnessContext = {
       plugin,
       origin,
@@ -303,12 +252,6 @@ export class InstallAction {
     return ActionResult.success(done());
   };
 
-  /**
-   * Which plugin, from where. The two kinds answer the same shape by different
-   * routes: a marketplace id through the registry the session reads once, and a
-   * directory by asking the directory what it is. A local plugin's id is only
-   * known here, so this is also where the action learns what to report.
-   */
   private async resolve(source: PluginSource, brand: Brand): Promise<Result<Resolution, Failure>> {
     if (source.kind === 'local') {
       const read = readLocalPlugin(source.dir, this.pathOpts);
@@ -316,8 +259,6 @@ export class InstallAction {
       this.id = read.value.id;
       return ok({
         id: read.value.id,
-        // Free to construct and reads nothing: whether anything is actually
-        // staged there depends on Claude Code being one of the editors.
         origin: localMarketplace(this.pathOpts),
         description: read.value.description,
         files: { kind: 'on-disk', dir: read.value.dir },
@@ -334,9 +275,8 @@ export class InstallAction {
       this.id = manifest.value.id;
       return ok({
         id: manifest.value.id,
-        // No registry anywhere lists this plugin, so Claude Code addresses it
-        // through the same generated marketplace a directory install uses -
-        // staged from the checkout rather than from a folder the user has.
+        // No registry lists this plugin, so Claude Code addresses it through
+        // the same generated marketplace a directory install uses.
         origin: localMarketplace(this.pathOpts),
         description: manifest.value.description,
         files: {
@@ -371,7 +311,6 @@ export class InstallAction {
     });
   }
 
-  /** Whether there is anyone to answer a question. See `choose`. */
   private canAsk(): boolean {
     return this.prompts.hasAnswerer() || isInteractive();
   }

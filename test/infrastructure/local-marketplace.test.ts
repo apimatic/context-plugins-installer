@@ -17,10 +17,6 @@ import { cleanupAll, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
-// The generated marketplace is shared state on disk: several plugins live in one
-// registry file, and a hand edit or a newer CLI can reach it. What matters here
-// is that staging one plugin never takes another's row out with it.
-
 function sandbox(): { opts: PathOpts; root: DirectoryPath; registry: string } {
   const home = tmpDir('cp-mkt-');
   const opts: PathOpts = { env: { CP_STATE_DIR: path.join(home, 'state') }, home };
@@ -106,8 +102,6 @@ test('a shrinking plugin leaves no orphan files behind', () => {
 });
 
 test('a row this build did not write rides through a staging verbatim', () => {
-  // The rule the record already follows: shared state, so a row belonging to a
-  // hand edit or a newer CLI is not this build's to drop.
   const s = sandbox();
   stageLocalPlugin({ plugin: 'mine', srcDir: pluginDir('mine') }, s.opts);
   const foreign = { name: 'theirs', source: { source: 'npm', package: '@x/y' }, future: true };
@@ -138,8 +132,6 @@ test('unstaging removes one plugin and reports what is left', () => {
 });
 
 test('the last plugin out takes the whole marketplace with it', () => {
-  // An empty generated marketplace is a row in `claude plugin marketplace list`
-  // that offers nothing, so the caller is told to drop the registration too.
   const s = sandbox();
   stageLocalPlugin({ plugin: 'only', srcDir: pluginDir('only') }, s.opts);
 
@@ -159,9 +151,6 @@ test('unstaging from nothing is not a failure', () => {
 });
 
 test('an unreadable registry is rebuilt from the folders, not from nothing', () => {
-  // Reading "no rows" from a file that would not parse looks exactly like an
-  // empty marketplace. Writing that back would drop every other path plugin's
-  // row while its files sit right beside it, so the rows are reconstructed.
   const s = sandbox();
   stageLocalPlugin({ plugin: 'first', srcDir: pluginDir('first') }, s.opts);
   stageLocalPlugin({ plugin: 'second', srcDir: pluginDir('second') }, s.opts);
@@ -177,8 +166,6 @@ test('an unreadable registry is rebuilt from the folders, not from nothing', () 
 });
 
 test('an unreadable registry never takes the other plugins files with it', () => {
-  // The failure this guards: emptiness read off a truncated file, and four
-  // staged plugins deleted because of one bad write.
   const s = sandbox();
   stageLocalPlugin({ plugin: 'first', srcDir: pluginDir('first') }, s.opts);
   stageLocalPlugin({ plugin: 'second', srcDir: pluginDir('second') }, s.opts);
@@ -191,8 +178,6 @@ test('an unreadable registry never takes the other plugins files with it', () =>
 });
 
 test('every other field of the registry document rides through a rewrite', () => {
-  // The same rule the record follows: shared state, so an `owner` block or
-  // anything a newer build added is not this one's to drop.
   const s = sandbox();
   stageLocalPlugin({ plugin: 'mine', srcDir: pluginDir('mine') }, s.opts);
   const doc = registryOf(s.registry) as Record<string, unknown>;

@@ -10,11 +10,6 @@ import { log } from './terminal.js';
 const ID_WIDTH_CAP = 42;
 
 export class InstalledPrompts {
-  /**
-   * Where a row came from, under `--verbose`: a repository and its ref, or the
-   * directory it was installed from - which has neither, so printing
-   * `<repo>@<ref>` for one would read as `local:/x@undefined`.
-   */
   private origin(e: ManifestEntry): string {
     const dir = localDirOf(e.repo);
     const from = dir === null ? `${e.repo}@${e.ref}` : dir;

@@ -55,8 +55,6 @@ export function announceClaude(event: ClaudeEvent): void {
       log.info(`Removed the generated marketplace '${event.known}' - it holds nothing now.`);
       return;
     case 'staging-left':
-      // The failure names the directory, which is why this line does not have
-      // to - and why nothing here needs a home to read a path against.
       log.warn(`${event.detail} You can remove that directory by hand.`);
       return;
     case 'plugin-uninstall-failed':

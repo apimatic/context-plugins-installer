@@ -133,12 +133,6 @@ export interface RegistryClient {
     ref: string;
     notify?: MarketplaceListener;
   }): Promise<Result<Catalog | null, Failure>>;
-  /**
-   * A plugin's own manifest, for a repository that is itself a plugin rather
-   * than a marketplace listing others. Beside the registry read because it is
-   * the same two-host fetch of one file out of one repository, and a caller
-   * that had to reach a second client for it would need the ports to build one.
-   */
   readPluginManifest(req: {
     repo: string;
     ref: string;

@@ -14,11 +14,6 @@ import type { ErrorKind } from '../types/telemetry.js';
  * One event per editor the plugin went into, then one for a failure - which
  * carries the stage the report was left at rather than any message, because a
  * message could name a path or a plugin the user typed.
- *
- * Nothing here decides what may be reported about the plugin itself. The id
- * comes off the source through `reportableId`, which withholds a local
- * plugin's: a name taken from a folder the user chose is theirs, not a public
- * plugin name, and a command that had to remember that would eventually forget.
  */
 export class InstallCommand {
   constructor(private readonly sink: EventSink) {}
@@ -30,8 +25,6 @@ export class InstallCommand {
       const result = await action.execute(req);
       const { source, targets, targetsExplicit, durationMs } = result.report;
       const marketplace = MarketplaceLabel.forSource(source, req.brand);
-      // An editor can only be on the list once a source parsed, so this reads
-      // as a guard and is really the type saying that out loud.
       if (source) {
         for (const harness of targets) {
           this.sink(

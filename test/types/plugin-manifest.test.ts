@@ -5,10 +5,7 @@ import type { Failure } from '../../src/types/failure.js';
 import { MANIFEST_FILES, readManifest } from '../../src/types/plugin-manifest.js';
 import type { Result } from '../../src/types/result.js';
 
-// The pure half of reading a plugin's own manifest. Which files are tried, and
-// what happens when a directory has none, is
-// test/infrastructure/local-plugin.test.ts - this is only what one manifest's
-// bytes mean once they have been parsed.
+// Probing a real directory is test/infrastructure/local-plugin.test.ts.
 
 const FROM = '.claude-plugin/plugin.json';
 
@@ -37,9 +34,6 @@ test('a description of the wrong type reads as absent rather than being carried 
 });
 
 test('an unusable name names the file and the value it found', () => {
-  // The id is load-bearing three times over - the destination folder, half the
-  // manifest key, and the left half of `<plugin>@<marketplace>` - so a name
-  // this build cannot accept has to say which file it came from.
   const err = failure(readManifest({ name: 'My Plugin' }, FROM));
   assert.match(err.message, /\.claude-plugin\/plugin\.json/);
   assert.match(err.message, /"My Plugin"/);
@@ -59,8 +53,6 @@ test('anything that is not an object is not a manifest', () => {
 });
 
 test('the probe order leads with the location Claude Code uses', () => {
-  // The order is the contract: a plugin carrying two manifests is named by the
-  // first, and Claude Code's is the one whose name it will be filed under.
   assert.equal(MANIFEST_FILES[0], '.claude-plugin/plugin.json');
   assert.deepEqual(
     [...MANIFEST_FILES],

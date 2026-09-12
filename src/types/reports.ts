@@ -37,25 +37,14 @@ export interface InstallReport extends InstallResult {
   stage: InstallStage;
   targetsExplicit: boolean;
   durationMs: number;
-  /**
-   * What the run was asked to install, once parsed - null when the argument was
-   * none of an id, a path or a repository. A command reads two things off it
-   * that it must not decide for itself: which `source_kind` to report, and
-   * whether the plugin id may leave the machine at all.
-   */
+  /** What the run was asked to install, once parsed; null when nothing parsed. */
   source: PluginSource | null;
 }
 
 export interface UninstallResult {
   /** Null when the id never validated; see `InstallResult.plugin`. */
   plugin: PluginId | null;
-  /**
-   * Where the row this run acted on came from, rebuilt from its recorded key.
-   * A command reads the same two things off it that install does: the kind to
-   * report, and whether the plugin id may leave the machine - a plugin removed
-   * from a directory or a repository withholds the name its author gave it,
-   * exactly as installing it did.
-   */
+  /** Where the row this run acted on came from, rebuilt from its recorded key. */
   source: PluginSource | null;
   /** Editors something was actually removed from - not editors whose record was corrected. */
   targets: HarnessName[];
@@ -83,12 +72,8 @@ export interface UpdateResult {
  *   this is not a boolean. `report` is absent for a throw; `stage` survives it.
  * - `unreadable`: this build cannot read the row. A record problem, not an
  *   install that failed, so it fails the run and reports nothing.
- * - `unavailable`: the source is not on this machine any more - a directory
- *   that was moved or deleted. Reported with its reason and warned about, and
- *   deliberately **not** a failure: a dev folder moving is an ordinary day, and
- *   a row that fails every `update` for ever is the one thing this command must
- *   never produce. `skipped` would lose the reason and `unreadable` would exit
- *   1, which is the shape of bug this repo has already fixed twice.
+ * - `unavailable`: the source is not on this machine any more - a directory that
+ *   was moved or deleted. Warned about with its reason, and not a failure.
  * - `skipped`: no editor for it on this machine. Nothing was asked of it.
  */
 export type UpdatedRow =
@@ -101,12 +86,7 @@ export type UpdatedRow =
   | {
       outcome: 'failed';
       plugin: string;
-      /**
-       * The id telemetry may carry, which is not always the id the run knew:
-       * only a plugin a marketplace lists has one. Taken off the source
-       * through `reportableId`, so this field is already the answer and a
-       * reader never has to re-derive it.
-       */
+      /** The id telemetry may carry - already `reportableId`, not the id the run knew. */
       id: PluginId | null;
       sourceKind: SourceKind | null;
       marketplace: MarketplaceLabel;

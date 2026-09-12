@@ -74,21 +74,10 @@ export class UpdatePrompts {
     log.warn(`${this.cell(plugin)}  no editor for it on this machine - skipping`);
   }
 
-  /**
-   * The row's source is not there to refresh from. A warning rather than a
-   * failure, and it names both ways out, because this is what a moved dev
-   * folder looks like and neither of them is obvious from the row alone.
-   */
   unavailable(plugin: string, reason: string): void {
     log.warn(`${this.cell(plugin)}  ${reason} - install it again, or uninstall it`);
   }
 
-  /**
-   * The source now calls its plugin something else. The new name is installed
-   * and recorded; the old copy is still on disk and still loaded, and only the
-   * user can say whether that is one plugin renamed or two that share a
-   * folder - so this names the way out rather than guessing.
-   */
   renamed(was: string, now: string): void {
     log.warn(
       `${this.cell(was)}  now calls itself '${now}' - the copy under the old name is still installed (uninstall '${was}')`,

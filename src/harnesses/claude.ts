@@ -70,24 +70,11 @@ function repoOf(entry: MarketplaceListing): RepoSlug | null {
   return null;
 }
 
-/**
- * A directory marketplace lists as `{ source: 'directory', path, installLocation }`
- * - measured against claude 2.1.266. Both path fields are tried because `path`
- * is what it was added under and `installLocation` is where Claude reads it
- * from; for a directory marketplace they are the same value, so a build that
- * changes one is one this still matches on the other.
- */
+// A directory marketplace lists as `{ source: 'directory', path, installLocation }`
+// - measured against claude 2.1.266.
 const isSameDirectory = (entry: MarketplaceListing, dir: DirectoryPath): boolean =>
   [entry.path, entry.installLocation].some((at) => nonEmptyString(at) && dir.samePlace(at));
 
-/**
- * Whether a listed marketplace is the one this origin names. `repoOf` answers
- * `null` for a row whose source Claude cannot spell as a slug - a directory
- * marketplace included, which is why that arm is answered first rather than
- * left to the substring fallback that would have compared it by luck. For a
- * repository with no readable source, whether the row mentions it at all is the
- * only evidence there is.
- */
 const isSameOrigin = (entry: MarketplaceListing, origin: MarketplaceOrigin): boolean => {
   if (origin.kind === 'directory') return isSameDirectory(entry, origin.dir);
   const repo = new RepoSlug(origin.repo);
@@ -96,7 +83,6 @@ const isSameOrigin = (entry: MarketplaceListing, origin: MarketplaceOrigin): boo
   return JSON.stringify(entry).toLowerCase().includes(repo.toSearchKey());
 };
 
-/** What `claude plugin marketplace add` takes for this origin. */
 const addressOf = (origin: MarketplaceOrigin): string =>
   origin.kind === 'repo' ? origin.repo : origin.dir.toString();
 
@@ -244,9 +230,6 @@ export class ClaudeHarness implements Harness {
     if (!session?.marketplaces) {
       return this.ensureMarketplace(cli, origin, listener);
     }
-    // The key is the origin's own, and case-folded on the repo for the reason
-    // `isSameOrigin` is: two spellings are one marketplace, so registering it
-    // twice would be a second `marketplace add` for something already added.
     const key = origin.key();
     let pending = session.marketplaces.get(key);
     if (!pending) {
@@ -264,9 +247,6 @@ export class ClaudeHarness implements Harness {
       say({ harness: 'claude', kind: 'cli-missing' });
       return ok('skipped');
     }
-    // Narrows the origin rather than lifting the name out beside it: what
-    // registering needs is an origin that has one, not two values a caller
-    // could pair up wrongly.
     if (!origin.hasName()) {
       say({ harness: 'claude', kind: 'no-marketplace-name', after: 'install' });
       return ok('skipped');
@@ -279,12 +259,7 @@ export class ClaudeHarness implements Harness {
     const target = `${plugin}@${known}`;
 
     // A plugin is cached under `<marketplace>/<id>/<version>`, so re-installing
-    // one whose manifest version did not move copies nothing - which is exactly
-    // what an edited local plugin looks like. Removing it first makes the
-    // install unconditional. Nothing is reported when there was nothing there:
-    // absence is the state this wants, and a plugin that was not there is
-    // already in it. Whether it removed one is remembered, because it opens the
-    // one window in which failing leaves the user worse off than not trying.
+    // one whose manifest version did not move copies nothing.
     const replaced =
       origin.kind === 'directory' && (await cli.pluginUninstall(target, SCOPE)).code === 0;
 
@@ -297,9 +272,6 @@ export class ClaudeHarness implements Harness {
       return err(
         new Failure(
           `claude plugin install ${target} failed (exit ${res.code}). ${tail(res)}`.trim(),
-          // The removal above is the thing the user most needs to know about
-          // when the install after it failed: the copy they had is gone, and
-          // no other line would tell them.
           replaced
             ? `The previous copy of '${plugin}' was removed first, so Claude Code has none now. Run the same install again once the cause is fixed.`
             : LOOKS_STALE.test(`${res.stderr || ''}${res.stdout || ''}`)
@@ -328,18 +300,6 @@ export class ClaudeHarness implements Harness {
     return !rows.some((r) => r.plugin === plugin && ours(r.scope));
   }
 
-  /**
-   * The copy this tool staged exists only so Claude Code has a marketplace to
-   * install from, so it goes when Claude Code no longer has the plugin - and
-   * with the last one, the generated marketplace itself, which is otherwise a
-   * row in `claude plugin marketplace list` pointing at a directory that is not
-   * there. Deregistering is the half that has to happen here: removing the
-   * files is `infrastructure`'s, and the argv is only ever spelled by a harness.
-   *
-   * Never fatal. The plugin is out of the editor either way, and a leftover
-   * directory is a mess to mention rather than a reason to fail a clean
-   * uninstall.
-   */
   private async unstage(
     cli: ClaudeCli,
     origin: MarketplaceOrigin,
@@ -381,8 +341,6 @@ export class ClaudeHarness implements Harness {
       // True whether it was never installed or a command removed it and then failed.
       if (await this.isAbsent(cli, plugin, res)) {
         say({ harness: 'claude', kind: 'plugin-absent', plugin, scope: SCOPE });
-        // Absent is still "Claude Code does not have it", so anything staged
-        // for it here is now weight with nothing to load it.
         await this.unstage(cli, origin, plugin, known, say, opts);
         return 'absent';
       }

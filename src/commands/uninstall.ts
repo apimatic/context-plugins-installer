@@ -49,12 +49,6 @@ export class UninstallCommand {
     }
   }
 
-  /**
-   * Nothing here decides what may be said about the plugin: the id comes off
-   * the source through `reportableId`, which withholds a local plugin's, and
-   * the label off `forSource`, which refuses to name the built-in marketplace
-   * for a plugin that never came from it.
-   */
   private failed(source: PluginSource | null, brand: Brand, kind: ErrorKind): void {
     this.sink(
       new PluginUninstallFailedEvent(

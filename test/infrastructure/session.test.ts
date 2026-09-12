@@ -332,8 +332,6 @@ test('one plugin manifest is read once per repo, ref and folder', async () => {
   try {
     await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });
     await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });
-    // The folder is part of the key: two plugins in one repository are two
-    // manifests, not one answer served twice.
     const bar = await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/bar' });
     assert.ok(bar.ok && bar.value.id.toString() === 'bar');
   } finally {

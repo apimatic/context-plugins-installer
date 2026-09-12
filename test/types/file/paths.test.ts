@@ -112,14 +112,7 @@ test('a trailing separator on the directory does not make it contain nothing', (
   assert.equal(new DirectoryPath('/tmp/files/', POSIX).contains('/tmp/files/../../etc/pw'), false);
 });
 
-/**
- * Holding node's path namespace made `JSON.stringify` of a path throw, which at
- * least failed loudly. Making the rules serializable removed that crash, so
- * without a toJSON a payload would quietly get an object where it wanted a path.
- */
 test('two spellings of one directory are the same place', () => {
-  // Asserted here rather than through the harness that reads it: a comparison
-  // covered only through a caller gets reasoned about from that caller next time.
   const dir = new DirectoryPath('/home/dev/.context-plugins/marketplace', POSIX);
   assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace'), true);
   assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace/'), true, 'trailing sep');
@@ -133,10 +126,8 @@ test('two spellings of one directory are the same place', () => {
 });
 
 test('windows rules fold case, posix rules do not', () => {
-  // A path's case does not distinguish directories on Windows, and nothing in
-  // PathRules can tell darwin from linux - so POSIX compares exactly, which
-  // under-matches there. Under-matching is the safe direction for the caller:
-  // a marketplace it fails to recognise is re-added under its own name.
+  // PathRules cannot tell darwin from linux, so POSIX compares exactly - which
+  // under-matches on a case-insensitive macOS volume.
   const win = new DirectoryPath(`C:${SEP}Users${SEP}Dev${SEP}state`, WIN);
   assert.equal(win.samePlace(`c:${SEP}users${SEP}dev${SEP}state`), true);
 
@@ -144,6 +135,11 @@ test('windows rules fold case, posix rules do not', () => {
   assert.equal(posix.samePlace('/home/dev/state'), false);
 });
 
+/**
+ * Holding node's path namespace made `JSON.stringify` of a path throw, which at
+ * least failed loudly. Making the rules serializable removed that crash, so
+ * without a toJSON a payload would quietly get an object where it wanted a path.
+ */
 test('a path serializes to its string, not to its innards', () => {
   assert.equal(JSON.stringify(new DirectoryPath('/a/b', POSIX)), '"/a/b"');
   assert.equal(JSON.stringify(new FilePath('/a/b.json', POSIX)), '"/a/b.json"');

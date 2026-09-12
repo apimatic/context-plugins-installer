@@ -8,10 +8,6 @@ import { DomainEvent } from './domain-event.js';
 /**
  * One editor a plugin was actually removed from. A record this run corrected
  * without removing anything is not one of these: nothing left that machine.
- *
- * `plugin` is nullable because removing a plugin may say no more about it than
- * installing one did: a plugin that came from a directory is named by a folder
- * the user chose, and that name stays on their machine either way.
  */
 export class PluginUninstalledEvent extends DomainEvent {
   readonly name = 'Context Plugin Uninstalled';
@@ -20,10 +16,6 @@ export class PluginUninstalledEvent extends DomainEvent {
     private readonly plugin: PluginId | null,
     private readonly harness: HarnessName,
     private readonly marketplace: MarketplaceLabel,
-    /**
-     * Where the plugin came from, as a kind and never as a path or a
-     * repository: `marketplace`, or `local` for a directory on this machine.
-     */
     private readonly sourceKind: SourceKind,
   ) {
     super();

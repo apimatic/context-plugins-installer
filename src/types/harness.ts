@@ -157,12 +157,6 @@ export type HarnessListener = (event: HarnessEvent) => void;
 
 export interface HarnessContext {
   plugin: string;
-  /**
-   * Where the plugin's marketplace lives, and what Claude Code addresses it by.
-   * One value rather than the name and the repo as two fields: they travelled
-   * together through every layer, and nothing stopped the two from disagreeing.
-   * Named for what it holds, so no reader has to rename it to read it.
-   */
   origin: MarketplaceOrigin;
   /** Where the plugin's files are, for a harness whose install is a copy. */
   srcDir?: DirectoryPath | null;

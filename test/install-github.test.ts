@@ -30,18 +30,14 @@ import { cleanupAll, portsFor, silenceConsole, stubFetch, type StubRoute } from 
 
 test.after(cleanupAll);
 
-// Installing a plugin from a repository that is itself a plugin - the whole of
-// it, or a folder inside it - end to end over the sandboxed machine the rest of
-// the suite uses. The registry client is the real one over a stub fetch, so
-// what is asserted is which file this build asks GitHub for and what it does
-// with the answer.
+// Installing a plugin from a repository that is itself a plugin - the whole of it
+// or a folder inside it - with the real registry client over a stub fetch.
 
 const MARKET = 'acme/plugin-marketplace';
 const brand = () => brandFor(MARKET);
 
 const MANIFEST = '.claude-plugin/plugin.json';
 
-/** One checkout, as the fetcher was asked for it. */
 interface Fetched {
   repo: string;
   ref: string;
@@ -51,24 +47,14 @@ interface Fetched {
 interface GithubSpec {
   repo: string;
   ref?: string;
-  /** Where in the repository the plugin is; null is the repository itself. */
   path?: string | null;
-  /** What its manifest declares, or null for a repository that declares none. */
   manifest?: Record<string, unknown> | null;
-  /** Anything else the stub should answer, e.g. a marketplace registry. */
   routes?: Record<string, StubRoute>;
 }
 
-/**
- * A repository that declares a plugin, and a fetcher that hands over a
- * directory rather than cloning one - recording what it was asked to check
- * out, because which folder of which repository at which ref is exactly what
- * the `github` arm has to get right.
- */
 function githubWiring(spec: GithubSpec): {
   wiring: Wiring;
   fetched: Fetched[];
-  /** Every URL asked for, so a test can pin what precedes the trust question. */
   asked: string[];
 } {
   const { repo, ref = 'main', path: under = null, manifest = { name: 'my-sdk' } } = spec;
@@ -120,8 +106,6 @@ test('a repository that is itself a plugin is installed from its own root', asyn
 
   assert.deepEqual(report.targets, ['cursor', 'vscode']);
   assert.equal(report.ref, 'main');
-  // A null source path is the repository itself, which is the case the fetcher
-  // could not express before this phase.
   assert.deepEqual(fetched, [{ repo: 'acme/thing', ref: 'main', sourcePath: null }]);
   assert.ok(fs.existsSync(path.join(cursorDir(m, 'my-sdk'), 'plugin.json')));
 
@@ -223,8 +207,6 @@ test('a ref spelled after the repo wins over --ref, and the flag is not swallowe
 });
 
 test('installing into Claude Code fetches the files and stages them', async () => {
-  // Claude Code copies nothing itself, so before this phase a run that asked
-  // only for it fetched nothing - and there would have been nothing to stage.
   const m = claudeMachine();
   const { wiring, fetched } = githubWiring({ repo: 'acme/thing' });
 
@@ -340,9 +322,7 @@ test('declining the repository installs nothing and is not a failure', async () 
   assert.deepEqual(report.targets, []);
   assert.deepEqual(rowsOf(m), [], 'nothing recorded');
   assert.deepEqual(fetched, [], 'and none of its files fetched: the question comes first');
-  // One request did precede the question - the manifest, which is how the
-  // line above it names the plugin. That is the whole of what "before
-  // anything is fetched" means here, so it is pinned rather than implied.
+  // The one request is the manifest read, which is how the question names the plugin.
   assert.equal(asked.length, 1);
 });
 
@@ -366,8 +346,6 @@ test('telemetry reports the repository kind, and never the repository', async ()
   const installed = events.filter((e) => e.name === 'Context Plugin Installed');
   assert.equal(installed.length, 1);
   assert.equal(installed[0]?.properties.source_kind, 'github');
-  // Neither the repository nor the name it gave the plugin: the repository may
-  // be private, and its author's name for the plugin is not a public one.
   assert.equal(installed[0]?.properties.plugin, null);
   assert.equal(installed[0]?.properties.marketplace, 'custom');
   for (const event of events) {
@@ -434,8 +412,6 @@ test('uninstalling by its id finds the row a repository install keyed by slug', 
 
   assert.deepEqual(report.targets.sort(), ['claude', 'cursor']);
   assert.deepEqual(rowsOf(m), []);
-  // The last plugin out takes the generated marketplace with it, exactly as a
-  // path install's does - the staged copy was only ever Claude Code's way in.
   assert.ok(!fs.existsSync(localMarketplace(m.pathOpts).dir.toString()));
 });
 
@@ -493,8 +469,6 @@ test('update re-fetches a repository row at the ref its own row recorded', async
     ['updated'],
   );
   assert.deepEqual(report.failed, []);
-  // Rebuilt from the row's own key rather than from the run's flags: same
-  // repository, same folder, same ref, without the user re-typing any of them.
   assert.deepEqual(fetched, [
     { repo: 'acme/mono', ref: 'v2', sourcePath: 'tools/foo' },
     { repo: 'acme/mono', ref: 'v2', sourcePath: 'tools/foo' },
@@ -528,9 +502,7 @@ test('a repository row reports its kind and no id when it re-syncs', async () =>
 });
 
 test('a repository that is no longer readable fails its row, rather than reading as gone', async () => {
-  // The asymmetry with a path row, and it is deliberate: a 404 and an outage
-  // are not distinguishable from here, so "your plugin's source is gone" is
-  // not something this may say about a repository on a bad network day.
+  // Unlike a path row: a 404 and an upstream outage are not distinguishable from here.
   const m = machine();
   const { wiring } = githubWiring({ repo: 'acme/thing' });
   await quietly(() =>

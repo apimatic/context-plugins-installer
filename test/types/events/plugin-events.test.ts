@@ -38,11 +38,6 @@ test('an install reports the editor, the marketplace and how long it took', () =
   });
 });
 
-/**
- * A plugin installed from a directory is named by a folder the user chose,
- * which makes it their name rather than a public one. `PluginSource` is what
- * decides that - these events only have to be able to carry the answer.
- */
 test('a local install reports its kind and withholds the plugin name', () => {
   const event = new PluginInstalledEvent(null, 'cursor', custom, 'local', true, 5);
   assert.equal(event.properties().plugin, null);
@@ -63,8 +58,6 @@ test('a failed install reports the stage and the kind, and nothing else', () => 
 });
 
 test('a failure before the argument parsed reports no source kind either', () => {
-  // Neither an id nor a path: there is no source, so there is nothing true to
-  // say about where it would have come from.
   const event = new PluginInstallFailedEvent(null, builtIn, null, 'resolve', 'user');
   assert.equal(event.properties().source_kind, null);
 });
@@ -80,11 +73,6 @@ test('an uninstall reports one editor and the marketplace', () => {
   });
 });
 
-/**
- * Removing a plugin may say no more about it than installing one did. This is
- * the half that was missed when the rule arrived: the id was withheld on the
- * way in and sent on the way out, which made the printed inventory false.
- */
 test('a local uninstall withholds the folders plugin name too', () => {
   const event = new PluginUninstalledEvent(null, 'cursor', custom, 'local');
   assert.equal(event.properties().plugin, null);

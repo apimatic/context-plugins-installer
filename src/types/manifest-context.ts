@@ -80,18 +80,9 @@ export class ManifestContext {
   }
 
   /**
-   * The row an argument names and the key that writes it, in one read.
-   *
-   * A plugin installed from a directory or a repository is keyed by where it
-   * came from, and an id is what a user types to remove one - so when the
-   * configured key matches nothing, a row for the same id from one of those is
-   * what they meant. The configured key is tried first, so nothing about the
-   * spelling this program has always taken changes.
-   *
-   * Over the raw rows, not the read view: a row the view hides is exactly the
-   * one this has to reach. `['cursor','zed']` shortened by an earlier
-   * uninstall to `['zed']` is dropped from the view, and looking there would
-   * strand it - unremovable, and failing every `update`.
+   * The row an argument names and the key that writes it, in one read. Over the
+   * raw rows, not the read view: a row the view hides is exactly the one a
+   * caller still has to be able to reach.
    */
   locate(plugin: string, repo: string): { key: EntryKey; row: Record<string, unknown> | null } {
     const rows = this.store.readRaw().plugins;
@@ -132,9 +123,6 @@ export class ManifestContext {
       plugin,
       repo,
       marketplace,
-      // Omitted rather than written empty when there is none: `sanitizeEntry`
-      // reads an empty string as absent anyway, so writing one would put a key
-      // on disk that no reader can tell from a missing one.
       ...(ref === null ? {} : { ref }),
       targets: [
         ...NAMES.filter((n) => keep.has(n)), // canonical order

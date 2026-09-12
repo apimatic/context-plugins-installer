@@ -26,16 +26,13 @@ import { cleanupAll, silenceConsole, stubFetch, tmpDir } from './helpers.js';
 
 test.after(cleanupAll);
 
-// Installing a plugin from a directory, end to end over the sandboxed machine
-// the rest of the suite uses. The registry is deliberately the `registryOnly`
-// wiring: a local install must never read one, so a test that reaches for a
-// marketplace fails loudly here rather than passing on a stub.
+// Installing a plugin from a directory, end to end. The `registryOnly` wiring
+// carries no stub registry: a local install that reaches for one fails loudly.
 
 const REPO = 'acme/plugin-marketplace';
 const brand = () => brandFor(REPO);
 const wiring = () => registryOnly(stubFetch({}));
 
-/** A plugin folder as a developer would have it: its own manifest, its own files. */
 function pluginDir(name = 'my-sdk', over: Record<string, unknown> = {}): string {
   const dir = path.join(tmpDir('cp-dev-'), name);
   fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });
@@ -67,7 +64,6 @@ test('a directory is installed into the file-copying editors, with no registry r
   );
 
   assert.deepEqual(report.targets, ['cursor', 'vscode']);
-  // The id came from the manifest, not from the folder name or the argument.
   assert.equal(report.plugin?.toString(), 'my-sdk');
   assert.equal(report.marketplace, LOCAL_MARKETPLACE);
   assert.equal(report.ref, null, 'a directory has no ref to report');
@@ -85,10 +81,7 @@ test('a directory is installed into the file-copying editors, with no registry r
 
 test('the id comes from the manifest, whatever the folder is called', async () => {
   const m = machine();
-  // A folder named one thing, a plugin calling itself another: Claude Code files
-  // it under the manifest's name, so that is the one everything else must use.
-  // The space is deliberate - this file runs on the Windows matrix too, and a
-  // path with one in it is what reaches every copy, join and spawn below.
+  // The space in the folder name is load-bearing - this suite runs on Windows too.
   const dir = pluginDir('folder name', { name: 'declared-name' });
 
   const report = await quietly(() =>
@@ -149,9 +142,6 @@ test('a relative path resolves against the cwd the run was given', async () => {
 });
 
 test('nothing is staged for Claude Code when Claude Code is not a target', async () => {
-  // Staging is a directory copy and a registry rewrite. A run that never
-  // installs into Claude Code must not leave a marketplace behind holding a
-  // plugin it never got.
   const m = machine();
   await quietly(() =>
     installPlugin({
@@ -195,9 +185,8 @@ test('installing into Claude Code stages the plugin and addresses the generated 
     { name: 'my-sdk', source: './plugins/my-sdk', description: 'A plugin from a folder' },
   ]);
 
-  // The marketplace is added as the directory, and the plugin removed before
-  // being installed - Claude caches by the version its manifest declares, so an
-  // edited plugin whose version did not move would otherwise copy nothing.
+  // Claude caches by the version the manifest declares, so an edited plugin whose
+  // version did not move needs the removal to copy anything.
   assert.ok(
     calls.some((c) => c === `plugin marketplace add ${root}`),
     `expected the directory to be added, got: ${calls.join(' | ')}`,
@@ -305,7 +294,6 @@ test('telemetry reports the kind and withholds the folders plugin name', async (
   assert.equal(installed[0]?.properties.source_kind, 'local');
   assert.equal(installed[0]?.properties.plugin, null, 'a local plugin id stays on the machine');
   assert.equal(installed[0]?.properties.marketplace, 'custom');
-  // And nothing anywhere in the payload is the path.
   for (const event of events) {
     for (const value of Object.values(event.properties)) {
       assert.ok(
@@ -317,8 +305,6 @@ test('telemetry reports the kind and withholds the folders plugin name', async (
 });
 
 test('a marketplace install still reports its id and its kind', async () => {
-  // The other half of the same contract: nothing about the spelling this
-  // program has always taken changes.
   const m = machine();
   const events: Tracked[] = [];
   const srcDir = pluginDir('market-sdk');
@@ -341,8 +327,6 @@ test('a marketplace install still reports its id and its kind', async () => {
 });
 
 test('uninstalling by its id finds the row a directory install keyed by path', () => {
-  // What a user types to remove one is the plugin's name, not the folder it came
-  // from - and the row is keyed by the folder, so an id alone would miss it.
   return quietly(async () => {
     const m = machine();
     const dir = pluginDir();
@@ -445,7 +429,6 @@ test('update re-syncs a path row from the folder it was installed from', () => {
       wiring: wiring(),
     });
 
-    // What a developer does between two updates.
     fs.writeFileSync(path.join(dir, 'skills', 'thing', 'NEW.md'), '# added since');
     fs.rmSync(path.join(dir, 'skills', 'thing', 'SKILL.md'));
 
@@ -458,8 +441,6 @@ test('update re-syncs a path row from the folder it was installed from', () => {
     assert.deepEqual(report.updated, ['my-sdk']);
     const installed = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local', 'my-sdk');
     assert.ok(fs.existsSync(path.join(installed, 'skills', 'thing', 'NEW.md')), 'the new file');
-    // Wholesale, like every other install: a shrinking plugin leaves no
-    // orphans behind, which is the reason `replaceDir` exists.
     assert.ok(!fs.existsSync(path.join(installed, 'skills', 'thing', 'SKILL.md')));
   });
 });
@@ -486,9 +467,6 @@ test('a path row whose folder is gone is reported, and never fails the run', () 
       con.restore();
     }
 
-    // The whole reason this arm exists: moving a plugin folder is an ordinary
-    // day, and a row that fails every `update` for ever is what the other
-    // three outcomes would have made of it.
     assert.deepEqual(report.rows, [
       {
         outcome: 'unavailable',
@@ -498,8 +476,7 @@ test('a path row whose folder is gone is reported, and never fails the run', () 
     ]);
     assert.deepEqual(report.failed, [], 'exit 0');
     assert.match(flat(con), /the folder it was installed from is gone - install it again/);
-    // And the row stays: the copy in the editor is still there, so forgetting
-    // it would strand exactly what `uninstall` is for.
+    // The row stays: the editor's copy of the plugin is still there.
     assert.equal(rowsOf(m).length, 1);
   });
 });
@@ -554,15 +531,11 @@ test('a row whose folder is gone sends nothing at all', () => {
       sink: sinkInto(events),
     });
 
-    // Nothing reached an install, and the reason names a directory - which is
-    // the one thing that may never leave the machine.
     assert.deepEqual(events, []);
   });
 });
 
 test('the last path plugin out deregisters the generated marketplace', () => {
-  // Deleting the directory without telling Claude Code leaves a row in
-  // `claude plugin marketplace list` pointing at somewhere that is not there.
   return quietly(async () => {
     const m = claudeMachine();
     await installPlugin({
@@ -621,8 +594,6 @@ test('a path plugin that is not the last one leaves the marketplace registered',
 });
 
 test('uninstall telemetry withholds the folders plugin name too', () => {
-  // The half that was missed when the rule arrived: the id was withheld on the
-  // way in and sent on the way out, which made the printed inventory false.
   return quietly(async () => {
     const m = machine();
     const events: Tracked[] = [];
@@ -653,9 +624,7 @@ test('uninstall telemetry withholds the folders plugin name too', () => {
 });
 
 test('a path row the read view hides is still reachable by uninstall', () => {
-  // `['cursor','zed']` shortened by an earlier uninstall to `['zed']` is dropped
-  // from the sanitized view. Looking for the row there would strand it:
-  // unremovable, and reported by every `update` for ever.
+  // A row naming only 'zed' is dropped from the sanitized read view.
   return quietly(async () => {
     const m = machine();
     const file = paths.manifestPath(m.pathOpts).toString();
@@ -689,10 +658,6 @@ test('a path row the read view hides is still reachable by uninstall', () => {
 });
 
 test('the repository a developer works in is not installed along with the plugin', () => {
-  // The ordinary case, not an exotic one: a plugin folder is a git checkout,
-  // so `install ./my-plugin` used to copy the full history and the origin URL
-  // into the editor's plugin directory. The same rule covers a repository that
-  // is itself a plugin, where the clone directory *is* the source.
   return quietly(async () => {
     const m = machine();
     const dir = pluginDir();
@@ -715,9 +680,6 @@ test('the repository a developer works in is not installed along with the plugin
 });
 
 test('a hand-edited row this build cannot address is reported, not fatal', () => {
-  // `recordInstall` only ever writes a validated id, so a hand edit is the one
-  // way here - and the record is a file a user can open. Still not a reason to
-  // fail every `update` for ever.
   return quietly(async () => {
     const m = machine();
     const file = paths.manifestPath(m.pathOpts).toString();
@@ -750,10 +712,6 @@ test('a hand-edited row this build cannot address is reported, not fatal', () =>
 });
 
 test('a plugin that renames itself is not left silently installed twice', () => {
-  // The record is keyed by name as well as by source, so the new name installs
-  // beside the old rather than replacing it - and the old copy stays loaded by
-  // the editor. `update` made that reachable without anyone asking for it, so
-  // it says so.
   return quietly(async () => {
     const m = machine();
     const dir = pluginDir();
@@ -780,8 +738,6 @@ test('a plugin that renames itself is not left silently installed twice', () => 
 
     assert.match(flat(con), /now calls itself 'renamed-sdk'/);
     assert.match(flat(con), /uninstall 'my-sdk'/);
-    // Both are on disk and both are on the record, which is exactly why the
-    // line above has to exist: neither is this command's to remove.
     const local = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local');
     assert.deepEqual(fs.readdirSync(local).sort(), ['my-sdk', 'renamed-sdk']);
     assert.equal(rowsOf(m).length, 2);

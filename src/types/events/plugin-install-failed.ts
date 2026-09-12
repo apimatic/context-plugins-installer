@@ -19,10 +19,6 @@ export class PluginInstallFailedEvent extends DomainEvent {
   constructor(
     private readonly plugin: PluginId | null,
     private readonly marketplace: MarketplaceLabel,
-    /**
-     * Where the plugin came from, as a kind and never as a path or a repository:
-     * `marketplace`, or `local` for a directory on this machine.
-     */
     private readonly sourceKind: SourceKind | null,
     private readonly stage: InstallStage | null,
     private readonly errorKind: ErrorKind,

@@ -113,11 +113,6 @@ interface SparseRequest {
   notify?: MarketplaceListener;
 }
 
-/**
- * What was asked for, as a message names it. A `null` path is the repository
- * itself, which is what a repo that *is* a plugin checks out - there is no
- * folder to name, and "plugin folder '' is empty" names nothing.
- */
 const nothingThere = (repo: string, ref: string, sourcePath: string | null): Failure =>
   new Failure(
     sourcePath === null
@@ -125,7 +120,6 @@ const nothingThere = (repo: string, ref: string, sourcePath: string | null): Fai
       : `Plugin folder '${sourcePath}' is empty or missing in ${repo}@${ref}.`,
   );
 
-/** A checkout that is on disk, counted and announced - or why it is not there. */
 function present(
   dir: string,
   {
@@ -140,12 +134,8 @@ function present(
   return ok(dir);
 }
 
-/**
- * Fill the working tree, for a repository that is itself the plugin. The clone
- * is made `--sparse`, which checks out the top level and nothing else, and
- * `sparse-checkout add ''` is not a way to ask for everything - so sparse
- * checkout is turned off instead, and the clone directory is the checkout.
- */
+// The clone is `--sparse` and `sparse-checkout add ''` is an error, so a
+// whole-repo checkout turns sparse off instead.
 export async function disableSparse(
   { git, clone }: { git: string; clone: string },
   { run }: ProcessRunner,
@@ -242,7 +232,7 @@ export async function fetchTree(
 interface DownloadRequest {
   repo: string;
   ref: string;
-  /** `null` takes every blob in the repository: the repo is itself the plugin. */
+  /** `null` is the repository itself. */
   sourcePath: string | null;
   notify?: MarketplaceListener;
   tree: GitTree;
@@ -257,7 +247,6 @@ export async function downloadPath(
   const under = sourcePath === null ? [] : sourcePath.split('/');
   const dest = new DirectoryPath(ensureDir(path.join(work, 'files', ...under)));
 
-  // An empty prefix matches every blob, which is exactly the repository itself.
   const prefix = sourcePath === null ? '' : `${sourcePath}/`;
   const blobs = tree.tree.filter((n) => n.type === 'blob' && n.path.startsWith(prefix));
   if (!blobs.length) {
@@ -333,10 +322,8 @@ export async function openRepo(
 
   if (git) {
     let cloning: Promise<Result<string, Failure>> | null = null;
-    // Whether the working tree holds the whole repository. Once it does, a
-    // later `sparse-checkout add` would narrow it again and take files out from
-    // under a directory this handle has already answered with - so from then on
-    // a folder is simply read off the tree that is there.
+    // Once the whole repo is checked out, a later `sparse-checkout add` would
+    // narrow it again, taking files from under a directory already handed out.
     let full = false;
     return {
       via: 'git',
@@ -355,9 +342,7 @@ export async function openRepo(
           if (!off.ok) return err(off.error);
           full = true;
         }
-        // The first half of the condition is redundant after the block above,
-        // which sets `full` for exactly that case. It is written anyway so the
-        // compiler can see that the other arm has a folder to add.
+        // The null check is redundant here, but it narrows the other arm.
         const dir =
           sourcePath === null || full
             ? present(path.join(clone.value, ...(sourcePath?.split('/') ?? [])), {

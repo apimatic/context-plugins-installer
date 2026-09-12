@@ -235,7 +235,6 @@ export interface PluginManifestRequest {
   notify?: MarketplaceListener;
 }
 
-/** Whether the repository declares a marketplace registry at its root. */
 async function isMarketplace(
   slug: RepoSlug,
   ref: string,
@@ -249,21 +248,6 @@ async function isMarketplace(
   return false;
 }
 
-/**
- * The plugin a repository - or a folder inside one - declares itself to be.
- * The same three manifest locations `infrastructure/local-plugin.ts` probes on
- * disk, read here over the two hosts that can serve them, so a raw CDN outage
- * fails a `github` install no more often than it fails a marketplace one. A
- * file that exists but cannot be used is remembered rather than skipped
- * silently, for the reason it is there: "no plugin manifest" is a useless
- * answer when `.claude-plugin/plugin.json` is sitting in the repository with a
- * name this build cannot accept.
- *
- * Pointing at a marketplace and spelling it as a plugin is the one wrong turn
- * worth its own answer, because the repository *is* installable - just through
- * `--repo`. That probe costs two requests and only happens once nothing else
- * worked, so the ordinary install still reads one file.
- */
 export async function readPluginManifest(
   { repo, ref, path, notify = nothing }: PluginManifestRequest,
   ports: HttpPorts,

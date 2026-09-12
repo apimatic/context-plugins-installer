@@ -84,8 +84,6 @@ export function resolvePlugin(
   }
 
   // Otherwise the failure surfaces later as a bare "plugin not found" from claude.
-  // The validated value is kept rather than discarded: it is what the origin
-  // below is built from, so nothing downstream re-checks the pattern.
   const name = MarketplaceName.create(resolvedMarketplace);
   if (!name) {
     return err(
@@ -101,9 +99,6 @@ export function resolvePlugin(
 
   return ok({
     plugin,
-    // Both halves of the address in one value: every check above has already
-    // run, so this is the one point at which a name and its repository are
-    // known together and can stop being two fields that travel side by side.
     origin: RepoMarketplace.named(repo, name),
     ref,
     sourcePath: sourcePath.value,

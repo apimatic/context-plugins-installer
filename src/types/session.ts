@@ -44,11 +44,6 @@ export interface Session {
    */
   marketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
   catalog(args: { repo: string; ref: string }): Promise<Result<Catalog | null, Failure>>;
-  /**
-   * The manifest of a repository that is itself a plugin, beside `catalog` for
-   * the reason that is here: it is a read of one repository at one ref, and a
-   * run may want it more than once.
-   */
   manifest(args: {
     repo: string;
     ref: string;

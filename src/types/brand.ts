@@ -12,13 +12,7 @@ import type { PluginSource } from './plugin-source.js';
  */
 export const BIN = 'context-plugins';
 
-/**
- * The marketplace this tool generates for plugins installed from a path, and
- * registers with Claude Code as a directory. One name however many such plugins
- * are installed, so `claude plugin marketplace list` gains a single row - and
- * spelled so it cannot collide with a marketplace a user added by hand, since
- * a same-named entry from elsewhere is refused rather than installed into.
- */
+/** The one generated marketplace every plugin installed from a path is filed under. */
 export const LOCAL_MARKETPLACE = 'context-plugins-local';
 
 /**
@@ -41,23 +35,10 @@ export class MarketplaceLabel {
     );
   }
 
-  /**
-   * A run that did not install from a marketplace at all. `of` would read the
-   * configured `brand.repo` - which for a plugin installed from a path is
-   * whatever the default happens to be, and naming the built-in marketplace for
-   * an install that never touched it is worse than saying nothing precise.
-   */
   static custom(): MarketplaceLabel {
     return new MarketplaceLabel('custom');
   }
 
-  /**
-   * What a run about this source may call its marketplace. Here rather than in
-   * each command, because both of them ask it and a second copy is a second
-   * chance to answer `of` for a plugin that came from a directory. A source
-   * this build could not parse leaves the run about the configured marketplace
-   * as far as it got, which is what `of` answers.
-   */
   static forSource(
     source: PluginSource | null,
     brand: Pick<Brand, 'repo' | 'telemetry'>,

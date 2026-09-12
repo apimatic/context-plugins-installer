@@ -15,11 +15,6 @@ import {
 } from '../../src/types/plugin-source.js';
 import type { Result } from '../../src/types/result.js';
 
-// The parser is pure and the whole point of it is which of two shapes an
-// argument is, so it is asserted as a table over every spelling rather than
-// through an install. Both platforms' rules are driven from here, which is what
-// lets a Windows path be asserted from a Linux runner.
-
 const POSIX = { cwd: '/work/proj', home: '/home/dev', rules: rulesFor('linux') };
 const WIN = { cwd: 'C:\\work\\proj', home: 'C:\\Users\\dev', rules: rulesFor('win32') };
 const MARKET = { repo: 'acme/plugin-marketplace', ref: 'main' };
@@ -47,8 +42,6 @@ test('a kebab-case id is a marketplace source, and carries the runs repo and ref
 });
 
 test('the id is tried first, so nothing this program already took changes meaning', () => {
-  // The guarantee the ordering exists for: every spelling that worked before
-  // still resolves to the marketplace arm and nothing else.
   for (const id of ['paypal', 'maxio', 'google-maps', 'a1', 'acme-payments-sdk']) {
     assert.equal(value(parse(id)).kind, 'marketplace', id);
   }
@@ -70,8 +63,6 @@ test('a tilde is expanded against the given home, not the real one', () => {
 });
 
 test('a name merely starting with a tilde is not a home path', () => {
-  // `~plugin` has no separator after the tilde, so it is a directory called
-  // `~plugin` in the cwd rather than something under the user's home.
   assert.equal(local('~plugin'), '/work/proj/~plugin');
 });
 
@@ -88,9 +79,6 @@ test('a path with spaces is a path, not a rejected id', () => {
 });
 
 test('anything that is neither an id, a path nor a repo keeps the ids own failure', () => {
-  // A typo reads as a typo. `acme/repo` used to be in this list and is a
-  // source now, which is the one meaning phase 3 changed - and only for a
-  // spelling that was refused outright before.
   for (const spec of ['Not An Id', 'UPPER', '', 'trailing-', undefined, 42]) {
     const result = parse(spec);
     assert.equal(result.ok, false, `expected ${JSON.stringify(spec)} to be refused`);
@@ -101,14 +89,10 @@ test('anything that is neither an id, a path nor a repo keeps the ids own failur
 test('the manifest key is the repo for a marketplace source and prefixed for a local one', () => {
   assert.equal(value(parse('paypal')).key(), 'acme/plugin-marketplace');
   assert.equal(value(parse('/opt/x')).key(), 'local:/opt/x');
-  // The prefix is what makes the two spaces disjoint: no slug can start `local:`.
   assert.notEqual(value(parse('/opt/x')).key(), value(parse('paypal')).key());
 });
 
 test('only a plugin the marketplace lists lets its name leave the machine', () => {
-  // A plugin installed from a path or a repository is named by its own author,
-  // and a repository the user named is the same class of thing as the `--repo`
-  // this program already refuses to send.
   assert.equal(value(parse('paypal')).reportableId()?.toString(), 'paypal');
   assert.equal(value(parse('./private-thing')).reportableId(), null);
   assert.equal(value(parse('acme/private-repo')).reportableId(), null);
@@ -140,8 +124,6 @@ test('a folder after the repo is a plugin inside it', () => {
 test('an inline ref wins over the runs, and may hold a slash', () => {
   assert.equal(shape('acme/my-plugin@v1.2').ref, 'v1.2');
   assert.equal(shape('acme/mono/tools/foo@v1.2').ref, 'v1.2');
-  // Split at the last `@` rather than matched, because `release/1.0` is a
-  // branch name a user will type and a single-segment pattern refuses it.
   assert.deepEqual(shape('acme/x@release/1.0'), {
     repo: 'acme/x',
     ref: 'release/1.0',
@@ -162,23 +144,17 @@ test('the spellings github itself hands out all parse', () => {
     ref: 'main',
     path: null,
   });
-  // What `git clone` prints, `.git` and all.
   assert.deepEqual(shape('git@github.com:acme/x.git'), { repo: 'acme/x', ref: 'main', path: null });
 });
 
 test('a path beats a repository, so a relative folder is never read as a slug', () => {
-  // The reason `acme/repo` is a repository and `./acme/repo` is not: one of
-  // the two spellings has to be the path, and a leading `.` is the one thing
-  // no repository slug can start with.
   assert.equal(local('./acme/repo'), '/work/proj/acme/repo');
   assert.equal(value(parse('acme/repo')).kind, 'github');
 });
 
 test('a folder inside a repository is validated the way a ref and an id are', () => {
-  // It reaches `git sparse-checkout add` as argv and a raw.githubusercontent
-  // URL as a path, so the two things that change meaning there are refused
-  // where they enter: a leading `-` reads as an option, and a `?` or `#`
-  // truncates the URL - which would read some other file as the manifest.
+  // The folder reaches `git sparse-checkout add` as argv and a
+  // raw.githubusercontent URL as a path: `-` reads as an option, `?`/`#` truncate.
   for (const spec of [
     'acme/mono/--upload-pack=evil',
     'acme/mono/-x',
@@ -191,7 +167,6 @@ test('a folder inside a repository is validated the way a ref and an id are', ()
     assert.equal(result.ok, false, `expected ${spec} to be refused`);
     if (!result.ok) assert.match(result.error.message, /is not a usable folder name/);
   }
-  // And the ordinary spellings still pass.
   assert.equal(shape('acme/mono/tools/my-plugin.v2/_inner').path, 'tools/my-plugin.v2/_inner');
 });
 
@@ -226,8 +201,6 @@ test('a recorded key restores as the source it was written from', () => {
 });
 
 test('a key this build cannot read restores as a marketplace row, never as nothing', () => {
-  // The invariant a row depends on: uninstall has to be able to reach every
-  // row, so an odd-looking key is the oldest kind rather than an error.
   const odd = restoreSource('Acme/Weird-Repo', { plugin: new PluginId('my-sdk'), ref: 'main' });
   assert.equal(odd.kind, 'marketplace');
   assert.equal(odd.key(), 'Acme/Weird-Repo');

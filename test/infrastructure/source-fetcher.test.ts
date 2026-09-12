@@ -476,14 +476,8 @@ test('pool preserves input order regardless of completion order', async () => {
   assert.deepEqual(results, items);
 });
 
-/**
- * A `git` on PATH and a fake behind it that builds the working tree the real
- * one would: a `--sparse` clone holds the top level and nothing else, `add`
- * fills in one folder, and `disable` fills in the rest. Recording the argv is
- * the point - what this phase changed is which commands are run, and a test
- * that only asserted the directory came back would pass with the sparse
- * checkout narrowed right back down again.
- */
+// A fake `git` building the tree the real one would: a `--sparse` clone holds the
+// top level, `add` fills in one folder, and `disable` fills in the rest.
 function fakeGit(): { ports: SourcePorts; argv: string[][] } {
   const bin = tmpDir('cp-git-');
   fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\n');
@@ -499,8 +493,7 @@ function fakeGit(): { ports: SourcePorts; argv: string[][] } {
     argv.push(args);
     if (args[0] === 'clone') {
       const clone = args[args.length - 1] as string;
-      // Including the `.git` a real clone leaves behind, which is the whole
-      // difference between a checkout of a folder and one of a repository.
+      // A real clone leaves a `.git` behind.
       fs.mkdirSync(path.join(clone, '.git', 'objects'), { recursive: true });
       fs.writeFileSync(path.join(clone, '.git', 'config'), '[remote "origin"]');
       fs.writeFileSync(path.join(clone, '.git', 'objects', 'pack'), 'blob');
@@ -518,9 +511,7 @@ const sparseCalls = (argv: string[][]): string[][] =>
   argv.filter((a) => a[2] === 'sparse-checkout');
 
 test('a repository that is itself the plugin checks the whole tree out', async () => {
-  // `sparse-checkout add ''` is not a way to ask for everything - it is an
-  // error - so the clone's own sparseness is turned off instead and the clone
-  // directory is the checkout.
+  // `git sparse-checkout add ''` is an error, not a way to ask for everything.
   const { ports, argv } = fakeGit();
   const handle = await openRepo({ repo: REPO, ref: 'main' }, ports);
   try {
@@ -538,9 +529,8 @@ test('a repository that is itself the plugin checks the whole tree out', async (
 });
 
 test('a folder checked out after the whole repository is read, not narrowed back down', async () => {
-  // `sparse-checkout add` after a `disable` re-narrows the working tree, which
-  // would delete files out from under the directory the first checkout handed
-  // back. Once the tree is whole, a folder is just a path into it.
+  // `sparse-checkout add` after a `disable` re-narrows the tree, deleting files out
+  // from under the directory the first checkout handed back.
   const { ports, argv } = fakeGit();
   const handle = await openRepo({ repo: REPO, ref: 'main' }, ports);
   try {
@@ -593,8 +583,6 @@ test('the API route takes every blob when the repository is the plugin', async (
   try {
     const dir = await handle.checkout(null);
     assert.ok(dir.ok, dir.ok ? '' : dir.error.message);
-    // Laid out as the repository is, with no folder stripped off the front:
-    // an empty prefix is what makes the whole tree the plugin.
     assert.ok(fs.existsSync(dir.value.file('.claude-plugin', 'plugin.json').toString()));
     assert.ok(fs.existsSync(dir.value.file('skills', 'thing', 'SKILL.md').toString()));
   } finally {
@@ -615,9 +603,7 @@ test('a repository with no files says so without naming a folder that does not e
 });
 
 test('a whole-repository checkout counts the plugins files, not the clones', async () => {
-  // `plugin.json` and the one file `disable` fills in - not the three-file
-  // `.git` beside them, which is not part of the plugin and must not be
-  // reported as though a user were getting it.
+  // `plugin.json` and the one file `disable` fills in - not the three-file `.git`.
   const { ports } = fakeGit();
   const { events, notify } = recorder();
   const handle = await openRepo({ repo: REPO, ref: 'main', notify }, ports);
@@ -634,12 +620,8 @@ test('a whole-repository checkout counts the plugins files, not the clones', asy
 });
 
 test('pinning the temp root puts the environment back, unset included', () => {
-  // The bug the helper exists for, and the reason six tests failed on the
-  // ubuntu matrix alone: `process.env.X = undefined` stores the *string*
-  // "undefined", so a variable that was never set came back set - and
-  // `os.tmpdir()` then answered with a directory that does not exist for
-  // every later test in the process. Linux is where it bit because it is the
-  // platform that leaves TMPDIR unset.
+  // `process.env.X = undefined` stores the *string* "undefined", so a variable that
+  // was never set comes back set and `os.tmpdir()` answers with a missing directory.
   const had = process.env.TMPDIR;
   delete process.env.TMPDIR;
   try {

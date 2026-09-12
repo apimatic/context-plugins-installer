@@ -236,12 +236,7 @@ export function withClaude(m: Machine) {
   };
 }
 
-/**
- * A machine with a `claude` that answers every call, and a record of what was
- * asked of it. `withClaude` above refuses anything but a listing, which is
- * right for the tests that assert a skip and wrong for the ones where the
- * install has to get all the way through.
- */
+/** Unlike `withClaude`, this fake answers every call, not just a listing. */
 export type ClaudeMachine = ReturnType<typeof withClaude> & { calls: string[] };
 
 export function claudeMachine(): ClaudeMachine {
@@ -252,8 +247,6 @@ export function claudeMachine(): ClaudeMachine {
     run: async (_file: string, args: string[]) => {
       const line = args.join(' ');
       calls.push(line);
-      // Nothing registered and nothing installed, so every question is a clean
-      // "not here" and every command succeeds.
       if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
       if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
       return { code: 0, stdout: '', stderr: '' };

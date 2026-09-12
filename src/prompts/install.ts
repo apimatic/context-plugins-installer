@@ -40,16 +40,11 @@ export class InstallPrompts {
 
   readonly harnessListener: HarnessListener = (event) => harnessListener(this.home)(event);
 
-  /** Where the plugin is coming from, as the banner says it. */
   private origin(brand: Brand, ref: string | null, source: PluginSource): string {
     if (source.kind !== 'marketplace') return this.where(source);
     return ref && ref !== 'main' ? `${brand.label} (${ref})` : brand.label;
   }
 
-  /**
-   * A source the user named, as they would recognise it: a directory shortened
-   * against home, or the repository, folder and ref that were asked for.
-   */
   private where(source: UntrustedSource): string {
     return source.kind === 'local' ? f.path(source.dir, this.home) : source.toString();
   }
@@ -69,18 +64,6 @@ export class InstallPrompts {
     log.step('[Harnesses]');
   }
 
-  /**
-   * Whether to install from a source this program was not shipped pointing at.
-   * Asked before any of the plugin's files are fetched or copied, because a
-   * plugin from an arbitrary directory or repository can carry hooks and MCP
-   * servers that run commands. Not before *every* request: a repository's own
-   * manifest is read first, which is what lets this name the plugin rather
-   * than only the place it would come from.
-   *
-   * `assumed` covers both ways of having already answered - `--yes`, and a shell
-   * with nobody in it. The line is still printed in that case: the source is
-   * exactly what a run doing this unattended should say out loud.
-   */
   async confirmSource(source: UntrustedSource, assumed: boolean): Promise<boolean | 'cancelled'> {
     const where = this.where(source);
     log.warn(`This installs a plugin from ${where}, not from ${TITLES.claude}'s marketplace.`);
@@ -96,16 +79,10 @@ export class InstallPrompts {
     }
   }
 
-  /**
-   * A `--ref` the spec itself overrode. Said rather than swallowed: a flag
-   * that quietly did nothing is the one thing that reads as the user having
-   * chosen what happened.
-   */
   refIgnored(flag: string, used: string): void {
     log.warn(`Using ref '${used}' from the plugin spec - --ref ${flag} was not used.`);
   }
 
-  /** The source was declined, which is not the same as choosing no editor. */
   nothingTrusted(): void {
     log.plain('');
     log.warn('Not installed - the source was not confirmed.');

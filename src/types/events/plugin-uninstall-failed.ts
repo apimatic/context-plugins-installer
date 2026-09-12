@@ -16,11 +16,6 @@ export class PluginUninstallFailedEvent extends DomainEvent {
   constructor(
     private readonly plugin: PluginId | null,
     private readonly marketplace: MarketplaceLabel,
-    /**
-     * Where the plugin came from, as a kind and never as a path or a
-     * repository. On both failure arms for the reason `stage` is: they are one
-     * funnel, and a property missing from one arm cannot be grouped by.
-     */
     private readonly sourceKind: SourceKind | null,
     private readonly errorKind: ErrorKind,
   ) {

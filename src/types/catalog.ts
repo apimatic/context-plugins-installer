@@ -24,11 +24,6 @@ export interface Catalog {
 
 export interface ResolvedPlugin {
   plugin: string;
-  /**
-   * Where its marketplace lives, and what Claude Code addresses it by. Named,
-   * as a type rather than as a promise in a comment: `resolvePlugin` fails
-   * before it can answer without a name, so no reader has to allow for one.
-   */
   origin: NamedMarketplace;
   ref: string;
   sourcePath: string;

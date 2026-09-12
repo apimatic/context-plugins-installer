@@ -22,14 +22,6 @@ export class UpdateCommand {
     return result;
   }
 
-  /**
-   * Which events one row is worth, decided by its shape alone. The three silent
-   * arms are silent for different reasons: a row this build cannot read is a
-   * record problem rather than an install that failed, a row whose source is
-   * gone never reached an install to report on - and its reason names a
-   * directory, which may not leave the machine either way - and a row with no
-   * editor on this machine was asked nothing at all.
-   */
   private report(row: UpdatedRow): void {
     switch (row.outcome) {
       case 'updated': {

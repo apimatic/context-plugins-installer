@@ -459,10 +459,6 @@ test('a body that is not JSON at all names the file it came from', async () => {
   assert.match(result.ok ? '' : result.error.message, /is not valid JSON/);
 });
 
-// A repository that is itself a plugin, read over the same two hosts. The probe
-// order is the manifest type's; what is asserted here is which files are asked
-// for, in which folder, and which of the ways it can go wrong is reported.
-
 const CLAUDE_MANIFEST = '.claude-plugin/plugin.json';
 
 const manifest = (routes: Record<string, StubRoute>, path: string | null = null) =>
@@ -489,8 +485,6 @@ test('a folder inside a repository is read from that folder', async () => {
   );
   assert.ok(result.ok, result.ok ? '' : result.error.message);
   assert.equal(result.value.id.toString(), 'foo');
-  // The repository root is never read for a folder install: a monorepo's own
-  // top-level manifest is not the plugin that was asked for.
   assert.ok(!fetchImpl.calls.includes(rawUrl(REPO, 'main', CLAUDE_MANIFEST)));
 });
 
@@ -507,8 +501,6 @@ test('the other two manifest locations are tried, in order', async () => {
 });
 
 test('a manifest that is there but unusable is the answer, not a missing one', async () => {
-  // The failure this avoids: "does not look like a plugin" about a repository
-  // whose plugin.json is sitting right there with a name this build refuses.
   const result = await manifest({
     [rawUrl(REPO, 'main', CLAUDE_MANIFEST)]: { body: { name: 'Not An Id' } },
   });
@@ -520,8 +512,6 @@ test('a manifest that is there but unusable is the answer, not a missing one', a
 });
 
 test('a repository that is a marketplace says so, rather than only what is missing', async () => {
-  // Pointing at a marketplace and spelling it as a plugin is the one wrong
-  // turn where the repository really is installable - through --repo.
   const result = await manifest({
     [rawUrl(REPO, 'main', CLAUDE_FILE)]: { body: registry() },
   });
@@ -555,8 +545,6 @@ test('the marketplace probe only runs once nothing else worked', async () => {
 });
 
 test('a manifest the raw CDN cannot serve comes from the API instead', async () => {
-  // The fallback is inherited rather than re-implemented, which is the reason
-  // this read lives beside the registry read at all.
   const api = new RepoSlug(REPO).contentsUrl('main', CLAUDE_MANIFEST);
   const result = await manifest({
     [rawUrl(REPO, 'main', CLAUDE_MANIFEST)]: { status: 503 },
