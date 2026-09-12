@@ -87,7 +87,9 @@ test('the id comes from the manifest, whatever the folder is called', async () =
   const m = machine();
   // A folder named one thing, a plugin calling itself another: Claude Code files
   // it under the manifest's name, so that is the one everything else must use.
-  const dir = pluginDir('folder-name', { name: 'declared-name' });
+  // The space is deliberate - this file runs on the Windows matrix too, and a
+  // path with one in it is what reaches every copy, join and spawn below.
+  const dir = pluginDir('folder name', { name: 'declared-name' });
 
   const report = await quietly(() =>
     installPlugin({
