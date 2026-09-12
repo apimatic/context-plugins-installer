@@ -226,3 +226,29 @@ export const portsFor = (
   env: Env = {},
   run: RunCommand = realRun,
 ): SourcePorts => ({ fetch, env, runner: runnerFor(run, env) });
+
+/**
+ * Point the temp root somewhere a test can count, and put the environment back
+ * afterwards - *back*, which for a variable that was not set means deleting it
+ * rather than assigning `undefined`. `process.env.X = undefined` stores the
+ * string `"undefined"`, and from then on `os.tmpdir()` answers with a directory
+ * called `undefined` that does not exist, so every later test in that process
+ * fails on `mkdtemp`.
+ *
+ * Not a theoretical case: Linux leaves `TMPDIR` unset where macOS and Windows
+ * do not, so two tests that restored it by assignment poisoned the whole
+ * process on the ubuntu matrix alone - and only once a test that came *after*
+ * them wanted a temp directory. It went unnoticed because for a long time
+ * nothing did.
+ */
+export function pinTempRoot(root: string): () => void {
+  const keys = ['TMPDIR', 'TEMP', 'TMP'] as const;
+  const saved = keys.map((k) => [k, process.env[k]] as const);
+  for (const key of keys) process.env[key] = root;
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}

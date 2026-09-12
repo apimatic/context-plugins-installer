@@ -20,7 +20,15 @@ import type {
 } from '../../src/types/ports.js';
 import { ok } from '../../src/types/result.js';
 import type { MarketplaceEvent, MarketplaceListener, Session } from '../../src/types/session.js';
-import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
+import {
+  cleanupAll,
+  pinTempRoot,
+  portsFor,
+  runnerFor,
+  silenceConsole,
+  stubFetch,
+  tmpDir,
+} from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -201,10 +209,7 @@ test('a session opens each repo workspace once, and disposes it at the end', asy
  */
 test('a checkout that throws leaves the session able to remove the workspace', async () => {
   const root = tmpDir('cp-tmproot-');
-  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
-  process.env.TMPDIR = root;
-  process.env.TEMP = root;
-  process.env.TMP = root;
+  const restoreTemp = pinTempRoot(root);
 
   const repo = 'acme/marketplace';
   const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
@@ -250,9 +255,7 @@ test('a checkout that throws leaves the session able to remove the workspace', a
     await session.cleanup();
     assert.deepEqual(workspaces(), [], 'the session did not dispose the workspace');
   } finally {
-    process.env.TMPDIR = saved.TMPDIR;
-    process.env.TEMP = saved.TEMP;
-    process.env.TMP = saved.TMP;
+    restoreTemp();
   }
 });
 

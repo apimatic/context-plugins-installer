@@ -14,7 +14,15 @@ import type { Env } from '../../src/types/env.js';
 import { RepoSlug } from '../../src/types/ids/repo-slug.js';
 import type { FetchResponseLike, RunCommand, SourcePorts } from '../../src/types/ports.js';
 import type { MarketplaceEvent } from '../../src/types/session.js';
-import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
+import {
+  cleanupAll,
+  pinTempRoot,
+  portsFor,
+  runnerFor,
+  silenceConsole,
+  stubFetch,
+  tmpDir,
+} from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -417,10 +425,7 @@ test('a 4xx on the tree still names the request and the token that fixes it', as
  */
 test('a fetch that throws leaves a workspace the handle still removes', async () => {
   const root = tmpDir('cp-tmproot-');
-  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
-  process.env.TMPDIR = root;
-  process.env.TEMP = root;
-  process.env.TMP = root;
+  const restoreTemp = pinTempRoot(root);
 
   const blob = 'plugins/alpha/plugin.json';
   const fetchImpl = async (url: string): Promise<FetchResponseLike> => {
@@ -458,9 +463,7 @@ test('a fetch that throws leaves a workspace the handle still removes', async ()
     handle.cleanup();
     assert.deepEqual(workspaces(), [], 'the workspace outlived its handle');
   } finally {
-    process.env.TMPDIR = saved.TMPDIR;
-    process.env.TEMP = saved.TEMP;
-    process.env.TMP = saved.TMP;
+    restoreTemp();
   }
 });
 
@@ -627,5 +630,25 @@ test('a whole-repository checkout counts the plugins files, not the clones', asy
     );
   } finally {
     handle.cleanup();
+  }
+});
+
+test('pinning the temp root puts the environment back, unset included', () => {
+  // The bug the helper exists for, and the reason six tests failed on the
+  // ubuntu matrix alone: `process.env.X = undefined` stores the *string*
+  // "undefined", so a variable that was never set came back set - and
+  // `os.tmpdir()` then answered with a directory that does not exist for
+  // every later test in the process. Linux is where it bit because it is the
+  // platform that leaves TMPDIR unset.
+  const had = process.env.TMPDIR;
+  delete process.env.TMPDIR;
+  try {
+    const restore = pinTempRoot('/somewhere');
+    assert.equal(process.env.TMPDIR, '/somewhere');
+    restore();
+    assert.ok('TMPDIR' in process.env === false, `came back as ${String(process.env.TMPDIR)}`);
+  } finally {
+    if (had === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = had;
   }
 });
