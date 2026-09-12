@@ -83,6 +83,18 @@ export class UpdatePrompts {
     log.warn(`${this.cell(plugin)}  ${reason} - install it again, or uninstall it`);
   }
 
+  /**
+   * The source now calls its plugin something else. The new name is installed
+   * and recorded; the old copy is still on disk and still loaded, and only the
+   * user can say whether that is one plugin renamed or two that share a
+   * folder - so this names the way out rather than guessing.
+   */
+  renamed(was: string, now: string): void {
+    log.warn(
+      `${this.cell(was)}  now calls itself '${now}' - the copy under the old name is still installed (uninstall '${was}')`,
+    );
+  }
+
   updated(plugin: string, targets: readonly HarnessName[]): void {
     if (this.collapse) log.ok(`${this.cell(plugin)}  ${log.dim(titlesOf(targets))}`);
   }

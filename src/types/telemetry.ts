@@ -33,8 +33,8 @@ export type TelemetryOptOut = 'DO_NOT_TRACK' | 'CP_TELEMETRY' | 'rc' | 'state' |
  * event class in `types/events/` declares.
  */
 export const COLLECTED =
-  'the plugin id, and only for a plugin the built-in marketplace lists - one installed from a ' +
-  'path or from a repository is named by its own author, and that name stays on this machine - ' +
+  'the plugin id when the plugin came from a marketplace - one installed from a path or from a ' +
+  'repository is named by its own author, and that name stays on this machine - ' +
   'the editor it went into, whether the plugin came from a marketplace, a GitHub repository or ' +
   'a directory (never the path or the repository itself), ' +
   'the marketplace when it is the built-in one, ' +

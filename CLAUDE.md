@@ -575,6 +575,16 @@ distinguishable from here and "your plugin's source is gone" must not be what
 a bad network day says. `unavailable` sends no event - nothing reached an
 install, and its reason names a directory.
 
+One thing that follows from the record's keying and is worth knowing before
+changing either: a plugin named by its own manifest can **rename itself**
+between two updates, and a row is keyed by name as well as by source - so the
+new name installs beside the old one and the old copy stays on disk, still
+loaded by the editor. `update` says so rather than leaving it silent, and
+cannot do more than say it: removing the old copy means deciding that two rows
+sharing one source key are one install, which is a rule the record does not
+have today. Re-running `install` by hand has always done the same thing; what
+phase 4 changed is that `update` reaches it without anyone asking.
+
 ### `src/commands/` - flags in, telemetry events out
 
 `args.ts` is a typed flag table - no oclif, no clack - and `parseArgs` answers

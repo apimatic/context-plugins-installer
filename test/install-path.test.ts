@@ -711,3 +711,77 @@ test('the repository a developer works in is not installed along with the plugin
     assert.ok(!fs.existsSync(path.join(installed, '.git')), 'and not the repository');
   });
 });
+
+test('a hand-edited row this build cannot address is reported, not fatal', () => {
+  // `recordInstall` only ever writes a validated id, so a hand edit is the one
+  // way here - and the record is a file a user can open. Still not a reason to
+  // fail every `update` for ever.
+  return quietly(async () => {
+    const m = machine();
+    const file = paths.manifestPath(m.pathOpts).toString();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        plugins: [
+          {
+            plugin: 'Not An Id',
+            repo: `local:${pluginDir()}`,
+            marketplace: LOCAL_MARKETPLACE,
+            targets: ['cursor'],
+          },
+        ],
+      }),
+    );
+
+    const report = await updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring: wiring() });
+    assert.deepEqual(report.rows, [
+      {
+        outcome: 'unavailable',
+        plugin: 'Not An Id',
+        reason: 'the name on its record is not one this build can read',
+      },
+    ]);
+    assert.deepEqual(report.failed, [], 'exit 0');
+  });
+});
+
+test('a plugin that renames itself is not left silently installed twice', () => {
+  // The record is keyed by name as well as by source, so the new name installs
+  // beside the old rather than replacing it - and the old copy stays loaded by
+  // the editor. `update` made that reachable without anyone asking for it, so
+  // it says so.
+  return quietly(async () => {
+    const m = machine();
+    const dir = pluginDir();
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    fs.writeFileSync(
+      path.join(dir, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'renamed-sdk', description: 'A plugin from a folder' }),
+    );
+
+    const con = silenceConsole();
+    try {
+      await updateAll({ brand: brand(), pathOpts: m.pathOpts, wiring: wiring() });
+    } finally {
+      con.restore();
+    }
+
+    assert.match(flat(con), /now calls itself 'renamed-sdk'/);
+    assert.match(flat(con), /uninstall 'my-sdk'/);
+    // Both are on disk and both are on the record, which is exactly why the
+    // line above has to exist: neither is this command's to remove.
+    const local = path.join(m.pathOpts.env.CP_CURSOR_DIR, 'plugins', 'local');
+    assert.deepEqual(fs.readdirSync(local).sort(), ['my-sdk', 'renamed-sdk']);
+    assert.equal(rowsOf(m).length, 2);
+  });
+});

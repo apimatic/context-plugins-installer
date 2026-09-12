@@ -45,10 +45,11 @@ export class UpdateAction {
    * where they came from in the key itself, so refreshing them is re-running
    * the install they came from rather than a registry read.
    *
-   * Only a directory that is gone answers with a reason. A repository that
-   * cannot be read is left to fail like any other install: a 404 and an outage
-   * are not distinguishable here, and reporting "your plugin's source is gone"
-   * during a GitHub outage is worse than reporting the outage.
+   * Two things answer with a reason instead: a directory that is gone, and a
+   * row this build cannot even address. A repository that cannot be *read* is
+   * not one of them - it fails like any other install, because a 404 and an
+   * outage are not distinguishable here and reporting "your plugin's source is
+   * gone" during a GitHub outage is worse than reporting the outage.
    */
   private sourceFor(
     entry: ManifestEntry,
@@ -189,6 +190,16 @@ export class UpdateAction {
           report: result.report,
         });
         this.prompts.updated(entry.plugin, result.report.targets);
+        // A plugin named by its own manifest can rename itself between two
+        // updates, and the record is keyed by name as well as by source - so
+        // the new name installs beside the old one rather than replacing it,
+        // and the old copy stays loaded by the editor. Said rather than
+        // silently left, because nothing here can remove the old copy without
+        // deciding that two rows sharing a source are the same install.
+        const renamed = result.report.plugin?.toString();
+        if (source !== null && renamed && renamed !== entry.plugin) {
+          this.prompts.renamed(entry.plugin, renamed);
+        }
       } catch (err) {
         // A bug in one row is not the other rows' business, and `update` has
         // to be able to finish and say which one it was. `unexpected`,

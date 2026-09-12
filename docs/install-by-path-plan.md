@@ -355,6 +355,15 @@ shape above.
   a directory source always carries its own files and nothing ever depended on the
   combination. Phase 3 is where it bites: a `github` install whose only target is Claude
   Code needs the files even though no editor copies them.
+- **Should a row be keyed by its source alone when the source names the plugin?**
+  Found in the phase 4 review, by trying it: a plugin that renames itself in its own
+  manifest installs under the new name beside the old one, because a row is keyed
+  `plugin` + `repo` and only the `repo` half identifies a path or a repository. Both
+  copies stay on disk and both stay loaded. `update` warns rather than fixing it, since
+  removing the old copy means deciding that two rows sharing one source key are one
+  install - a rule the record does not have, and one that would have to hold for
+  `install` too, where the same thing has always happened. Worth settling before either
+  command tries to be cleverer about it.
 - **Should the origin hold a `RepoSlug` rather than a `string`?** (Phase 3 answered the
   same question for `GithubSource` the other way, and deliberately: the slug is validated
   at parse time and then carried as a string, so `restoreSource` can be total over a
