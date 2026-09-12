@@ -171,7 +171,7 @@ export class UpdateAction {
             plugin: entry.plugin,
             // The reportable id, not the one the run knew: a row that came from
             // a directory keeps its plugin's name on this machine.
-            id: result.report.source?.reportableId(result.report.plugin) ?? null,
+            id: result.report.source?.reportableId() ?? null,
             sourceKind: result.report.source?.kind ?? null,
             marketplace,
             report: result.report,
@@ -201,7 +201,7 @@ export class UpdateAction {
         rows.push({
           outcome: 'failed',
           plugin: entry.plugin,
-          id: install.source?.reportableId(install.plugin) ?? null,
+          id: install.source?.reportableId() ?? null,
           sourceKind: install.source?.kind ?? null,
           marketplace,
           report: null,

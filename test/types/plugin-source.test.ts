@@ -105,16 +105,13 @@ test('the manifest key is the repo for a marketplace source and prefixed for a l
   assert.notEqual(value(parse('/opt/x')).key(), value(parse('paypal')).key());
 });
 
-test('a folder the user chose never lets its plugins name leave the machine', () => {
-  const learned = new PluginId('my-sdk');
-  // The marketplace arm knew the id before the run started, so it reports one
-  // even when nothing was learned; the local arm withholds the id it has.
-  assert.equal(value(parse('paypal')).reportableId(null)?.toString(), 'paypal');
-  assert.equal(value(parse('./private-thing')).reportableId(learned), null);
-  // A repository publishes its plugin under a public name, but only once the
-  // manifest has been read - so a run that failed before that reports none.
-  assert.equal(value(parse('acme/x')).reportableId(learned)?.toString(), 'my-sdk');
-  assert.equal(value(parse('acme/x')).reportableId(null), null);
+test('only a plugin the marketplace lists lets its name leave the machine', () => {
+  // A plugin installed from a path or a repository is named by its own author,
+  // and a repository the user named is the same class of thing as the `--repo`
+  // this program already refuses to send.
+  assert.equal(value(parse('paypal')).reportableId()?.toString(), 'paypal');
+  assert.equal(value(parse('./private-thing')).reportableId(), null);
+  assert.equal(value(parse('acme/private-repo')).reportableId(), null);
 });
 
 const github = (spec: string): GithubSource => {

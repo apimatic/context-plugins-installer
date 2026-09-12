@@ -38,7 +38,7 @@ export class UpdateCommand {
         for (const harness of row.report.targets) {
           this.sink(
             new PluginInstalledEvent(
-              source.reportableId(row.report.plugin),
+              source.reportableId(),
               harness,
               row.marketplace,
               source.kind,

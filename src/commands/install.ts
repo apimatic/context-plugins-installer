@@ -5,7 +5,6 @@ import { MarketplaceLabel } from '../types/brand.js';
 import type { EventSink } from '../types/events/domain-event.js';
 import { PluginInstallFailedEvent } from '../types/events/plugin-install-failed.js';
 import { PluginInstalledEvent } from '../types/events/plugin-installed.js';
-import type { PluginId } from '../types/ids/plugin-id.js';
 import type { PluginSource, SourceKind } from '../types/plugin-source.js';
 import type { InstallReport, InstallStage } from '../types/reports.js';
 import type { Session } from '../types/session.js';
@@ -37,7 +36,7 @@ export class InstallCommand {
         for (const harness of targets) {
           this.sink(
             new PluginInstalledEvent(
-              source.reportableId(result.report.plugin),
+              source.reportableId(),
               harness,
               marketplace,
               source.kind,
@@ -47,9 +46,7 @@ export class InstallCommand {
           );
         }
       }
-      if (result.isFailed()) {
-        this.failed(source, marketplace, result.report.plugin, result.report.stage, 'user');
-      }
+      if (result.isFailed()) this.failed(source, marketplace, result.report.stage, 'user');
       return result;
     } catch (err) {
       // A throw from here is a bug, not a problem the user can fix. Both facts
@@ -57,7 +54,6 @@ export class InstallCommand {
       this.failed(
         action.source,
         MarketplaceLabel.forSource(action.source, req.brand),
-        action.plugin,
         action.stage,
         'unexpected',
       );
@@ -68,14 +64,13 @@ export class InstallCommand {
   private failed(
     source: PluginSource | null,
     marketplace: MarketplaceLabel,
-    learned: PluginId | null,
     stage: InstallStage | null,
     kind: ErrorKind,
   ): void {
     const sourceKind: SourceKind | null = source?.kind ?? null;
     this.sink(
       new PluginInstallFailedEvent(
-        source?.reportableId(learned) ?? null,
+        source?.reportableId() ?? null,
         marketplace,
         sourceKind,
         stage,

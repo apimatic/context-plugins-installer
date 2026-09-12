@@ -77,16 +77,16 @@ purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry
   plugin installed from a directory, whose name came from a folder the user chose - `harness`,
   `marketplace` as the built-in repo or `custom`, `source_kind` as `marketplace`,
   `github` or `local`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step.
-  `PluginSource.reportableId(learned)` is where that id is decided and
+  `PluginSource.reportableId` is where that id is decided and
   `MarketplaceLabel.forSource` where a path or repo install is kept from naming the
   built-in marketplace it never touched: both live on the types, so no command answers
-  either question for itself. The argument is what makes the three arms differ rather
-  than one of them having to be re-derived: a marketplace source knew the id before the
-  run started and reports it even from a failure, a `github` one reports only what the
-  repository's own manifest said (so a run that failed at `resolve` reports none), and a
-  `local` one reports nothing ever. A plugin published in a repository has a public
-  name, which is why that arm is not withheld - the repository the user named still is,
-  the same way `--repo` is. Never send
+  either question for itself. Only the marketplace arm answers with an id at all: a
+  plugin installed from a path or a repository is named by its own author, and a
+  repository the user named is the same class of thing as the `--repo` this program
+  already refuses to send - it can be private, and nothing downstream could act on a
+  third party's plugin id anyway. `reportableId` therefore takes no argument: it was
+  given the id the run had learned while the `github` arm reported one, and with no arm
+  using it the parameter went the way `needsSource(origin)` did in phase 1. Never send
   a path, hostname, username, error message, env var, or a user-supplied `--repo`
   - which is why `MarketplaceLabel.of` answers with the built-in constant or
     `custom` and never with `brand.repo` (not to be confused with the rc file's

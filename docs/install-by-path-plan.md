@@ -243,8 +243,16 @@ the delta is small and stated.
 | Property            | marketplace                | github   | local    |
 | ------------------- | -------------------------- | -------- | -------- |
 | `source_kind` (new) | `marketplace`              | `github` | `local`  |
-| `plugin`            | the id                     | the id   | `null`   |
+| `plugin`            | the id                     | `null`   | `null`   |
 | `marketplace`       | built-in name, or `custom` | `custom` | `custom` |
+
+The `github` column was `the id` when this was written, on the reasoning that a plugin
+published in a repository has a public name. Settled the other way once phase 3 made it
+real: the name comes from a repository the user named, which is the class of thing
+`--repo` is already withheld for, a repository can be private, and nothing downstream
+could act on a third party's plugin id. With that, no arm of `reportableId` used the
+id-the-run-learned argument phase 3 had given it, so the parameter went too - the second
+time this plan has removed a parameter no implementation could use.
 
 A private folder's plugin name is not a public plugin name, so a local install sends no
 id. The decision lives in `PluginSource.reportableId()`, not in a command - a command that

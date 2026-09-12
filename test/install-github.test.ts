@@ -366,15 +366,14 @@ test('telemetry reports the repository kind, and never the repository', async ()
   const installed = events.filter((e) => e.name === 'Context Plugin Installed');
   assert.equal(installed.length, 1);
   assert.equal(installed[0]?.properties.source_kind, 'github');
-  // The plugin's own name is public - it is published in a repository - but
-  // the repository the user named never leaves the machine, the way a
-  // `--repo` never has.
-  assert.equal(installed[0]?.properties.plugin, 'my-sdk');
+  // Neither the repository nor the name it gave the plugin: the repository may
+  // be private, and its author's name for the plugin is not a public one.
+  assert.equal(installed[0]?.properties.plugin, null);
   assert.equal(installed[0]?.properties.marketplace, 'custom');
   for (const event of events) {
     for (const value of Object.values(event.properties)) {
       assert.ok(
-        typeof value !== 'string' || !value.includes('private-thing'),
+        typeof value !== 'string' || !/private-thing|secret|my-sdk/.test(value),
         `a repository reached telemetry: ${String(value)}`,
       );
     }
@@ -502,7 +501,7 @@ test('update re-fetches a repository row at the ref its own row recorded', async
   ]);
 });
 
-test('a repository row reports its kind and its id when it re-syncs', async () => {
+test('a repository row reports its kind and no id when it re-syncs', async () => {
   const m = machine();
   const events: Tracked[] = [];
   const { wiring } = githubWiring({ repo: 'acme/thing' });
@@ -524,7 +523,7 @@ test('a repository row reports its kind and its id when it re-syncs', async () =
   const installed = events.filter((e) => e.name === 'Context Plugin Installed');
   assert.equal(installed.length, 1);
   assert.equal(installed[0]?.properties.source_kind, 'github');
-  assert.equal(installed[0]?.properties.plugin, 'my-sdk');
+  assert.equal(installed[0]?.properties.plugin, null, 'the same rule as the install');
   assert.equal(installed[0]?.properties.marketplace, 'custom');
 });
 

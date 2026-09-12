@@ -39,9 +39,9 @@ export interface InstallReport extends InstallResult {
   durationMs: number;
   /**
    * What the run was asked to install, once parsed - null when the argument was
-   * neither an id nor a path. A command reads two things off it that it must not
-   * decide for itself: which `source_kind` to report, and whether the plugin id
-   * may leave the machine at all.
+   * none of an id, a path or a repository. A command reads two things off it
+   * that it must not decide for itself: which `source_kind` to report, and
+   * whether the plugin id may leave the machine at all.
    */
   source: PluginSource | null;
 }
@@ -53,8 +53,8 @@ export interface UninstallResult {
    * Where the row this run acted on came from, rebuilt from its recorded key.
    * A command reads the same two things off it that install does: the kind to
    * report, and whether the plugin id may leave the machine - a plugin removed
-   * from a directory withholds the name that directory gave it, exactly as
-   * installing it did.
+   * from a directory or a repository withholds the name its author gave it,
+   * exactly as installing it did.
    */
   source: PluginSource | null;
   /** Editors something was actually removed from - not editors whose record was corrected. */
@@ -69,7 +69,7 @@ export interface UpdateResult {
 }
 
 /**
- * One recorded plugin as `update` left it, as four shapes rather than one with
+ * One recorded plugin as `update` left it, as five shapes rather than one with
  * nullable fields - because which facts exist depends entirely on how far the
  * row got, and a command that reports on it must not have to guess. `plugin` is
  * on every arm because the grid prints one line per row whatever happened, and
@@ -102,10 +102,10 @@ export type UpdatedRow =
       outcome: 'failed';
       plugin: string;
       /**
-       * The id telemetry may carry, which is not always the id the run knew: a
-       * plugin installed from a directory withholds its own. Taken off the
-       * source through `reportableId`, so this field is already the answer and
-       * a reader never has to re-derive it.
+       * The id telemetry may carry, which is not always the id the run knew:
+       * only a plugin a marketplace lists has one. Taken off the source
+       * through `reportableId`, so this field is already the answer and a
+       * reader never has to re-derive it.
        */
       id: PluginId | null;
       sourceKind: SourceKind | null;

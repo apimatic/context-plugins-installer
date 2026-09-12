@@ -39,11 +39,11 @@ export class MarketplaceSource {
   }
 
   /**
-   * The id telemetry may carry. A plugin listed in a marketplace has a public
-   * name, and this arm knew it before the run started - so it is reportable
-   * even when the run failed before it learned anything else.
+   * The id telemetry may carry, and the only arm that carries one: a plugin
+   * listed in a marketplace this project publishes has a public name, and one
+   * the run knew before it started.
    */
-  reportableId(_learned: PluginId | null): PluginId | null {
+  reportableId(): PluginId | null {
     return this.plugin;
   }
 
@@ -113,13 +113,14 @@ export class GithubSource {
   }
 
   /**
-   * The id this run learned from the repository's own manifest. Not withheld:
-   * a plugin published in a repository has a public name, the way one listed in
-   * a marketplace does - but this source does not know it until the manifest
-   * has been read, so a run that failed before that reports none.
+   * Withheld, for the reason a directory's is. The name comes from a
+   * repository the user named, which is the same class of thing as the
+   * `--repo` this program already refuses to send - a repository can be
+   * private, and a plugin nobody but its author can install is not a public
+   * plugin name. Nothing downstream could act on a third party's id anyway.
    */
-  reportableId(learned: PluginId | null): PluginId | null {
-    return learned;
+  reportableId(): PluginId | null {
+    return null;
   }
 
   toString(): string {
@@ -156,7 +157,7 @@ export class LocalSource {
    * machine, and the decision is here rather than in a command that would have
    * to remember.
    */
-  reportableId(_learned: PluginId | null): PluginId | null {
+  reportableId(): PluginId | null {
     return null;
   }
 
