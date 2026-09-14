@@ -26,8 +26,9 @@ Install sources
                         .claude-plugin/plugin.json. Anything starting with
                         . / ~ or a drive letter is read as a path.
   <repo>                A GitHub repository, or a folder inside one, that is
-                        itself a plugin: owner/repo, owner/repo/folder, or a
-                        github.com URL. An @ref after it wins over --ref.
+                        itself a plugin: owner/repo, owner/repo/folder, or the
+                        github.com URL for it - for a folder, the /tree/ link.
+                        An @ref after any of them wins over --ref.
 
   A plugin from a path or a repo is named by its own manifest rather than by
   the folder or the repository, and Claude Code installs it through a

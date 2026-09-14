@@ -145,6 +145,44 @@ const notARepo = (spec: string): Failure =>
  */
 const PATH_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.+-]*$/;
 
+/**
+ * GitHub's own view words. `tree` is the folder view; the rest name a file or a page,
+ * and reading one as a folder turned a pasted link into a plugin reported missing from
+ * a path the user never typed.
+ */
+const FILE_VIEWS = new Set(['blob', 'raw', 'blame', 'edit']);
+
+const REPO_PAGES = new Set([
+  'commit',
+  'commits',
+  'compare',
+  'issues',
+  'pull',
+  'pulls',
+  'releases',
+  'tags',
+  'branches',
+  'wiki',
+  'actions',
+  'discussions',
+  'security',
+  'settings',
+  'packages',
+  'projects',
+]);
+
+const namesAFile = (spec: string): Failure =>
+  new Failure(
+    `'${spec}' is a link to a file, not to a plugin.`,
+    'Point at the folder that holds it - the .../tree/<ref>/<folder> link GitHub shows for a folder, or owner/repo/folder.',
+  );
+
+const notAFolder = (spec: string, segment: string): Failure =>
+  new Failure(
+    `'${segment}' in '${spec}' is a github.com view, not a folder in the repository.`,
+    'Expected owner/repo, owner/repo/folder, or the .../tree/<ref>/<folder> link GitHub shows for a folder.',
+  );
+
 const badFolder = (spec: string, segment: string): Failure =>
   new Failure(
     `'${segment}' is not a usable folder name in '${spec}'.`,
@@ -167,12 +205,12 @@ function parseGithub(spec: string, ref: string): Result<GithubSource, Failure> {
   let rest = scp?.[1] ?? url?.[1] ?? spec;
   let inline: string | null = null;
 
-  if (!scp && !url) {
-    const at = rest.lastIndexOf('@');
-    if (at > 0 && at < rest.length - 1) {
-      inline = rest.slice(at + 1);
-      rest = rest.slice(0, at);
-    }
+  // Both patterns above have consumed the host, so the `@` left in `rest` is a ref and
+  // never `git@github.com`. Guarding this on the spelling is what kept a ref off a URL.
+  const at = rest.lastIndexOf('@');
+  if (at > 0 && at < rest.length - 1) {
+    inline = rest.slice(at + 1);
+    rest = rest.slice(0, at);
   }
 
   const segments = rest
@@ -182,11 +220,17 @@ function parseGithub(spec: string, ref: string): Result<GithubSource, Failure> {
   const [owner, name, ...tail] = segments;
   if (!owner || !name) return err(notARepo(spec));
 
-  // `github.com/acme/mono/tree/v2/tools/foo` - one segment of ref, then the folder.
   let folder = tail;
-  if (url && tail[0] === 'tree' && tail.length >= 2) {
-    inline = tail[1] as string;
+  const view = url ? tail[0] : undefined;
+  if (view === 'tree') {
+    // `github.com/acme/mono/tree/v2/tools/foo` - one segment of ref, then the folder.
+    if (tail.length < 2) return err(notAFolder(spec, view));
+    inline ??= tail[1];
     folder = tail.slice(2);
+  } else if (view !== undefined && FILE_VIEWS.has(view)) {
+    return err(namesAFile(spec));
+  } else if (view !== undefined && REPO_PAGES.has(view)) {
+    return err(notAFolder(spec, view));
   }
 
   const slug = RepoSlug.parse(`${owner}/${name}`);

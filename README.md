@@ -123,7 +123,11 @@ npx context-plugins install https://github.com/acme/monorepo/tree/v2/tools/foo
 Which one you meant is read off the argument, so there is no extra flag: anything starting with
 `.`, `/`, `~` or a drive letter is a path, anything holding a `/` after that is a repository, and
 a plain name is a plugin in the marketplace as it has always been. An `@ref` on a repository wins
-over `--ref`.
+over `--ref`, on a URL or an `scp` address as much as on the short `owner/repo` form.
+
+Of the links github.com hands out, the one for a **folder** - `.../tree/<ref>/<folder>` - is the one
+to copy. A link to a file (`/blob/`, `/raw/`) or to a page such as `issues` is refused by name
+rather than read as a folder that is not there.
 
 Either way the plugin needs a manifest — `.claude-plugin/plugin.json`, or the Cursor or root
 equivalent — and the `name` in it is what the plugin is called. The folder's or the repository's
@@ -267,6 +271,8 @@ The live plugin list and count are at [the Context Plugins directory](https://hu
 | `<owner/repo> has no plugin manifest, but <owner/repo> is a marketplace`  | You pointed at a marketplace and spelled it as a plugin. Use `--repo <owner/repo> install <plugin>`, or `list --repo <owner/repo>` to see what it offers.               |
 | `<source> does not look like a plugin`                                    | No `.claude-plugin/plugin.json` (or the Cursor or root equivalent) there. Check the folder or the `owner/repo/folder` you named, and that the ref you asked for has it. |
 | `'<folder>' is not a usable folder name`                                  | A folder inside a repository may hold letters, digits, dots, dashes and underscores. Anything else could change the meaning of the request this tool makes for it.      |
+| `'<url>' is a link to a file, not to a plugin`                            | A `/blob/`, `/raw/`, `/blame/` or `/edit/` link names a file. Copy the `/tree/` link GitHub shows for the folder holding the plugin, or write `owner/repo/folder`.      |
+| `'<word>' in '<url>' is a github.com view`                                | A github.com page - `issues`, `releases`, `actions` and the like - rather than a folder in the repository.                                                              |
 | `<path> is where installing '<plugin>' would write`                       | The source folder is one of the places this install copies to. Move the plugin somewhere else — installing it there would delete it before reading it.                  |
 | `'<plugin>' is already installed from a different source`                 | The same plugin id from another marketplace, folder or repository; they share one destination folder. Uninstall the first, or `--force` to replace it.                  |
 | `<settings.json> names <path> in a form this tool did not write`          | A `chat.pluginLocations` entry was hand-edited, so it cannot be spliced out safely. Delete that line yourself - the uninstall did everything else it could.             |

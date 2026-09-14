@@ -145,6 +145,59 @@ test('the spellings github itself hands out all parse', () => {
     path: null,
   });
   assert.deepEqual(shape('git@github.com:acme/x.git'), { repo: 'acme/x', ref: 'main', path: null });
+  assert.equal(shape('github.com/acme/mono/tools/foo').path, 'tools/foo');
+});
+
+test('an inline ref reaches every remote spelling, not only the shorthand', () => {
+  for (const spec of [
+    'https://github.com/acme/x@v1.2.0',
+    'github.com/acme/x@v1.2.0',
+    'https://www.github.com/acme/x.git@v1.2.0',
+    'git@github.com:acme/x.git@v1.2.0',
+    'ssh://git@github.com/acme/x@v1.2.0',
+  ]) {
+    assert.deepEqual(shape(spec), { repo: 'acme/x', ref: 'v1.2.0', path: null }, spec);
+  }
+  assert.equal(shape('https://github.com/acme/x@release/1.0').ref, 'release/1.0');
+});
+
+test('a ref written by hand wins over the one in the URL it was appended to', () => {
+  assert.deepEqual(shape('https://github.com/acme/mono/tree/main/tools/foo@v2'), {
+    repo: 'acme/mono',
+    ref: 'v2',
+    path: 'tools/foo',
+  });
+});
+
+test('a link to a file says so, rather than reading github view words as a folder', () => {
+  for (const spec of [
+    'https://github.com/acme/mono/blob/main/tools/foo',
+    'https://github.com/acme/mono/blob/main/tools/foo/.claude-plugin/plugin.json',
+    'https://github.com/acme/mono/raw/main/x',
+    'https://github.com/acme/mono/blame/main/x',
+    'https://github.com/acme/mono/edit/main/x',
+  ]) {
+    const result = parse(spec);
+    assert.equal(result.ok, false, `expected ${spec} to be refused`);
+    if (!result.ok) assert.match(result.error.message, /is a link to a file/);
+  }
+});
+
+test('a github.com page is refused by name, not carried as a folder that is not there', () => {
+  for (const spec of [
+    'https://github.com/acme/mono/issues/12',
+    'https://github.com/acme/mono/pull/7',
+    'https://github.com/acme/mono/releases/tag/v1',
+    'https://github.com/acme/mono/actions',
+    'https://github.com/acme/mono/tree',
+  ]) {
+    const result = parse(spec);
+    assert.equal(result.ok, false, `expected ${spec} to be refused`);
+    if (!result.ok) assert.match(result.error.message, /is a github\.com view/);
+  }
+  // Only a URL carries views, so the shorthand still names a folder whatever it is called.
+  assert.equal(shape('acme/mono/blob').path, 'blob');
+  assert.equal(shape('acme/mono/issues/12').path, 'issues/12');
 });
 
 test('a path beats a repository, so a relative folder is never read as a slug', () => {

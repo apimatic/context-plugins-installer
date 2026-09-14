@@ -237,7 +237,17 @@ that ends up somewhere else is a rule two callers can disagree about.
   order, stated rather than discovered: a relative folder has to be written
   `./my-plugin/sub`, because `my-plugin/sub` is a repository. An `@ref` is
   split at the **last** `@` rather than matched, since `release/1.0` is a
-  branch name a user will type. `key()` is the manifest's `repo` column - a
+  branch name a user will type, and it is split off what is left once the host
+  has been consumed rather than off the whole argument: guarding that split on
+  the spelling instead - to keep the `@` in `git@github.com` out of it - is what
+  kept a ref off a URL entirely. A ref written by hand wins over one the URL
+  already carried, being the more deliberate of the two. The segment after
+  `owner/repo` in a github.com URL is a **view word**, and `tree` is the only one
+  that names a folder: the file views and the repository's pages are refused by
+  name, because reading `blob/main/tools/foo` as a folder reported a plugin
+  missing from a path the user never typed. Only a URL carries views - the
+  `owner/repo/folder` shorthand still names a folder called `blob` if that is
+  what it is called. `key()` is the manifest's `repo` column - a
   marketplace source's is the repo verbatim, so no record migrates, and the
   other two are prefixed `local:` / `github:` so they can never collide with a
   slug; a repository's folder is separated by `//`, which is what keeps two
