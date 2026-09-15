@@ -195,6 +195,38 @@ test('a marketplace that cannot be listed is still refreshed before installing',
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
 });
 
+test('a marketplace Claude will not register fails the run, rather than blaming the plugin', async () => {
+  // The generated marketplace shipped without the `owner` Claude's schema
+  // requires: `add` was refused, `update` found nothing of that name, and the
+  // run carried on to report the plugin missing from a marketplace that was
+  // never registered - with the only description of the real problem on a
+  // --verbose line nobody had asked for.
+  const run = fakeCli({
+    'plugin marketplace list': listing([]),
+    'plugin marketplace add': { code: 1, stderr: 'Invalid schema: owner: Invalid input' },
+    'plugin marketplace update': { code: 1, stderr: "Marketplace 'context-plugins' not found." },
+  });
+
+  const result = await claude.install(CTX, opts(run));
+  assert.equal(result.ok, false, 'nothing was registered, so this is not a success');
+  assert.match(result.ok ? '' : result.error.message, /owner: Invalid input/);
+  assert.ok(
+    !run.calls.some((c) => c.startsWith('plugin install')),
+    'no install is attempted into a marketplace that is not there',
+  );
+});
+
+test('an add refused by an older CLI still installs, when update says it is registered', async () => {
+  // The other side of the same branch: `add` fails because the marketplace is
+  // already there, and `update` succeeding is what says so.
+  const run = fakeCli({
+    'plugin marketplace list': { code: 1, stderr: 'unknown option --json' },
+    'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
+  });
+
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
+});
+
 test('a different marketplace under the same name is reported, not installed into', async () => {
   const run = fakeCli({
     'plugin marketplace list': listing([{ name: 'context-plugins', repo: 'someone/else' }]),

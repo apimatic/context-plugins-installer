@@ -33,7 +33,9 @@ export function announceClaude(event: ClaudeEvent): void {
       log.ok(`Added marketplace '${event.marketplace}'`);
       return;
     case 'marketplace-add-rejected':
-      log.debug(`marketplace add returned ${event.code} (likely already added). ${event.detail}`);
+      log.debug(
+        `marketplace add returned ${event.code}; asking update whether it is registered. ${event.detail}`,
+      );
       return;
     case 'plugin-stale':
       log.debug(

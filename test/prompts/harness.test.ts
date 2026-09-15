@@ -215,7 +215,12 @@ const CASES: [HarnessEvent, Line[]][] = [
   ],
   [
     { harness: 'claude', kind: 'marketplace-add-rejected', code: 1, detail: 'already exists' },
-    [['debug', 'marketplace add returned 1 (likely already added). already exists']],
+    [
+      [
+        'debug',
+        'marketplace add returned 1; asking update whether it is registered. already exists',
+      ],
+    ],
   ],
   [
     { harness: 'claude', kind: 'plugin-stale', target: 'my-sdk@apimatic', known: 'apimatic' },

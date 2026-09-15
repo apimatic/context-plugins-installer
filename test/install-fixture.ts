@@ -219,6 +219,10 @@ export function withClaude(m: Machine) {
     // Nothing registered, nothing installed: every answer is a clean "not here".
     if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
     if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
+    // A real Claude takes the marketplace and *then* reports the plugin missing
+    // from it. Refusing the add here made this fake a machine where registering
+    // is impossible, which is the shape the harness used to read as success.
+    if (line.startsWith('plugin marketplace add')) return { code: 0, stdout: '', stderr: '' };
     return { code: 1, stdout: '', stderr: 'not found in installed plugins' };
   };
   const env = { ...m.pathOpts.env, PATH: bin, PATHEXT: '.CMD' };

@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 
-import { LOCAL_MARKETPLACE } from '../types/brand.js';
+import { BIN, LOCAL_MARKETPLACE } from '../types/brand.js';
 import type { PathOpts } from '../types/env.js';
 import { Failure } from '../types/failure.js';
 import type { DirectoryPath, FilePath } from '../types/file/paths.js';
@@ -69,10 +69,24 @@ const entryFor = (plugin: string, description?: string): Record<string, unknown>
   ...(description ? { description } : {}),
 });
 
+/**
+ * Claude's schema requires an owner carrying a name, and refuses the whole file
+ * without one - so a registry missing it registered nothing and the install after
+ * it reported the plugin missing from a marketplace that was never there. A
+ * usable one already in the file is kept, so a value a user or a newer Claude
+ * wrote survives the rewrite the way every other field does.
+ */
+const ownerFor = (doc: Record<string, unknown>): unknown =>
+  isPlainObject(doc.owner) && nonEmptyString(doc.owner.name) ? doc.owner : { name: BIN };
+
 function write(file: FilePath, registry: Registry, rows: unknown[]): void {
   writeFileAtomic(
     file,
-    JSON.stringify({ ...registry.doc, name: LOCAL_MARKETPLACE, plugins: rows }, null, 2) + NEWLINE,
+    JSON.stringify(
+      { ...registry.doc, name: LOCAL_MARKETPLACE, owner: ownerFor(registry.doc), plugins: rows },
+      null,
+      2,
+    ) + NEWLINE,
   );
 }
 

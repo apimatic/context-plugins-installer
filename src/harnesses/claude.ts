@@ -200,7 +200,13 @@ export class ClaudeHarness implements Harness {
     }
 
     // `add` failing with nothing listed usually means an older CLI that cannot
-    // list as JSON; refresh by the configured name and let the install report.
+    // list as JSON, where the marketplace may be registered already. `update` is
+    // what settles it: it answers non-zero for a marketplace Claude does not
+    // hold, so the two failing together is the one proof available here that
+    // nothing is registered. Reporting that as success left the install to fail
+    // with a bare "plugin not found", blaming the plugin for the marketplace.
+    // The refresh of an entry the listing *did* show is the opposite case, and
+    // stays tolerant: there the registration is known and only the copy is stale.
     say({
       harness: 'claude',
       kind: 'marketplace-add-rejected',
@@ -208,9 +214,15 @@ export class ClaudeHarness implements Harness {
       detail: tail(added),
     });
     const res = await cli.marketplaceUpdate(marketplace);
-    if (res.code === 0) {
-      say({ harness: 'claude', kind: 'marketplace-updated', known: marketplace });
+    if (res.code !== 0) {
+      return err(
+        new Failure(
+          `Claude Code would not register '${marketplace}' from ${addressOf(origin)}: ${tail(added)}`,
+          `Run \`claude plugin marketplace add ${addressOf(origin)}\` to see what it refuses.`,
+        ),
+      );
     }
+    say({ harness: 'claude', kind: 'marketplace-updated', known: marketplace });
     return ok({ known: marketplace, updated: true });
   }
 

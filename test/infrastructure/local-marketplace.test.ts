@@ -31,13 +31,51 @@ function pluginDir(name: string, contents = '# a skill'): DirectoryPath {
   return new DirectoryPath(dir);
 }
 
-const registryOf = (at: string): { name?: unknown; plugins?: unknown[] } =>
-  JSON.parse(fs.readFileSync(at, 'utf8')) as { name?: unknown; plugins?: unknown[] };
+type Registry = { name?: unknown; owner?: unknown; plugins?: unknown[] };
+
+const registryOf = (at: string): Registry => JSON.parse(fs.readFileSync(at, 'utf8')) as Registry;
 
 const value = <T>(result: Result<T, Failure>): T => {
   assert.ok(result.ok, result.ok ? '' : result.error.message);
   return result.value;
 };
+
+// Claude's schema requires it and refuses the whole file without one, so a
+// registry missing it registered nothing at all and the install that followed
+// reported the plugin missing from a marketplace that had never been added.
+test('the registry names an owner, which Claude Code refuses the file without', () => {
+  const s = sandbox();
+  value(stageLocalPlugin({ plugin: 'my-sdk', srcDir: pluginDir('my-sdk') }, s.opts));
+
+  const owner = registryOf(s.registry).owner as { name?: unknown } | undefined;
+  assert.ok(owner && typeof owner === 'object', 'an owner object, not a string or nothing');
+  assert.equal(typeof owner.name, 'string');
+  assert.notEqual(owner.name, '', 'a name Claude will accept');
+});
+
+test('an owner already in the file is kept, and one Claude would refuse is replaced', () => {
+  const s = sandbox();
+  const stage = (plugin: string): unknown =>
+    value(stageLocalPlugin({ plugin, srcDir: pluginDir(plugin) }, s.opts));
+  const setOwner = (owner: unknown): void => {
+    const doc = JSON.parse(fs.readFileSync(s.registry, 'utf8')) as Record<string, unknown>;
+    doc.owner = owner;
+    fs.writeFileSync(s.registry, JSON.stringify(doc));
+  };
+
+  stage('a');
+  setOwner({ name: 'someone', email: 'x@y.z' });
+  stage('b');
+  assert.deepEqual(registryOf(s.registry).owner, { name: 'someone', email: 'x@y.z' });
+
+  // The three shapes Claude rejects the file for: a string, no name, nothing.
+  for (const bad of ['someone', {}, null]) {
+    setOwner(bad);
+    stage('c');
+    const owner = registryOf(s.registry).owner as { name?: unknown };
+    assert.equal(typeof owner?.name, 'string', `replaced ${JSON.stringify(bad)}`);
+  }
+});
 
 test('staging writes the files, the registry, and the name Claude will address', () => {
   const s = sandbox();

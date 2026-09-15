@@ -420,7 +420,17 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
   run registering a marketplace with the developer's real `claude` would
   otherwise not be. One shared marketplace, not one per plugin, so its registry
   is shared state and follows the record's rule: every row but the one being
-  written rides through verbatim. Staging happens in the action and only when
+  written rides through verbatim. What is written has to satisfy **Claude's own
+  schema**, which is stricter than the file this tool once produced: `owner` is
+  required and must be an object carrying a non-empty `name` - a string, an
+  empty object, or nothing at all has the whole file refused, and with it the
+  marketplace, so every Claude install from a path or a repository failed while
+  Cursor and VS Code succeeded. `ownerFor` keeps a usable one already in the
+  file, the way every other field rides through, and replaces one Claude would
+  refuse; `name` is forced because this tool owns it. A field this schema gains
+  later is the same class of bug, and only a real `claude` can find it - the
+  unit tests drive a fake runner, so they assert the argv and never what Claude
+  makes of the bytes. Staging happens in the action and only when
   Claude Code is actually a target, so a run that never touched it leaves no
   marketplace holding a plugin it never got - and the last plugin out takes the
   whole directory with it, since an empty generated marketplace is a row in
@@ -499,7 +509,17 @@ listing whose rows this build cannot parse (plain strings, an `id` renamed on
 some rows) would otherwise look exactly like "nothing is installed".
 `listMarketplaces` is the opposite — it filters junk rows, because one
 unreadable marketplace must not hide the rest and the worst case there is
-re-adding one. `LOOKS_ABSENT`, the
+re-adding one. When `marketplace add` fails, whether anything is
+registered is still an open question - an older CLI with no `--json` listing
+fails `add` precisely because the marketplace is already there - and
+`marketplace update` is what settles it: it answers non-zero for a name Claude
+does not hold. So `add` and `update` failing together is the one proof
+available that nothing is registered, and it is a `Failure` carrying what
+Claude actually said. Reporting it as success is how a schema rejection became
+a bare "plugin not found in marketplace", blaming the plugin for the
+marketplace and leaving the real reason on a `--verbose` line. The refresh of
+an entry the listing _did_ show is the opposite case and stays tolerant: there
+the registration is known and only the copy is stale. `LOOKS_ABSENT`, the
 fallback for a CLI too old to list as JSON, holds only phrases that cannot be
 about anything but a plugin: anything built around "is not installed" also
 matches `Marketplace 'plugin-marketplace' is not installed`, and `plugin
