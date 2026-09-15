@@ -2,6 +2,7 @@ import type { MarketplaceLabel } from './brand.js';
 import type { Failure } from './failure.js';
 import type { HarnessName } from './harness.js';
 import type { PluginId } from './ids/plugin-id.js';
+import type { PluginSource, SourceKind } from './plugin-source.js';
 import type { ErrorKind, TelemetryStatus, TelemetryVerb } from './telemetry.js';
 import type { Manifest, ManifestEntry } from './installed-record.js';
 
@@ -19,7 +20,8 @@ export interface InstallResult {
   /** Editors an earlier run installed into that this run left alone. */
   untouched?: HarnessName[];
   marketplace: string;
-  ref: string;
+  /** Null for a source that has no ref: a directory on this machine. */
+  ref: string | null;
 }
 
 /** How far a run got; coarse on purpose, so no message travels with it. */
@@ -35,11 +37,15 @@ export interface InstallReport extends InstallResult {
   stage: InstallStage;
   targetsExplicit: boolean;
   durationMs: number;
+  /** What the run was asked to install, once parsed; null when nothing parsed. */
+  source: PluginSource | null;
 }
 
 export interface UninstallResult {
   /** Null when the id never validated; see `InstallResult.plugin`. */
   plugin: PluginId | null;
+  /** Where the row this run acted on came from, rebuilt from its recorded key. */
+  source: PluginSource | null;
   /** Editors something was actually removed from - not editors whose record was corrected. */
   targets: HarnessName[];
   /** Editors that were asked and went wrong. Non-empty means the run failed. */
@@ -52,7 +58,7 @@ export interface UpdateResult {
 }
 
 /**
- * One recorded plugin as `update` left it, as four shapes rather than one with
+ * One recorded plugin as `update` left it, as five shapes rather than one with
  * nullable fields - because which facts exist depends entirely on how far the
  * row got, and a command that reports on it must not have to guess. `plugin` is
  * on every arm because the grid prints one line per row whatever happened, and
@@ -66,6 +72,8 @@ export interface UpdateResult {
  *   this is not a boolean. `report` is absent for a throw; `stage` survives it.
  * - `unreadable`: this build cannot read the row. A record problem, not an
  *   install that failed, so it fails the run and reports nothing.
+ * - `unavailable`: the source is not on this machine any more - a directory that
+ *   was moved or deleted. Warned about with its reason, and not a failure.
  * - `skipped`: no editor for it on this machine. Nothing was asked of it.
  */
 export type UpdatedRow =
@@ -78,7 +86,9 @@ export type UpdatedRow =
   | {
       outcome: 'failed';
       plugin: string;
+      /** The id telemetry may carry - already `reportableId`, not the id the run knew. */
       id: PluginId | null;
+      sourceKind: SourceKind | null;
       marketplace: MarketplaceLabel;
       report: InstallReport | null;
       stage: InstallStage | null;
@@ -86,6 +96,7 @@ export type UpdatedRow =
       errorKind: ErrorKind;
     }
   | { outcome: 'unreadable'; plugin: string; error: string }
+  | { outcome: 'unavailable'; plugin: string; reason: string }
   | { outcome: 'skipped'; plugin: string };
 
 export interface UpdateReport extends UpdateResult {

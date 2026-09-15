@@ -1,5 +1,7 @@
 import { BIN } from '../types/brand.js';
 import { titlesOf } from '../types/harness.js';
+import type { ManifestEntry } from '../types/installed-record.js';
+import { localDirOf } from '../types/plugin-source.js';
 import type { InstalledReport } from '../types/reports.js';
 import { gapWarnings } from './gaps.js';
 import { log } from './terminal.js';
@@ -8,6 +10,12 @@ import { log } from './terminal.js';
 const ID_WIDTH_CAP = 42;
 
 export class InstalledPrompts {
+  private origin(e: ManifestEntry): string {
+    const dir = localDirOf(e.repo);
+    const from = dir === null ? `${e.repo}@${e.ref}` : dir;
+    return `${from}  (marketplace: ${e.marketplace})`;
+  }
+
   /** ` in Cursor`, or nothing when every editor is in scope. */
   private scope(report: InstalledReport): string {
     return report.scoped ? ` in ${titlesOf(report.want)}` : '';
@@ -43,7 +51,7 @@ export class InstalledPrompts {
     );
     for (const e of report.entries) {
       log.plain(`    ${e.plugin.padEnd(width)}  ${log.dim(titlesOf(e.targets))}`);
-      log.debug(`${e.repo}@${e.ref}  (marketplace: ${e.marketplace})`);
+      log.debug(this.origin(e));
     }
     this.gaps(report, log.warn);
     log.plain('');

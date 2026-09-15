@@ -5,6 +5,8 @@ import * as fs from 'node:fs';
 import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { sourceFetcher } from '../../src/infrastructure/source-fetcher.js';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
+import { MarketplaceName } from '../../src/types/ids/marketplace-name.js';
+import { RepoMarketplace } from '../../src/types/marketplace-origin.js';
 import { claudeCli } from '../../src/infrastructure/claude-cli.js';
 import { createSession } from '../../src/infrastructure/session.js';
 import type { HarnessEvent } from '../../src/types/harness.js';
@@ -18,7 +20,15 @@ import type {
 } from '../../src/types/ports.js';
 import { ok } from '../../src/types/result.js';
 import type { MarketplaceEvent, MarketplaceListener, Session } from '../../src/types/session.js';
-import { cleanupAll, portsFor, runnerFor, silenceConsole, stubFetch, tmpDir } from '../helpers.js';
+import {
+  cleanupAll,
+  pinTempRoot,
+  portsFor,
+  runnerFor,
+  silenceConsole,
+  stubFetch,
+  tmpDir,
+} from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -115,7 +125,7 @@ test('a marketplace spelled two ways is registered with Claude once', async () =
     for (const repo of ['Acme/M', 'acme/m']) {
       await new ClaudeHarness().ensureMarketplaceOnce(
         claudeCli('claude', runnerFor(exec)),
-        { marketplace: 'acme', repo },
+        RepoMarketplace.named(repo, new MarketplaceName('acme')),
         session,
         () => {},
       );
@@ -199,10 +209,7 @@ test('a session opens each repo workspace once, and disposes it at the end', asy
  */
 test('a checkout that throws leaves the session able to remove the workspace', async () => {
   const root = tmpDir('cp-tmproot-');
-  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
-  process.env.TMPDIR = root;
-  process.env.TEMP = root;
-  process.env.TMP = root;
+  const restoreTemp = pinTempRoot(root);
 
   const repo = 'acme/marketplace';
   const treeUrl = `https://api.github.com/repos/${repo}/git/trees/main?recursive=1`;
@@ -248,9 +255,7 @@ test('a checkout that throws leaves the session able to remove the workspace', a
     await session.cleanup();
     assert.deepEqual(workspaces(), [], 'the session did not dispose the workspace');
   } finally {
-    process.env.TMPDIR = saved.TMPDIR;
-    process.env.TEMP = saved.TEMP;
-    process.env.TMP = saved.TMP;
+    restoreTemp();
   }
 });
 
@@ -282,7 +287,7 @@ test('the Claude marketplace is registered once per session, and said once', asy
   for (const _plugin of ['alpha', 'beta', 'gamma']) {
     await new ClaudeHarness().ensureMarketplaceOnce(
       claudeCli('claude', runnerFor(exec)),
-      { marketplace: 'acme', repo },
+      RepoMarketplace.named(repo, new MarketplaceName('acme')),
       session,
       (e) => events.push(e),
     );
@@ -301,9 +306,36 @@ test('without a session the marketplace is registered per call, as before', asyn
   await quietly(async () => {
     const cli = claudeCli('claude', runnerFor(exec));
     const harness = new ClaudeHarness();
-    await harness.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null, () => {});
-    await harness.ensureMarketplaceOnce(cli, { marketplace: 'acme', repo }, null, () => {});
+    const origin = RepoMarketplace.named(repo, new MarketplaceName('acme'));
+    await harness.ensureMarketplaceOnce(cli, origin, null, () => {});
+    await harness.ensureMarketplaceOnce(cli, origin, null, () => {});
   });
 
   assert.equal(calls.filter((c) => c === `plugin marketplace add ${repo}`).length, 2);
+});
+
+const MANIFEST_REPO = 'acme/mono';
+
+test('one plugin manifest is read once per repo, ref and folder', async () => {
+  const fetchImpl = stubFetch({
+    [rawUrl(MANIFEST_REPO, 'main', 'tools/foo/.claude-plugin/plugin.json')]: {
+      body: { name: 'foo' },
+    },
+    [rawUrl(MANIFEST_REPO, 'main', 'tools/bar/.claude-plugin/plugin.json')]: {
+      body: { name: 'bar' },
+    },
+  });
+  const session = createSession({
+    registry: registryClient(portsFor(fetchImpl)),
+    fetcher: sourceFetcher(portsFor(fetchImpl)),
+  });
+  try {
+    await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });
+    await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });
+    const bar = await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/bar' });
+    assert.ok(bar.ok && bar.value.id.toString() === 'bar');
+  } finally {
+    await session.cleanup();
+  }
+  assert.equal(fetchImpl.calls.length, 2, fetchImpl.calls.join(' | '));
 });

@@ -219,6 +219,8 @@ export function withClaude(m: Machine) {
     // Nothing registered, nothing installed: every answer is a clean "not here".
     if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
     if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
+    // A real Claude takes the marketplace and then reports the plugin missing.
+    if (line.startsWith('plugin marketplace add')) return { code: 0, stdout: '', stderr: '' };
     return { code: 1, stdout: '', stderr: 'not found in installed plugins' };
   };
   const env = { ...m.pathOpts.env, PATH: bin, PATHEXT: '.CMD' };
@@ -234,6 +236,25 @@ export function withClaude(m: Machine) {
     ...m,
     pathOpts: { ...m.pathOpts, env, runner: runnerFor(run, env) } satisfies HarnessOpts,
   };
+}
+
+/** Unlike `withClaude`, this fake answers every call, not just a listing. */
+export type ClaudeMachine = ReturnType<typeof withClaude> & { calls: string[] };
+
+export function claudeMachine(): ClaudeMachine {
+  const m = withClaude(machine());
+  const calls: string[] = [];
+  const runner = {
+    which: m.pathOpts.runner?.which ?? ((): string | null => null),
+    run: async (_file: string, args: string[]) => {
+      const line = args.join(' ');
+      calls.push(line);
+      if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
+      if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
+      return { code: 0, stdout: '', stderr: '' };
+    },
+  };
+  return { ...m, pathOpts: { ...m.pathOpts, runner }, calls };
 }
 
 /** Console output as one line, with `log`'s column wrapping collapsed. */

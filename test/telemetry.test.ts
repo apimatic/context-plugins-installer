@@ -633,6 +633,7 @@ test('one successful install is one request, with the run-level facts and nothin
     'plugin',
     'harness',
     'marketplace',
+    'source_kind',
     'targets_explicit',
     'duration_ms',
     'token',

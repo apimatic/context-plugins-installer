@@ -2,6 +2,7 @@ import { resolvePlugin } from '../application/plugin-resolution.js';
 import { resolveTargets } from '../application/target-selection.js';
 import { decideUninstall, uninstallLines } from '../application/uninstall-decision.js';
 import { harnesses } from '../harnesses/index.js';
+import { localMarketplace } from '../infrastructure/local-marketplace.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UninstallPrompts } from '../prompts/uninstall.js';
@@ -14,6 +15,8 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
+import { RepoMarketplace, type MarketplaceOrigin } from '../types/marketplace-origin.js';
+import { restoreSource, type PluginSource, type SourceKind } from '../types/plugin-source.js';
 import type { RegistryClient } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
 import { errorMessage, nonEmptyString } from '../types/util.js';
@@ -45,8 +48,14 @@ export class UninstallAction {
    */
   private id: PluginId | null = null;
 
+  private from: PluginSource | null = null;
+
   get plugin(): PluginId | null {
     return this.id;
+  }
+
+  get source(): PluginSource | null {
+    return this.from;
   }
 
   constructor(
@@ -55,20 +64,21 @@ export class UninstallAction {
     private readonly pathOpts?: HarnessOpts,
   ) {}
 
-  /**
-   * The name Claude Code knows the marketplace by. A row's own recorded name is
-   * what keeps this offline; a lookup is only needed when there is none, and
-   * with a row to correct a failed lookup must not block cleaning it up.
-   */
+  /** A nameless origin is the answer when the lookup fails: the harness asks the CLI. */
   private async marketplaceFor(
     brand: Brand,
     plugin: string,
     recorded: Record<string, unknown> | null,
     want: readonly HarnessName[],
-  ): Promise<{ marketplace: string | null } | { failure: Failure }> {
+    kind: SourceKind,
+  ): Promise<{ origin: MarketplaceOrigin } | { failure: Failure }> {
+    if (kind !== 'marketplace') return { origin: localMarketplace(this.pathOpts) };
+    const at = (name: string | null): { origin: MarketplaceOrigin } => ({
+      origin: new RepoMarketplace(brand.repo, name),
+    });
     const known =
       brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
-    if (known || !want.includes('claude')) return { marketplace: known };
+    if (known || !want.includes('claude')) return at(known);
 
     const read = await this.registry.readRegistry({
       repo: brand.repo,
@@ -78,19 +88,24 @@ export class UninstallAction {
     const resolved = read.ok
       ? resolvePlugin(read.value, { plugin, repo: brand.repo, ref: brand.ref })
       : read;
-    if (resolved.ok) return { marketplace: resolved.value.marketplace };
+    if (resolved.ok) return { origin: resolved.value.origin };
     // With no record there is nothing to correct, so the lookup error and its
     // suggestion are the useful answer.
     if (!recorded) return { failure: resolved.error };
     this.prompts.marketplaceUnknown(plugin, resolved.error);
-    return { marketplace: null };
+    return at(null);
   }
 
   readonly execute = async (req: UninstallRequest): Promise<ActionResult<UninstallResult>> => {
     const { brand, force = false } = req;
     // A function, not a value: the arms after the id is validated report which
     // plugin the run was about, and the one before it has nothing to report.
-    const nothing = (): UninstallResult => ({ plugin: this.id, targets: [], failed: [] });
+    const nothing = (): UninstallResult => ({
+      plugin: this.id,
+      source: this.from,
+      targets: [],
+      failed: [],
+    });
 
     const id = PluginId.parse(req.plugin);
     if (!id.ok) return ActionResult.failed(nothing(), id.error);
@@ -98,16 +113,22 @@ export class UninstallAction {
     const plugin = id.value.toString();
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
-    const key = { plugin, repo: brand.repo };
-    // The raw row: uninstall must also clear rows the sanitized view hides, and
-    // their recorded marketplace is what keeps the Claude path offline.
-    const recorded = records.findRaw(key);
+    // The raw row: uninstall must also clear rows the sanitized view hides.
+    const { key, row: recorded } = records.locate(plugin, brand.repo);
+    const restored = restoreSource(key.repo ?? brand.repo, {
+      plugin: id.value,
+      ref: brand.ref,
+      rules: paths.pathContext(this.pathOpts).rules,
+    });
+    // Without a row, `restored` is a guess built from the run's own marketplace
+    // and must not be reported as where the plugin came from.
+    this.from = recorded ? restored : null;
 
     const targets = resolveTargets(req.targets);
     if (!targets.ok) return ActionResult.failed(nothing(), targets.error);
     const want = targets.value;
 
-    const found = await this.marketplaceFor(brand, plugin, recorded, want);
+    const found = await this.marketplaceFor(brand, plugin, recorded, want, restored.kind);
     if ('failure' in found) return ActionResult.failed(nothing(), found.failure);
 
     this.prompts.intro(plugin, brand, want);
@@ -124,8 +145,7 @@ export class UninstallAction {
           await harness.uninstall(
             {
               plugin,
-              marketplace: found.marketplace,
-              repo: brand.repo,
+              origin: found.origin,
               listener: this.prompts.harnessListener,
             },
             this.pathOpts,
@@ -147,6 +167,7 @@ export class UninstallAction {
 
     const report: UninstallResult = {
       plugin: id.value,
+      source: this.from,
       targets: decision.removed,
       failed: decision.failed,
     };

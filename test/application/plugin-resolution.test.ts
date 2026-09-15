@@ -43,11 +43,11 @@ const failure = (result: Result<ResolvedPlugin, Failure>): Failure => {
 };
 
 test('the marketplace name is derived from the registry, not hardcoded', () => {
-  assert.equal(value(resolve(catalogOf({ name: 'acme' }))).marketplace, 'acme');
+  assert.equal(value(resolve(catalogOf({ name: 'acme' }))).origin.name, 'acme');
 });
 
 test('an explicit marketplace overrides the registry value', () => {
-  assert.equal(value(resolve(catalogOf(), { marketplace: 'override' })).marketplace, 'override');
+  assert.equal(value(resolve(catalogOf(), { marketplace: 'override' })).origin.name, 'override');
 });
 
 test('the source path is normalized and the description carried through', () => {
@@ -65,7 +65,7 @@ test('a marketplace name with spaces is rejected with the schema rule', () => {
 
 test('ordinary marketplace identifiers still pass', () => {
   for (const name of ['apimatic', 'context-plugins', 'acme_2', 'a.b']) {
-    assert.equal(value(resolve(catalogOf({ name }))).marketplace, name);
+    assert.equal(value(resolve(catalogOf({ name }))).origin.name, name);
   }
 });
 

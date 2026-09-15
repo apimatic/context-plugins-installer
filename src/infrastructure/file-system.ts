@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { pathString, type PathArg } from '../types/file/paths.js';
+import { DirectoryPath, pathString, type PathArg } from '../types/file/paths.js';
 
 // Every one of these walks the filesystem of the machine it runs on, so it joins
 // with the host's rules: a path's own rules describe where it points, not where
@@ -71,11 +71,15 @@ export function isDirNonEmpty(dir: PathArg): boolean {
   }
 }
 
+// A plugin's source is usually a repository; its history is not part of it.
+const NOT_THE_PLUGIN = new Set(['.git']);
+
 // Hand-written so it never emits fs.cp's experimental warning.
 export function copyDir(src: PathArg, dest: PathArg): void {
   const target = ensureDir(dest);
   const source = pathString(src);
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
+    if (NOT_THE_PLUGIN.has(entry.name)) continue;
     const from = path.join(source, entry.name);
     const to = path.join(target, entry.name);
     if (entry.isDirectory()) {
@@ -97,8 +101,16 @@ export function copyDir(src: PathArg, dest: PathArg): void {
   }
 }
 
-/** Wholesale replace, so a shrinking plugin leaves no orphan files behind. */
+/**
+ * Wholesale replace, so a shrinking plugin leaves no orphan files behind. Refuses
+ * a source that is also the destination: without the check `rmrf` takes the source
+ * away and the copy that follows succeeds over an empty directory.
+ */
 export function replaceDir(src: PathArg, dest: PathArg): string {
+  const from = new DirectoryPath(pathString(src));
+  if (from.overlaps(new DirectoryPath(pathString(dest)))) {
+    throw new Error(`Refusing to copy ${pathString(src)} over itself at ${pathString(dest)}`);
+  }
   rmrf(dest);
   copyDir(src, dest);
   return pathString(dest);
@@ -108,6 +120,7 @@ export function countFiles(dir: PathArg): number {
   const target = pathString(dir);
   let n = 0;
   for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    if (NOT_THE_PLUGIN.has(entry.name)) continue;
     n += entry.isDirectory() ? countFiles(path.join(target, entry.name)) : 1;
   }
   return n;

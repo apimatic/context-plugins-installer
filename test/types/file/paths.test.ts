@@ -112,6 +112,29 @@ test('a trailing separator on the directory does not make it contain nothing', (
   assert.equal(new DirectoryPath('/tmp/files/', POSIX).contains('/tmp/files/../../etc/pw'), false);
 });
 
+test('two spellings of one directory are the same place', () => {
+  const dir = new DirectoryPath('/home/dev/.context-plugins/marketplace', POSIX);
+  assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace'), true);
+  assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace/'), true, 'trailing sep');
+  assert.equal(
+    dir.samePlace('/home/dev/.context-plugins/other/../marketplace'),
+    true,
+    'uncollapsed',
+  );
+  assert.equal(dir.samePlace('/home/dev/.context-plugins'), false, 'the parent is not the place');
+  assert.equal(dir.samePlace('/home/dev/.context-plugins/marketplace2'), false, 'same prefix');
+});
+
+test('windows rules fold case, posix rules do not', () => {
+  // PathRules cannot tell darwin from linux, so POSIX compares exactly - which
+  // under-matches on a case-insensitive macOS volume.
+  const win = new DirectoryPath(`C:${SEP}Users${SEP}Dev${SEP}state`, WIN);
+  assert.equal(win.samePlace(`c:${SEP}users${SEP}dev${SEP}state`), true);
+
+  const posix = new DirectoryPath('/home/Dev/state', POSIX);
+  assert.equal(posix.samePlace('/home/dev/state'), false);
+});
+
 /**
  * Holding node's path namespace made `JSON.stringify` of a path throw, which at
  * least failed loudly. Making the rules serializable removed that crash, so
@@ -122,4 +145,23 @@ test('a path serializes to its string, not to its innards', () => {
   assert.equal(JSON.stringify(new FilePath('/a/b.json', POSIX)), '"/a/b.json"');
   assert.equal(JSON.stringify({ dir: new DirectoryPath('/a/b', POSIX) }), '{"dir":"/a/b"}');
   assert.deepEqual(JSON.parse(JSON.stringify([new DirectoryPath('/a', POSIX)])), ['/a']);
+});
+
+test('overlaps folds case on both platforms rules, where contains does not', () => {
+  // The guard on a destructive copy: `replaceDir` deletes its destination
+  // before reading its source, so two spellings of one directory that compare
+  // unequal cost the user their plugin. cmd.exe alone produces the mismatch,
+  // handing out a lower-case drive letter after `cd /d c:\...`.
+  for (const platform of ['win32', 'linux']) {
+    const rules = rulesFor(platform);
+    const sep = platform === 'win32' ? WIN.sep : POSIX.sep;
+    const root = platform === 'win32' ? WIN.join('C:', 'Users', 'Dev') : '/Users/Dev';
+    const dir = new DirectoryPath(root, rules);
+    const same = new DirectoryPath(root.toLowerCase(), rules);
+
+    assert.equal(dir.overlaps(same), true, `${platform}: one directory, two spellings`);
+    assert.equal(dir.overlaps(new DirectoryPath(`${root}${sep}inner`, rules)), true, 'holds it');
+    assert.equal(new DirectoryPath(`${root}${sep}inner`, rules).overlaps(dir), true, 'inside it');
+    assert.equal(dir.overlaps(new DirectoryPath(`${root}-elsewhere`, rules)), false, 'a sibling');
+  }
 });

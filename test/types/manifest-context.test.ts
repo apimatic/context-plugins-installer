@@ -195,7 +195,7 @@ test('a conflict is reported only for the same id from another marketplace', () 
   assert.equal(records.conflictFor({ plugin: 'my-sdk', repo: REPO }), null, 'the same marketplace');
   assert.equal(records.conflictFor({ plugin: 'other', repo: 'acme/m' }), null, 'another plugin');
   const clash = records.conflictFor({ plugin: 'my-sdk', repo: 'acme/m' });
-  assert.match(clash?.message ?? '', /already installed from a different marketplace/);
+  assert.match(clash?.message ?? '', /already installed from a different source/);
   assert.match(clash?.hint ?? '', /--force/);
 });
 

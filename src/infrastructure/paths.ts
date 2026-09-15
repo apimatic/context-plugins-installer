@@ -16,6 +16,11 @@ function ctx(overrides: PathOpts = {}) {
   };
 }
 
+export function pathContext(o?: PathOpts): { cwd: string; home: string; rules: PathRules } {
+  const c = ctx(o);
+  return { cwd: o?.cwd || process.cwd(), home: c.home.toString(), rules: c.rules };
+}
+
 /** An override is taken as the user wrote it; an empty one is no override. */
 const given = (value: string | undefined, rules: PathRules): DirectoryPath | undefined =>
   value ? new DirectoryPath(value, rules) : undefined;
@@ -31,6 +36,10 @@ export function manifestPath(o?: PathOpts): FilePath {
 
 export function telemetryPath(o?: PathOpts): FilePath {
   return stateDir(o).file('telemetry.json');
+}
+
+export function localMarketplaceDir(o?: PathOpts): DirectoryPath {
+  return stateDir(o).join('marketplace');
 }
 
 export function vscodeStoreDir(o?: PathOpts): DirectoryPath {
