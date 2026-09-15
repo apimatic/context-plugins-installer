@@ -23,7 +23,14 @@ only, by explicit decision — contributor and agent knowledge belongs here, not
 
 Tests run the TypeScript in `src/` directly through tsx — there is no build in the loop, on
 purpose. `bin/cli.js` requires the compiled `lib/`, so exercising the real entry point
-(`node bin/cli.js ...`) needs `npm run build` first; CI's smoke job does exactly that.
+(`node bin/cli.js ...`) needs `npm run build` first; CI's two smoke jobs do exactly that.
+`smoke` covers the marketplace, a folder and a repository against Cursor and VS Code;
+`claude` installs the real `claude` binary and asserts on **its** answer — what it lists,
+not what we recorded. That second job exists because everything else drives a fake
+`ProcessRunner`, which asserts the argv and cannot refuse a file: the generated
+marketplace shipped without the `owner` Claude's schema requires, so that whole arm never
+worked, and every test stayed green. The CLI is installed unpinned there on purpose —
+pinning it would stop it noticing the next change to a schema this project does not own.
 
 ## Hard constraints
 
