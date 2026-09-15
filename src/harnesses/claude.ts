@@ -199,14 +199,8 @@ export class ClaudeHarness implements Harness {
       return ok({ known: (await this.registeredName(cli, origin)) || marketplace, updated: false });
     }
 
-    // `add` failing with nothing listed usually means an older CLI that cannot
-    // list as JSON, where the marketplace may be registered already. `update` is
-    // what settles it: it answers non-zero for a marketplace Claude does not
-    // hold, so the two failing together is the one proof available here that
-    // nothing is registered. Reporting that as success left the install to fail
-    // with a bare "plugin not found", blaming the plugin for the marketplace.
-    // The refresh of an entry the listing *did* show is the opposite case, and
-    // stays tolerant: there the registration is known and only the copy is stale.
+    // `add` also fails when the marketplace is already there, so `update` settles
+    // it: non-zero for a name Claude does not hold.
     say({
       harness: 'claude',
       kind: 'marketplace-add-rejected',
@@ -214,11 +208,7 @@ export class ClaudeHarness implements Harness {
       detail: tail(added),
     });
     const res = await cli.marketplaceUpdate(marketplace);
-    // Conclusive only against a listing this build could read and did not find
-    // it in. A listing it could not read at all is `null` - "unknown", never
-    // "none", the rule every reader of that value owes it - and an older CLI
-    // answers that way for every call, including perhaps `marketplace update`
-    // itself, so concluding from the pair there would fail a run that installs.
+    // A listing of `null` is unknown, never none, so it settles nothing.
     if (res.code !== 0 && entries !== null) {
       return err(
         new Failure(

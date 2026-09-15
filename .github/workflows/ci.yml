@@ -137,11 +137,6 @@ jobs:
           node bin/cli.js installed
           node bin/cli.js uninstall slack --targets cursor
 
-  # The one job that asks the `claude` binary what it made of our bytes. Every
-  # other test drives a fake ProcessRunner, which asserts the argv and cannot
-  # refuse a file - so the generated marketplace shipped without the `owner`
-  # Claude's schema requires, and no amount of green said so. A schema this tool
-  # does not own needs the tool that owns it in the loop.
   claude:
     name: claude code smoke test
     runs-on: ubuntu-latest
@@ -156,22 +151,15 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm prune --omit=dev
-      # Unpinned on purpose: pinning would stop this noticing the next change to
-      # that schema, which is the only thing it is here to notice. The plugin
-      # subcommands answer without a login, which is what makes the job possible
-      # at all - no credential is configured here and none is needed.
+      # Unpinned: pinning hides the schema changes this job exists to catch.
       - run: npm install -g @anthropic-ai/claude-code
       - name: install a folder into Claude Code, and ask Claude what it holds
         run: |
           export CP_STATE_DIR="$RUNNER_TEMP/state"
-          # Claude's own state, sandboxed the way CP_STATE_DIR sandboxes ours.
           export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/claude-config"
           mkdir -p "$CLAUDE_CONFIG_DIR"
 
-          # Deliberately no `version`: Claude caches a plugin at
-          # plugins/cache/<marketplace>/<id>/<version>, and a manifest without one
-          # caches under "unknown" - so an edited plugin lands on the same path and
-          # only the removal before the install makes `update` copy anything.
+          # No `version`, so Claude caches at .../<id>/unknown and an edit reuses it.
           src="$RUNNER_TEMP/claude plugin"
           mkdir -p "$src/.claude-plugin" "$src/skills"
           echo '{"name":"smoke-plugin","description":"a folder on this machine"}' \
@@ -180,8 +168,6 @@ jobs:
 
           node bin/cli.js install "$src" --targets claude -y
 
-          # Claude's answer, not ours. Our own record agreeing with itself is what
-          # every other test already checks; this is the half that was missing.
           claude plugin marketplace list --json | grep -q context-plugins-local
           claude plugin list --json | grep -q 'smoke-plugin@context-plugins-local'
 
@@ -190,16 +176,11 @@ jobs:
           grep -q edited "$CP_STATE_DIR/marketplace/plugins/smoke-plugin/skills/SKILL.md"
 
           node bin/cli.js uninstall smoke-plugin --targets claude
-          # The last plugin out takes the generated marketplace and its
-          # registration with it, so Claude is left holding neither. Spelled with
-          # a captured match rather than `grep -v`, which answers 0 whenever any
-          # *other* line fails to match and so can never fail this.
+          # Not `grep -v`, which passes whenever any other line fails to match.
           test -z "$(claude plugin list --json | grep smoke-plugin || true)"
           test -z "$(claude plugin marketplace list --json | grep context-plugins-local || true)"
           test -f "$src/.claude-plugin/plugin.json"
-      # A repository that is a plugin, with Claude Code as the only target: no
-      # editor copies files here, so nothing would be fetched at all unless the
-      # staging half of the fetch condition holds on its own.
+      # Claude Code alone: no editor copies files, so only staging forces a fetch.
       - name: install a repository folder into Claude Code
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

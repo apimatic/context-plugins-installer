@@ -69,13 +69,7 @@ const entryFor = (plugin: string, description?: string): Record<string, unknown>
   ...(description ? { description } : {}),
 });
 
-/**
- * Claude's schema requires an owner carrying a name, and refuses the whole file
- * without one - so a registry missing it registered nothing and the install after
- * it reported the plugin missing from a marketplace that was never there. A
- * usable one already in the file is kept, so a value a user or a newer Claude
- * wrote survives the rewrite the way every other field does.
- */
+/** Claude refuses a marketplace whose owner has no name; a usable one is kept. */
 const ownerFor = (doc: Record<string, unknown>): unknown =>
   isPlainObject(doc.owner) && nonEmptyString(doc.owner.name) ? doc.owner : { name: BIN };
 

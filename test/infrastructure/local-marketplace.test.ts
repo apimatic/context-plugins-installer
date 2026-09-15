@@ -40,9 +40,6 @@ const value = <T>(result: Result<T, Failure>): T => {
   return result.value;
 };
 
-// Claude's schema requires it and refuses the whole file without one, so a
-// registry missing it registered nothing at all and the install that followed
-// reported the plugin missing from a marketplace that had never been added.
 test('the registry names an owner, which Claude Code refuses the file without', () => {
   const s = sandbox();
   value(stageLocalPlugin({ plugin: 'my-sdk', srcDir: pluginDir('my-sdk') }, s.opts));

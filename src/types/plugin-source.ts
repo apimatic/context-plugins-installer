@@ -145,18 +145,10 @@ const notARepo = (spec: string): Failure =>
  */
 const PATH_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.+-]*$/;
 
-/**
- * GitHub's own view words. `tree` is the folder view; the rest name a file or a page,
- * and reading one as a folder turned a pasted link into a plugin reported missing from
- * a path the user never typed.
- */
+/** GitHub's view words: `tree` names a folder, these name a file. */
 const FILE_VIEWS = new Set(['blob', 'raw', 'blame', 'edit']);
 
-/**
- * Deliberately not here: `packages` and `projects`, which name a page on github.com but
- * also name the folder a monorepo most often keeps its plugins in. Refusing those would
- * cost a real source spelling to catch a URL nobody pastes at an installer.
- */
+/** Not `packages` or `projects`: both are also what a monorepo calls its folders. */
 const REPO_PAGES = new Set([
   'commit',
   'commits',
@@ -208,8 +200,7 @@ function parseGithub(spec: string, ref: string): Result<GithubSource, Failure> {
   let rest = scp?.[1] ?? url?.[1] ?? spec;
   let inline: string | null = null;
 
-  // Both patterns above have consumed the host, so the `@` left in `rest` is a ref and
-  // never `git@github.com`. Guarding this on the spelling is what kept a ref off a URL.
+  // Both patterns consumed the host, so this `@` is a ref, never `git@github.com`.
   const at = rest.lastIndexOf('@');
   if (at > 0 && at < rest.length - 1) {
     inline = rest.slice(at + 1);

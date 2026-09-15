@@ -71,8 +71,7 @@ export function isDirNonEmpty(dir: PathArg): boolean {
   }
 }
 
-// A plugin's source is often a working folder or a whole-repo checkout, so
-// `.git` sits among its files and would be copied and counted with them.
+// A plugin's source is usually a repository; its history is not part of it.
 const NOT_THE_PLUGIN = new Set(['.git']);
 
 // Hand-written so it never emits fs.cp's experimental warning.
@@ -103,12 +102,9 @@ export function copyDir(src: PathArg, dest: PathArg): void {
 }
 
 /**
- * Wholesale replace, so a shrinking plugin leaves no orphan files behind.
- *
- * Throws rather than deleting when the two are one directory. `local-plugin.ts`
- * refuses that install before it starts, but this is the line the files die on
- * - and the failure is silent without this check, because `rmrf` takes the
- * source away and `copyDir` then recreates it and reads an empty directory.
+ * Wholesale replace, so a shrinking plugin leaves no orphan files behind. Refuses
+ * a source that is also the destination: without the check `rmrf` takes the source
+ * away and the copy that follows succeeds over an empty directory.
  */
 export function replaceDir(src: PathArg, dest: PathArg): string {
   const from = new DirectoryPath(pathString(src));

@@ -196,11 +196,6 @@ test('a marketplace that cannot be listed is still refreshed before installing',
 });
 
 test('a marketplace Claude will not register fails the run, rather than blaming the plugin', async () => {
-  // The generated marketplace shipped without the `owner` Claude's schema
-  // requires: `add` was refused, `update` found nothing of that name, and the
-  // run carried on to report the plugin missing from a marketplace that was
-  // never registered - with the only description of the real problem on a
-  // --verbose line nobody had asked for.
   const run = fakeCli({
     'plugin marketplace list': listing([]),
     'plugin marketplace add': { code: 1, stderr: 'Invalid schema: owner: Invalid input' },
@@ -217,9 +212,6 @@ test('a marketplace Claude will not register fails the run, rather than blaming 
 });
 
 test('a CLI that cannot list is never concluded from, however the other calls go', async () => {
-  // `null` from the listing is "unknown, never none". An older CLI answers that
-  // way for everything, so `add` and `update` failing there says nothing about
-  // whether the marketplace is registered - and the install is what reports.
   const run = fakeCli({
     'plugin marketplace list': { code: 1, stderr: 'unknown option --json' },
     'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
@@ -231,8 +223,6 @@ test('a CLI that cannot list is never concluded from, however the other calls go
 });
 
 test('an add refused by an older CLI still installs, when update says it is registered', async () => {
-  // The other side of the same branch: `add` fails because the marketplace is
-  // already there, and `update` succeeding is what says so.
   const run = fakeCli({
     'plugin marketplace list': { code: 1, stderr: 'unknown option --json' },
     'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
