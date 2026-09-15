@@ -214,7 +214,12 @@ export class ClaudeHarness implements Harness {
       detail: tail(added),
     });
     const res = await cli.marketplaceUpdate(marketplace);
-    if (res.code !== 0) {
+    // Conclusive only against a listing this build could read and did not find
+    // it in. A listing it could not read at all is `null` - "unknown", never
+    // "none", the rule every reader of that value owes it - and an older CLI
+    // answers that way for every call, including perhaps `marketplace update`
+    // itself, so concluding from the pair there would fail a run that installs.
+    if (res.code !== 0 && entries !== null) {
       return err(
         new Failure(
           `Claude Code would not register '${marketplace}' from ${addressOf(origin)}: ${tail(added)}`,

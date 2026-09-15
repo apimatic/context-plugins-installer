@@ -422,10 +422,11 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
   is shared state and follows the record's rule: every row but the one being
   written rides through verbatim. What is written has to satisfy **Claude's own
   schema**, which is stricter than the file this tool once produced: `owner` is
-  required and must be an object carrying a non-empty `name` - a string, an
-  empty object, or nothing at all has the whole file refused, and with it the
-  marketplace, so every Claude install from a path or a repository failed while
-  Cursor and VS Code succeeded. `ownerFor` keeps a usable one already in the
+  required and must be an object carrying a non-empty `name` - a string, a
+  nameless object, a `name` that is not a string, or nothing at all has the whole
+  file refused, and with it the marketplace - so on every Claude that enforces it
+  (2.1.269 and 2.1.270 both do) an install from a path or a repository failed
+  while Cursor and VS Code succeeded. `ownerFor` keeps a usable one already in the
   file, the way every other field rides through, and replaces one Claude would
   refuse; `name` is forced because this tool owns it. A field this schema gains
   later is the same class of bug, and only a real `claude` can find it - the

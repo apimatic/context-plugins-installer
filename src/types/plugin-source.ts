@@ -152,6 +152,11 @@ const PATH_SEGMENT = /^[A-Za-z0-9_.][A-Za-z0-9_.+-]*$/;
  */
 const FILE_VIEWS = new Set(['blob', 'raw', 'blame', 'edit']);
 
+/**
+ * Deliberately not here: `packages` and `projects`, which name a page on github.com but
+ * also name the folder a monorepo most often keeps its plugins in. Refusing those would
+ * cost a real source spelling to catch a URL nobody pastes at an installer.
+ */
 const REPO_PAGES = new Set([
   'commit',
   'commits',
@@ -167,8 +172,6 @@ const REPO_PAGES = new Set([
   'discussions',
   'security',
   'settings',
-  'packages',
-  'projects',
 ]);
 
 const namesAFile = (spec: string): Failure =>

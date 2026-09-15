@@ -216,6 +216,20 @@ test('a marketplace Claude will not register fails the run, rather than blaming 
   );
 });
 
+test('a CLI that cannot list is never concluded from, however the other calls go', async () => {
+  // `null` from the listing is "unknown, never none". An older CLI answers that
+  // way for everything, so `add` and `update` failing there says nothing about
+  // whether the marketplace is registered - and the install is what reports.
+  const run = fakeCli({
+    'plugin marketplace list': { code: 1, stderr: 'unknown option --json' },
+    'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
+    'plugin marketplace update': { code: 1, stderr: 'unknown command' },
+  });
+
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
+  assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
+});
+
 test('an add refused by an older CLI still installs, when update says it is registered', async () => {
   // The other side of the same branch: `add` fails because the marketplace is
   // already there, and `update` succeeding is what says so.

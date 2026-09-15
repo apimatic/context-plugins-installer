@@ -200,6 +200,14 @@ test('a github.com page is refused by name, not carried as a folder that is not 
   assert.equal(shape('acme/mono/issues/12').path, 'issues/12');
 });
 
+test('a page word a monorepo also uses for its folders is left as a folder', () => {
+  // `packages` and `projects` are pages on github.com and the two commonest names
+  // for the folder a monorepo keeps its plugins in. The folder wins.
+  assert.equal(shape('github.com/acme/mono/packages/my-plugin').path, 'packages/my-plugin');
+  assert.equal(shape('acme/mono/packages/my-plugin').path, 'packages/my-plugin');
+  assert.equal(shape('https://github.com/acme/mono/tree/v2/projects/x').path, 'projects/x');
+});
+
 test('a path beats a repository, so a relative folder is never read as a slug', () => {
   assert.equal(local('./acme/repo'), '/work/proj/acme/repo');
   assert.equal(value(parse('acme/repo')).kind, 'github');
