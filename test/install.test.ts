@@ -135,7 +135,7 @@ test('the same plugin id from a second marketplace is refused without --force', 
         pathOpts: m.pathOpts,
       }),
     ),
-    (err) => err instanceof FailureError && /different marketplace/.test(err.message),
+    (err) => err instanceof FailureError && /different source/.test(err.message),
   );
 });
 
@@ -1343,7 +1343,7 @@ test('a custom marketplace is reported as "custom"; a failure as its stage and k
     quietly(() =>
       installPlugin({
         brand: brandFor(repo),
-        plugin: '../etc',
+        plugin: 'Not An Id',
         targets: TARGETS,
         wiring: wiring(spec),
         sink: sinkInto(events),

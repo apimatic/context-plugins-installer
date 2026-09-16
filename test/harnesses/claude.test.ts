@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { ClaudeHarness } from '../../src/harnesses/claude.js';
 import type { Env } from '../../src/types/env.js';
 import type { HarnessContext, HarnessEvent, HarnessOpts } from '../../src/types/harness.js';
+import { RepoMarketplace } from '../../src/types/marketplace-origin.js';
 import type { RunCommand, RunResult } from '../../src/types/ports.js';
 import { cleanupAll, outcome, runnerFor, tmpDir } from '../helpers.js';
 
@@ -21,10 +22,12 @@ const REPO = 'apimatic/context-plugins';
  */
 const CTX: HarnessContext = {
   plugin: 'xero-sdk',
-  marketplace: 'context-plugins',
-  repo: REPO,
+  origin: new RepoMarketplace(REPO, 'context-plugins'),
   listener: () => {},
 };
+
+/** The same repository with no name recorded for it: what an offline uninstall holds. */
+const NAMELESS = new RepoMarketplace(REPO);
 
 /** A context that keeps what the harness reported, in order. */
 function recording(over: Partial<HarnessContext> = {}) {
@@ -68,6 +71,14 @@ const opts = (run: RunCommand): HarnessOpts => {
   const env = withClaude();
   return { env, runner: runnerFor(run, env) };
 };
+
+test('it installs from the marketplace itself, so it needs no plugin files', () => {
+  // The one harness that answers `false`, and the flag `actions/install.ts`
+  // reads to decide whether to fetch at all. It was the only one of the three
+  // unasserted: flipping it to `true` made every Claude install clone a
+  // repository it never reads, and the whole suite stayed green.
+  assert.equal(claude.needsSource, false);
+});
 
 test('an already-registered marketplace is updated, not re-added', async () => {
   const run = fakeCli({
@@ -182,6 +193,42 @@ test('a marketplace that cannot be listed is still refreshed before installing',
 
   assert.ok(run.calls.includes('plugin marketplace update context-plugins'));
   assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
+});
+
+test('a marketplace Claude will not register fails the run, rather than blaming the plugin', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': listing([]),
+    'plugin marketplace add': { code: 1, stderr: 'Invalid schema: owner: Invalid input' },
+    'plugin marketplace update': { code: 1, stderr: "Marketplace 'context-plugins' not found." },
+  });
+
+  const result = await claude.install(CTX, opts(run));
+  assert.equal(result.ok, false, 'nothing was registered, so this is not a success');
+  assert.match(result.ok ? '' : result.error.message, /owner: Invalid input/);
+  assert.ok(
+    !run.calls.some((c) => c.startsWith('plugin install')),
+    'no install is attempted into a marketplace that is not there',
+  );
+});
+
+test('a CLI that cannot list is never concluded from, however the other calls go', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': { code: 1, stderr: 'unknown option --json' },
+    'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
+    'plugin marketplace update': { code: 1, stderr: 'unknown command' },
+  });
+
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
+  assert.ok(run.calls.includes('plugin install xero-sdk@context-plugins --scope user'));
+});
+
+test('an add refused by an older CLI still installs, when update says it is registered', async () => {
+  const run = fakeCli({
+    'plugin marketplace list': { code: 1, stderr: 'unknown option --json' },
+    'plugin marketplace add': { code: 1, stderr: "Marketplace 'context-plugins' already exists" },
+  });
+
+  assert.equal(outcome(await claude.install(CTX, opts(run))), 'installed');
 });
 
 test('a different marketplace under the same name is reported, not installed into', async () => {
@@ -586,13 +633,13 @@ test('no claude on PATH is said once, for either verb', async () => {
 test('with no marketplace name each verb says which one it could not do', async () => {
   const run = fakeCli({ 'plugin marketplace list': listing([]) });
 
-  const installing = recording({ marketplace: null });
+  const installing = recording({ origin: NAMELESS });
   assert.equal(outcome(await claude.install(installing.ctx, opts(run))), 'skipped');
   assert.deepEqual(installing.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'install' },
   ]);
 
-  const uninstalling = recording({ marketplace: null });
+  const uninstalling = recording({ origin: NAMELESS });
   assert.equal(await claude.uninstall(uninstalling.ctx, opts(run)), 'skipped');
   assert.deepEqual(uninstalling.events, [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' },

@@ -2,6 +2,7 @@ import type { Catalog, CatalogPluginEntry, ResolvedPlugin } from '../types/catal
 import { REGISTRY_FILES } from '../types/catalog.js';
 import { Failure } from '../types/failure.js';
 import { MarketplaceName } from '../types/ids/marketplace-name.js';
+import { RepoMarketplace } from '../types/marketplace-origin.js';
 import { err, ok, type Result } from '../types/result.js';
 import { isPlainObject, nonEmptyString } from '../types/util.js';
 
@@ -83,7 +84,8 @@ export function resolvePlugin(
   }
 
   // Otherwise the failure surfaces later as a bare "plugin not found" from claude.
-  if (!MarketplaceName.create(resolvedMarketplace)) {
+  const name = MarketplaceName.create(resolvedMarketplace);
+  if (!name) {
     return err(
       new Failure(
         `Marketplace name '${resolvedMarketplace}' is not a valid identifier.`,
@@ -97,9 +99,8 @@ export function resolvePlugin(
 
   return ok({
     plugin,
-    repo,
+    origin: RepoMarketplace.named(repo, name),
     ref,
-    marketplace: resolvedMarketplace,
     sourcePath: sourcePath.value,
     description: isPlainObject(entry) && nonEmptyString(entry.description) ? entry.description : '',
     catalogFound: Boolean(catalog),

@@ -5,11 +5,14 @@ import {
   foldRows,
   foreignTargets,
   manifestView,
+  matchesKey,
   sanitizeEntry,
   type EntryKey,
   type Manifest,
   type ManifestEntry,
 } from './installed-record.js';
+import { isPlainObject } from './util.js';
+import { sourceKindOf } from './plugin-source.js';
 import type { ManifestStore } from './ports.js';
 import type { UninstallDecision } from './uninstall.js';
 
@@ -28,7 +31,8 @@ export interface InstallRecord {
   plugin: string;
   repo: string;
   marketplace: string;
-  ref: string;
+  /** Null for a source with no version to record: a directory on this machine. */
+  ref: string | null;
   /** Editors this run installed into. */
   installed: readonly HarnessName[];
   /**
@@ -76,15 +80,37 @@ export class ManifestContext {
   }
 
   /**
+   * The row an argument names and the key that writes it, in one read. Over the
+   * raw rows, not the read view: a row the view hides is exactly the one a
+   * caller still has to be able to reach.
+   */
+  locate(plugin: string, repo: string): { key: EntryKey; row: Record<string, unknown> | null } {
+    const rows = this.store.readRaw().plugins;
+    const configured: EntryKey = { plugin, repo };
+    const matching = rows.filter((r): r is Record<string, unknown> => matchesKey(r, configured));
+    if (matching.length) return { key: configured, row: foldRows(matching) };
+
+    const named = rows.find(
+      (r): r is Record<string, unknown> =>
+        isPlainObject(r) && r.plugin === plugin && sourceKindOf(r.repo) !== 'marketplace',
+    );
+    if (!named) return { key: configured, row: null };
+    const key: EntryKey = { plugin, repo: named.repo };
+    const found = rows.filter((r): r is Record<string, unknown> => matchesKey(r, key));
+    return { key, row: foldRows(found) };
+  }
+
+  /**
    * Cursor and VS Code both keep plugins in a flat `<plugin>/` directory, so the
-   * same id from a second marketplace would silently overwrite the first.
-   * `--force` is the caller's to honour: this only reports the clash.
+   * same id from a second source - another marketplace, or a folder on this
+   * machine - would silently overwrite the first. `--force` is the caller's to
+   * honour: this only reports the clash.
    */
   conflictFor({ plugin, repo }: { plugin: string; repo: string }): Failure | null {
     const clash = this.list().find((p) => p.plugin === plugin && !RepoSlug.same(p.repo, repo));
     if (!clash) return null;
     return new Failure(
-      `'${plugin}' is already installed from a different marketplace.`,
+      `'${plugin}' is already installed from a different source.`,
       'Uninstall it first, or re-run with --force to replace it.',
     );
   }
@@ -97,7 +123,7 @@ export class ManifestContext {
       plugin,
       repo,
       marketplace,
-      ref,
+      ...(ref === null ? {} : { ref }),
       targets: [
         ...NAMES.filter((n) => keep.has(n)), // canonical order
         ...foreignTargets(raw),

@@ -174,11 +174,14 @@ Work in this order: the type goes first so the compiler enumerates the rest.
        description of what a harness actually does, giving mechanism and install
        location. A harness missing from it is undocumented for users.
 
-8. **CI smoke test** (`.github/workflows/ci.yml`, job `smoke`). A file-based harness
-   should join the real install there: export its `CP_<EDITOR>_DIR`, `mkdir -p` it, add
-   the name to both `--targets` lists, and assert on the artifact it leaves behind (the
-   VS Code line checks `settings.json` exists). A CLI-driven harness cannot run there -
-   the runner has no such binary - and is covered by its fake-CLI tests instead.
+8. **CI smoke tests** (`.github/workflows/ci.yml`). A file-based harness should join the
+   real install in job `smoke`: export its `CP_<EDITOR>_DIR`, `mkdir -p` it, add the name
+   to both `--targets` lists, and assert on the artifact it leaves behind (the VS Code
+   line checks `settings.json` exists). A CLI-driven harness belongs in job `claude`
+   instead, which installs that binary on the runner and asserts on what _it_ reports
+   rather than on what we recorded. Its fake-CLI tests are not enough on their own: they
+   assert the argv and cannot refuse a file, which is how a generated marketplace Claude
+   rejects outright once stayed green through a whole feature.
 
 9. **Gate**, in this order, before committing:
    `npm run typecheck && npm run lint && npm run format:check && npm test && npm run build`

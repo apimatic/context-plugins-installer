@@ -226,3 +226,19 @@ export const portsFor = (
   env: Env = {},
   run: RunCommand = realRun,
 ): SourcePorts => ({ fetch, env, runner: runnerFor(run, env) });
+
+/**
+ * Restoring an unset variable means deleting it: `process.env.X = undefined`
+ * stores the string `"undefined"`, and `os.tmpdir()` then names a missing dir.
+ */
+export function pinTempRoot(root: string): () => void {
+  const keys = ['TMPDIR', 'TEMP', 'TMP'] as const;
+  const saved = keys.map((k) => [k, process.env[k]] as const);
+  for (const key of keys) process.env[key] = root;
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}

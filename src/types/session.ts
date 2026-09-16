@@ -1,6 +1,7 @@
 import type { Catalog } from './catalog.js';
 import type { Failure } from './failure.js';
 import type { DirectoryPath } from './file/paths.js';
+import type { PluginManifest } from './plugin-manifest.js';
 import type { Result } from './result.js';
 
 // Work shared by every plugin in one run: the registry read, the clone, the
@@ -31,7 +32,8 @@ export type MarketplaceListener = (event: MarketplaceEvent) => void;
 export interface RepoHandle {
   via: 'git' | 'api';
   cleanup(): void;
-  checkout(sourcePath: string): Promise<Result<DirectoryPath, Failure>>;
+  /** `null` is the repository itself, for a repo that is a plugin rather than a marketplace. */
+  checkout(sourcePath: string | null): Promise<Result<DirectoryPath, Failure>>;
 }
 
 export interface Session {
@@ -42,10 +44,16 @@ export interface Session {
    */
   marketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
   catalog(args: { repo: string; ref: string }): Promise<Result<Catalog | null, Failure>>;
+  manifest(args: {
+    repo: string;
+    ref: string;
+    path: string | null;
+  }): Promise<Result<PluginManifest, Failure>>;
   source(args: {
     repo: string;
     ref: string;
-    sourcePath: string;
-  }): Promise<Result<DirectoryPath | null, Failure>>;
+    /** `null` is the repository itself; a path is a folder inside it. */
+    sourcePath: string | null;
+  }): Promise<Result<DirectoryPath, Failure>>;
   cleanup(): Promise<void>;
 }

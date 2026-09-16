@@ -1,3 +1,4 @@
+import type { NamedMarketplace } from './marketplace-origin.js';
 import { isPlainObject, nonEmptyString } from './util.js';
 
 // A marketplace registry as this build reads it, and one plugin resolved out of
@@ -23,9 +24,8 @@ export interface Catalog {
 
 export interface ResolvedPlugin {
   plugin: string;
-  repo: string;
+  origin: NamedMarketplace;
   ref: string;
-  marketplace: string;
   sourcePath: string;
   description: string;
   catalogFound: boolean;

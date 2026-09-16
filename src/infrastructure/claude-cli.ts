@@ -19,6 +19,7 @@ export interface ClaudeCli {
   listMarketplaces(): Promise<MarketplaceListing[] | null>;
   listPlugins(): Promise<InstalledPlugin[] | null>;
   marketplaceAdd(repo: string): Promise<RunResult>;
+  marketplaceRemove(name: string): Promise<RunResult>;
   marketplaceUpdate(name: string): Promise<RunResult>;
   pluginInstall(target: string, scope: string): Promise<RunResult>;
   pluginUninstall(target: string, scope: string): Promise<RunResult>;
@@ -93,6 +94,10 @@ export function claudeCli(claude: string, runner: ProcessRunner): ClaudeCli {
 
     marketplaceAdd(repo) {
       return exec(claude, ['plugin', 'marketplace', 'add', repo]);
+    },
+
+    marketplaceRemove(name) {
+      return exec(claude, ['plugin', 'marketplace', 'remove', name]);
     },
 
     marketplaceUpdate(name) {

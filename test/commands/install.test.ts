@@ -106,7 +106,7 @@ test('an id that never validated travels as null', async () => {
   const result = await install(
     machine(),
     wiring({ repo: REPO, srcDir: pluginSource() }),
-    { plugin: '../etc' },
+    { plugin: 'Not An Id' },
     events,
   );
 

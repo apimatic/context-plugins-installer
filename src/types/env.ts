@@ -9,4 +9,5 @@ export interface PathOpts {
   platform?: string;
   env?: Env;
   home?: string;
+  cwd?: string;
 }

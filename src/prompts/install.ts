@@ -1,5 +1,6 @@
 import { createPrompter } from './prompter.js';
 import type { Brand } from '../types/brand.js';
+import type { PluginSource, UntrustedSource } from '../types/plugin-source.js';
 import {
   NAMES,
   TITLES,
@@ -39,13 +40,52 @@ export class InstallPrompts {
 
   readonly harnessListener: HarnessListener = (event) => harnessListener(this.home)(event);
 
-  intro(plugin: string, brand: Brand, ref: string, marketplace: string, about?: string): void {
-    const from = ref === 'main' ? brand.label : `${brand.label} (${ref})`;
-    log.banner(`Installing '${plugin}' from ${from}`);
-    log.debug(`source: ${brand.repo}@${ref}, marketplace: ${marketplace}`);
+  private origin(brand: Brand, ref: string | null, source: PluginSource): string {
+    if (source.kind !== 'marketplace') return this.where(source);
+    return ref && ref !== 'main' ? `${brand.label} (${ref})` : brand.label;
+  }
+
+  private where(source: UntrustedSource): string {
+    return source.kind === 'local' ? f.path(source.dir, this.home) : source.toString();
+  }
+
+  intro(
+    plugin: string,
+    brand: Brand,
+    ref: string | null,
+    marketplace: string,
+    about: string,
+    source: PluginSource,
+  ): void {
+    log.banner(`Installing '${plugin}' from ${this.origin(brand, ref, source)}`);
+    log.debug(`source: ${source}, marketplace: ${marketplace}`);
     if (about) log.info(about);
     log.rule();
     log.step('[Harnesses]');
+  }
+
+  async confirmSource(source: UntrustedSource, assumed: boolean): Promise<boolean | 'cancelled'> {
+    const where = this.where(source);
+    log.warn(`This installs a plugin from ${where}, not from ${TITLES.claude}'s marketplace.`);
+    log.info('A plugin can run commands through its hooks and MCP servers.');
+    if (assumed) return true;
+    const question = 'Install from this source?';
+    if (this.confirm) return this.confirm(question, false);
+    const prompter = createPrompter();
+    try {
+      return await prompter.confirm(question, false);
+    } finally {
+      prompter.close();
+    }
+  }
+
+  refIgnored(flag: string, used: string): void {
+    log.warn(`Using ref '${used}' from the plugin spec - --ref ${flag} was not used.`);
+  }
+
+  nothingTrusted(): void {
+    log.plain('');
+    log.warn('Not installed - the source was not confirmed.');
   }
 
   notInstalled(harness: Harness, opts?: { home?: string }): void {
