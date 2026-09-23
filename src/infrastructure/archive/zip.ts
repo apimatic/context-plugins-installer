@@ -161,7 +161,12 @@ interface Central {
   links: string[];
 }
 
-function readCentral(fd: number, directory: Directory, describe: string): Result<Central, Failure> {
+function readCentral(
+  fd: number,
+  directory: Directory,
+  fileSize: number,
+  describe: string,
+): Result<Central, Failure> {
   if (directory.entries > LIMITS.entries) {
     return err(tooMuch(describe, 'holds too many files', directory.entries, LIMITS.entries));
   }
@@ -226,6 +231,16 @@ function readCentral(fd: number, directory: Directory, describe: string): Result
     if (method !== STORED && method !== DEFLATED) {
       return err(
         damaged(describe, `${JSON.stringify(read.name)} uses compression method ${method}`),
+      );
+    }
+    // Before the read that would allocate it: a payload cannot be larger than
+    // the file carrying it, and taking one at its word bought a gigabyte and a
+    // half of Buffer for a three-hundred-byte zip before the size check
+    // downstream disbelieved it. The uncompressed size is not bounded this way -
+    // being larger than the file is what compression is for.
+    if (sizes.local >= fileSize || sizes.compressed > fileSize) {
+      return err(
+        damaged(describe, `${JSON.stringify(read.name)} claims more bytes than the file holds`),
       );
     }
     unpacked += sizes.size;
@@ -301,7 +316,7 @@ export function openZip(file: FilePath, describe: string): Result<ArchiveReader,
     close();
     return err(directory.error);
   }
-  const central = readCentral(fd, directory.value, describe);
+  const central = readCentral(fd, directory.value, size, describe);
   if (!central.ok) {
     close();
     return err(central.error);

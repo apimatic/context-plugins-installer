@@ -449,7 +449,14 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   `LIMITS.unpacked` **before** anything is inflated - the central directory is
   what makes a bomb refusable for free - and `maxOutputLength` plus the CRC
   catch a header that lied; a tarball has no such manifest, so its cap is a
-  running count over the gunzip output, into a file rather than a Buffer. A
+  running count over the gunzip output, into a file rather than a Buffer. Both
+  readers also check a declared length against the **file's own size** before
+  allocating it, which is the one bound a lying header cannot get around: a
+  payload larger than the archive holding it is impossible, and believing one
+  bought a gigabyte of `Buffer` for a three-kilobyte tarball before the existing
+  "is truncated" check disbelieved it. Only the compressed length and the local
+  offset are read that way - an _uncompressed_ size larger than the file is what
+  compression is for. A
   link - symbolic or hard - is skipped and reported, not fatal, because
   `copyDir` carries links today and an archive of a folder that installs must
   not fail; a device node still ends the archive. The inflate bound is never

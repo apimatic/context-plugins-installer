@@ -116,6 +116,12 @@ function walk(fd: number, size: number, describe: string): Result<Walked, Failur
     const prefix = text(header, 345, 155);
     const stored = text(header, 0, 100);
     const offset = at + BLOCK;
+    // Before anything is sized from it: a header claiming more bytes than the
+    // file has left is a truncated or a crafted tarball, and reading it at face
+    // value allocated whatever it asked for - a gigabyte, from three kilobytes.
+    if (offset + entrySize > size) {
+      return err(damaged(describe, `the entry at byte ${at} runs past the end of the file`));
+    }
     at = offset + Math.ceil(entrySize / BLOCK) * BLOCK;
     // Only the three header kinds below are read here; a file's own bytes are
     // read when it is written, one entry at a time.

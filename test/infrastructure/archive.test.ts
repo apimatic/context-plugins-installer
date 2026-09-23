@@ -191,6 +191,25 @@ test('a tarballs symlink is dropped by its type', async () => {
   opened.close();
 });
 
+test('an entry that claims more bytes than the archive holds is refused, not allocated', async () => {
+  // Both readers used to hand the declared length straight to Buffer.alloc: a
+  // three-kilobyte file asking for a gigabyte got one, and only then failed for
+  // being truncated. The file's own size is the bound, and it is known here.
+  const zip = zipOf([
+    { name: MANIFEST, data: manifest },
+    { name: 'big.txt', data: 'hello', declaredCompressed: 0x60000000 },
+  ]);
+  const zipErr = await failed(open(archiveAt('p.zip', zip)));
+  assert.match(zipErr.message, /claims more bytes than the file holds/);
+
+  const tar = tarOf([
+    { name: MANIFEST, data: manifest },
+    { name: 'big.txt', data: 'hello', declaredSize: 0x40000000 },
+  ]);
+  const tarErr = await failed(open(archiveAt('p.tar', tar), 'p.tar'));
+  assert.match(tarErr.message, /runs past the end of the file/);
+});
+
 test('a hard link is a link: skipped and named, like a symlink', async () => {
   const entries = [
     { name: MANIFEST, data: manifest },

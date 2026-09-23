@@ -25,6 +25,8 @@ export interface ZipEntrySpec {
   zip64?: boolean;
   /** A size other than the data's, for the entry that lies about itself. */
   declaredSize?: number;
+  /** A compressed size other than the data's - the one the extract reads by. */
+  declaredCompressed?: number;
 }
 
 const u16 = (value: number): Buffer => {
@@ -97,7 +99,7 @@ export function zipOf(
         u16(0),
         u16(0),
         u32(crc),
-        shown(stored.length),
+        shown(spec.declaredCompressed ?? stored.length),
         shown(size),
         u16(name.length),
         u16(extra.length),
@@ -162,6 +164,8 @@ export interface TarEntrySpec {
   /** Carry it in a GNU long-name header instead. */
   gnuLong?: boolean;
   badChecksum?: boolean;
+  /** A size other than the data's, for the header that lies about itself. */
+  declaredSize?: number;
 }
 
 const BLOCK = 512;
@@ -223,7 +227,7 @@ export function tarOf(entries: readonly TarEntrySpec[]): Buffer {
     parts.push(
       header({
         name: spec.pax || spec.gnuLong ? 'shortened' : spec.name,
-        size: data.length,
+        size: spec.declaredSize ?? data.length,
         mode,
         type,
         badChecksum: spec.badChecksum,
