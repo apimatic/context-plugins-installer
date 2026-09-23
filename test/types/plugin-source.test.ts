@@ -340,6 +340,26 @@ test('only a URL or a path can be an archive, so a repository named like one is 
   assert.equal(source.repo, 'acme/my-plugin.zip');
 });
 
+test('a # with nothing after it names no folder, and is not part of the archive either', () => {
+  // Carried along, it put a meaningless # in the key a URL is recorded under,
+  // and made `./p.zip#` a directory of that name - formatOf saw the # too.
+  const url = value(parse('https://acme.com/p.zip#'));
+  assert.ok(url instanceof ArchiveSource);
+  assert.equal(url.path, null);
+  assert.equal(url.key(), 'archive:https://acme.com/p.zip');
+
+  const file = value(parse('./p.zip#'));
+  assert.ok(file instanceof ArchiveSource, 'a path with a bare # is still the file beside it');
+  assert.equal(file.path, null);
+
+  // The # that is part of a name is untouched: nothing follows it that could
+  // be a folder, and nothing before it is an archive.
+  const named = value(parse('./my#plugin.zip'));
+  assert.ok(named instanceof ArchiveSource);
+  assert.equal(named.path, null);
+  assert.match(named.location(), /my#plugin\.zip$/);
+});
+
 test('a URL naming an archive this tool cannot read says which four it can', () => {
   for (const spec of ['https://acme.com/p.tar.bz2', 'https://acme.com/p.7z']) {
     const result = parse(spec);

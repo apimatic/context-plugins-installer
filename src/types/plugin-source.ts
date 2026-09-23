@@ -304,16 +304,18 @@ function archiveName(spec: string): string | null {
 /**
  * `<archive>#<folder>`, split at the **last** `#` and only when what precedes
  * it is an archive - so `./my#plugin.zip` is a file with a `#` in its name, the
- * way `release/1.0` is a branch with a slash in its.
+ * way `release/1.0` is a branch with a slash in its. An empty fragment names no
+ * folder, and is dropped rather than left on the spec: carried along it put a
+ * meaningless `#` in the manifest key a URL is recorded under, and turned
+ * `./p.zip#` into a directory of that name, since `formatOf` saw the `#` too.
  */
 function splitFragment(spec: string): { at: string; path: string | null } {
   const hash = spec.lastIndexOf('#');
   if (hash <= 0) return { at: spec, path: null };
   const head = spec.slice(0, hash);
-  const tail = spec.slice(hash + 1);
   const name = archiveName(head);
-  if (!tail || name === null || formatOf(name) === null) return { at: spec, path: null };
-  return { at: head, path: tail };
+  if (name === null || formatOf(name) === null) return { at: spec, path: null };
+  return { at: head, path: spec.slice(hash + 1) || null };
 }
 
 const unreadableFormat = (spec: string): Failure =>

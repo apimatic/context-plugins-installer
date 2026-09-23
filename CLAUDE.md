@@ -296,7 +296,11 @@ that ends up somewhere else is a rule two callers can disagree about.
   archive, so `acme/my-plugin.zip` is still a repository; an `@` is part of
   the name, since an archive has no ref; and the `#folder` is split at the
   **last** `#`, and only when what precedes it is itself an archive, so
-  `./my#plugin.zip` is a file with a `#` in its name. `ArchiveSource` covers
+  `./my#plugin.zip` is a file with a `#` in its name. An **empty** fragment
+  names no folder and is dropped rather than left on the spec: carried along
+  it put a meaningless `#` in the key a URL is recorded under, and turned
+  `./p.zip#` into a directory of that name, because `formatOf` saw the `#`
+  too. `ArchiveSource` covers
   both a URL and a file in one class because only one step differs, and that
   step is a discriminated union for the same reason `MarketplaceOrigin` is.
   `location()` is the archive without the folder inside it: what a reader is
