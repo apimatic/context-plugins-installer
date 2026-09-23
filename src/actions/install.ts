@@ -122,6 +122,22 @@ export class InstallAction {
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
 
+    // Ahead of the resolve, not merely of the copy: resolving an archive means
+    // downloading it, and a plugin from an arbitrary directory, repository or
+    // URL can carry hooks and MCP servers that run commands. The question names
+    // the source rather than the plugin, which is what lets it be asked before
+    // anything has been read - and a source that is declined is one whose
+    // plugin this run never learns the name of, which is no loss: an untrusted
+    // source never reports one anyway.
+    if (source.kind !== 'marketplace') {
+      const trusted = await this.prompts.confirmSource(source, assumeYes || !this.canAsk());
+      if (trusted === 'cancelled') return ActionResult.cancelled(done());
+      if (!trusted) {
+        this.prompts.nothingTrusted();
+        return ActionResult.success(done());
+      }
+    }
+
     const settled = await this.resolve(source, brand);
     if (!settled.ok) return failed(settled.error);
     const resolved = settled.value;
@@ -143,17 +159,6 @@ export class InstallAction {
     this.prompts.intro(plugin, brand, report.ref, marketplace, resolved.description, source);
     if (req.ref && source.kind === 'github' && source.ref !== ref) {
       this.prompts.refIgnored(req.ref, source.ref);
-    }
-
-    // Must stay ahead of any fetch or copy: a plugin from an arbitrary
-    // directory or repository can carry hooks and MCP servers that run commands.
-    if (source.kind !== 'marketplace') {
-      const trusted = await this.prompts.confirmSource(source, assumeYes || !this.canAsk());
-      if (trusted === 'cancelled') return ActionResult.cancelled(done());
-      if (!trusted) {
-        this.prompts.nothingTrusted();
-        return ActionResult.success(done());
-      }
     }
 
     const available = harnesses.detected(requested, this.pathOpts);

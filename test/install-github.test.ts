@@ -322,8 +322,10 @@ test('declining the repository installs nothing and is not a failure', async () 
   assert.deepEqual(report.targets, []);
   assert.deepEqual(rowsOf(m), [], 'nothing recorded');
   assert.deepEqual(fetched, [], 'and none of its files fetched: the question comes first');
-  // The one request is the manifest read, which is how the question names the plugin.
-  assert.equal(asked.length, 1);
+  // Not one request, either: the question is asked before the manifest is read,
+  // so it names the source the user typed rather than the plugin it turned out
+  // to hold - and declining costs nothing at all.
+  assert.equal(asked.length, 0);
 });
 
 test('telemetry reports the repository kind, and never the repository', async () => {
