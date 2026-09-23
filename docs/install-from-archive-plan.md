@@ -577,3 +577,21 @@ under this repo's own tsconfig, with a real `fetch` response assigned to it; `mu
 `stageLocalPlugin`, `conflictFor` and `recordInstall` genuinely need no archive branch; and
 `PluginId`'s pattern cannot match `p.zip`, so the new extension rule cannot shadow an
 argument that already works.
+
+## What the review of the implementation changed
+
+A second review, over the finished branch rather than the plan, reproduced each of these
+against the real readers before changing anything.
+
+| #   | Finding                                                                                                                                          | Change                                                                             |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| 1   | An empty file stored with deflate failed the whole archive: `maxOutputLength: 0` is refused by zlib, and Python's `zipfile` writes exactly that. | The bound is never below one.                                                      |
+| 2   | `tar -czf x.tgz .` names every entry `./...`, and a `.` segment was refused as a climb.                                                          | `.` is dropped; only `..` is a climb.                                              |
+| 3   | A Zip64 pointer past the file threw `ERR_OUT_OF_RANGE` out of the fetcher; so did a `mkdir` over a file, and a workspace that could not be made. | The pointer is checked first, and the fetcher's `open` and `files` catch the rest. |
+| 4   | The download's write stream had no error listener, so a disk that filled between two chunks was an unhandled event.                              | Listened for from the start, and reported as a Failure.                            |
+| 5   | A 5xx from any host reused the registry client's hint, which blames an outage at GitHub.                                                         | The download has its own sentence.                                                 |
+| 6   | A non-2xx response's body was never cancelled.                                                                                                   | Discarded before the failure is returned.                                          |
+| 7   | The help's `mono.zip#tools/x` example does not parse, and a bare `my-plugin.zip` failed as "not kebab-case".                                     | The example reads `./mono.zip#...`, and a bare file name is told to write `./`.    |
+| 8   | The skipped-links line named five against a larger count and stopped.                                                                            | `, and N more`.                                                                    |
+| 9   | Two names differing only in case are one file on Windows and macOS, the later silently winning.                                                  | Duplicates are found case-folded.                                                  |
+| 10  | A hard link failed the archive where a symlink was skipped.                                                                                      | Both are links: skipped and named. A device node still ends the archive.           |

@@ -18,7 +18,11 @@ import { ok, err, type Result } from '../types/result.js';
 import type { ArchiveAt } from '../types/plugin-source.js';
 import type { ArchiveHandle, MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
-import { openArchive as openArchiveFile, type ArchiveReader } from './archive/index.js';
+import {
+  openArchive as openArchiveFile,
+  type ArchiveReader,
+  type Unpacked,
+} from './archive/index.js';
 import { downloadArchive } from './archive/download.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
 import { workspaceDir } from './paths.js';
@@ -392,6 +396,12 @@ export async function openRepo(
   };
 }
 
+const unreadable = (describe: string, cause: unknown): Failure =>
+  new Failure(
+    `${describe} could not be unpacked: ${errorMessage(cause)}`,
+    'The file may not be the archive it is named after, or the disk it is being written to may be full.',
+  );
+
 /** Anything left by a run that was killed; a day is long past any live one. */
 const STALE_MS = 24 * 60 * 60 * 1000;
 
@@ -436,9 +446,19 @@ export function openArchive(
   // split `openRepo` makes between one clone and each checkout. The promise is
   // cached rather than its result, so two folders asked for at once share it.
   const open = async (): Promise<Result<Opened, Failure>> => {
-    const base = ensureDir(root);
-    sweep(base);
-    const here = new DirectoryPath(fs.mkdtempSync(path.join(base, 'archive-')));
+    let here: DirectoryPath;
+    try {
+      const base = ensureDir(root);
+      sweep(base);
+      here = new DirectoryPath(fs.mkdtempSync(path.join(base, 'archive-')));
+    } catch (e) {
+      return err(
+        new Failure(
+          `Could not create a working directory under ${root}: ${errorMessage(e)}`,
+          'Check that the directory is writable, or point CP_STATE_DIR somewhere that is.',
+        ),
+      );
+    }
     work = here;
 
     const file = at.kind === 'file' ? at.file : here.file('download');
@@ -447,10 +467,17 @@ export function openArchive(
       if (!got.ok) return err(got.error);
     }
 
-    const opened = await openArchiveFile({ file, describe, work: here });
-    if (!opened.ok) return err(opened.error);
-    reader = opened.value;
-    return ok({ reader: opened.value, here });
+    // A reader over a malformed archive can still trip on something it did not
+    // check for, and this is infrastructure: a bad file is a Failure to report,
+    // never a stack trace.
+    try {
+      const opened = await openArchiveFile({ file, describe, work: here });
+      if (!opened.ok) return err(opened.error);
+      reader = opened.value;
+      return ok({ reader: opened.value, here });
+    } catch (e) {
+      return err(unreadable(describe, e));
+    }
   };
 
   return {
@@ -469,8 +496,14 @@ export function openArchive(
       // Mirrors the archive's own layout, so two plugins out of one never share
       // a destination.
       const under = prefix.value === '' ? [] : prefix.value.split('/');
-      const files = new DirectoryPath(ensureDir(here.join('files', ...under)));
-      const out = archive.extract(prefix.value, files);
+      let files: DirectoryPath;
+      let out: Result<Unpacked, Failure>;
+      try {
+        files = new DirectoryPath(ensureDir(here.join('files', ...under)));
+        out = archive.extract(prefix.value, files);
+      } catch (e) {
+        return err(unreadable(describe, e));
+      }
       if (!out.ok) return err(out.error);
       if (out.value.skippedCount) {
         notify({ kind: 'entry-skipped', names: out.value.skipped, count: out.value.skippedCount });

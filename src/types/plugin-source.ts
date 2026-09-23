@@ -316,6 +316,12 @@ function splitFragment(spec: string): { at: string; path: string | null } {
   return { at: head, path: tail };
 }
 
+const bareFile = (spec: string): Failure =>
+  new Failure(
+    `'${spec}' is a file name, not a plugin id.`,
+    `A relative path starts with ./ - write it as ./${spec}, or give the full path.`,
+  );
+
 const notHttps = (spec: string): Failure =>
   new Failure(
     `${spec} is not an https URL.`,
@@ -340,8 +346,9 @@ function parseArchive(
   const isUrl = HTTP_URL.test(at);
   // `acme/my-plugin.zip` is still a repository: only a URL or a path can name
   // an archive, which is what keeps every argument this program already took
-  // meaning what it did.
-  if (!isUrl && !PATH_LIKE.test(at)) return null;
+  // meaning what it did. A bare `my-plugin.zip` is neither, and the id's own
+  // failure - "expected kebab-case" - would send the user the wrong way.
+  if (!isUrl && !PATH_LIKE.test(at)) return at.includes('/') ? null : err(bareFile(spec));
   if (isUrl && !/^https:/i.test(at)) return err(notHttps(at));
 
   const folder = path === null ? ok(null) : repoPath(path.split('/').filter(Boolean), spec);

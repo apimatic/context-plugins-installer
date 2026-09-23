@@ -161,8 +161,8 @@ A few things worth knowing:
   installable by URL: download it yourself and install the file. A link that expires — a presigned
   one, say — works while it works, query string and all.
 - **What comes out of an archive is checked.** A file that would land outside the plugin's folder,
-  a name Windows cannot hold, or the same name twice ends the install with nothing written;
-  symlinks are skipped, and their absence is reported. An archive is refused above 200 MB
+  a name Windows cannot hold, or the same name twice (in any case) ends the install with nothing
+  written; links are skipped, and their absence is reported. An archive is refused above 200 MB
   downloaded, 1 GB unpacked, or 50,000 files.
 - **`.zip` loses the executable bit** — GitHub's zip files carry no permissions at all. If your
   plugin ships hooks that need to be executable, prefer the `.tar.gz` link, which does carry them.

@@ -323,6 +323,17 @@ test('http is refused where it is written, and says why', () => {
   assert.match(result.error.hint ?? '', /hooks/);
 });
 
+test('a bare file name is told how to be a path, rather than failing as a bad id', () => {
+  const result = parse('my-plugin.zip');
+  assert.ok(!result.ok);
+  assert.match(result.error.message, /is a file name, not a plugin id/);
+  assert.match(result.error.hint ?? '', /\.\/my-plugin\.zip/);
+  // With a folder too: still a file name, still the same hint.
+  const inside = parse('mono.tar.gz#tools/foo');
+  assert.ok(!inside.ok);
+  assert.match(inside.error.hint ?? '', /\.\/mono\.tar\.gz#tools\/foo/);
+});
+
 test('only a URL or a path can be an archive, so a repository named like one is not', () => {
   const source = value(parse('acme/my-plugin.zip'));
   assert.ok(source instanceof GithubSource, 'a repo whose name ends in .zip is still a repo');

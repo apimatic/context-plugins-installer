@@ -101,11 +101,13 @@ export class Unpacker {
       return err(new Failure(`Refusing to write outside the destination: ${relative}`));
     }
     const parent = target.parent().toString();
-    if (!this.made.has(parent)) {
-      ensureDir(parent);
-      this.made.add(parent);
-    }
     try {
+      // Inside the guard: an archive holding `a` as a file and `a/b` as another
+      // fails the mkdir, and that is the archive's fault to report.
+      if (!this.made.has(parent)) {
+        ensureDir(parent);
+        this.made.add(parent);
+      }
       fs.writeFileSync(target.toString(), data);
       const bits = mode === null ? 0 : mode & 0o777;
       if (bits && process.platform !== 'win32') fs.chmodSync(target.toString(), bits);

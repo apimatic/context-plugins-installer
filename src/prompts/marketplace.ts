@@ -6,6 +6,10 @@ import { log } from './terminal.js';
  * themselves, one case per event. This is the shape Phase 4 gives every harness:
  * infrastructure reports what happened, and the words for it live here.
  */
+/** The tail of a listing that names only some of what it counted. */
+const more = ({ names, count }: { names: readonly string[]; count: number }): string =>
+  count > names.length ? `, and ${count - names.length} more` : '';
+
 export function announceMarketplace(event: MarketplaceEvent): void {
   switch (event.kind) {
     case 'registry-skipped':
@@ -48,7 +52,7 @@ export function announceMarketplace(event: MarketplaceEvent): void {
       // knowing about, and a link is the one thing an archive carries that this
       // tool will not write.
       log.warn(
-        `Skipped ${log.plural(event.count, 'link')} the archive carried: ${event.names.join(', ')}`,
+        `Skipped ${log.plural(event.count, 'link')} the archive carried: ${event.names.join(', ')}${more(event)}`,
       );
       return;
     default: {

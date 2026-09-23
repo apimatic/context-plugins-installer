@@ -141,15 +141,20 @@ function walk(fd: number, size: number, describe: string): Result<Walked, Failur
     if (read.kind === 'refuse') return err(refused(describe, raw, read.why));
     if (read.kind === 'ignore') continue;
 
-    if (type === SYMLINK) {
+    // A hard link is a link too: `tar` writes one for a file that appears
+    // twice, and it is skipped and named the way a symlink is rather than
+    // failing the archive.
+    if (type === SYMLINK || type === HARD_LINK) {
       links.push(read.name);
       continue;
     }
     if (type === DIRECTORY) continue;
     if (!REGULAR.has(type)) {
-      const what = type === HARD_LINK ? 'a hard link' : `an entry of type '${type}'`;
       return err(
-        damaged(describe, `${JSON.stringify(read.name)} is ${what}, which is not a plugin's file`),
+        damaged(
+          describe,
+          `${JSON.stringify(read.name)} is an entry of type '${type}', which is not a plugin's file`,
+        ),
       );
     }
 

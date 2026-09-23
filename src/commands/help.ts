@@ -31,7 +31,7 @@ Install sources
                         An @ref after any of them wins over --ref.
   <archive>             A .zip, .tar.gz, .tgz or .tar that is itself a plugin,
                         at an https URL or on this machine. Name a folder
-                        inside it after a #, as in mono.zip#tools/my-plugin.
+                        inside it after a #, as in ./mono.zip#tools/my-plugin.
                         An archive GitHub builds is unwrapped for you, so the
                         folder is the one its page showed you.
 

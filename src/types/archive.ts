@@ -126,9 +126,12 @@ export class EntryNames {
     if (!name) return { kind: 'ignore' };
     if (name.startsWith('/') || /^[A-Za-z]:/.test(name)) return refuse('an absolute path');
 
-    const segments = name.split('/');
+    // `tar -czf x.tgz .` writes every name as `./...`; the segment says
+    // nothing, so it is dropped rather than read as a climb the way `..` is.
+    const segments = name.split('/').filter((segment) => segment !== '.');
+    if (!segments.length) return { kind: 'ignore' };
     for (const segment of segments) {
-      if (segment === '' || segment === '.' || segment === '..') {
+      if (segment === '' || segment === '..') {
         return refuse('a path that climbs out of the archive');
       }
       if (segment.includes(':')) return refuse('a drive or stream separator in a name');
@@ -136,10 +139,15 @@ export class EntryNames {
       if (RESERVED.test(segment)) return refuse(`the reserved name '${segment}'`);
     }
 
-    if (isIgnored(name)) return { kind: 'ignore' };
-    if (this.taken.has(name)) return refuse('the same name twice');
-    this.taken.add(name);
-    return { kind: 'write', name };
+    const cleaned = segments.join('/');
+    if (isIgnored(cleaned)) return { kind: 'ignore' };
+    // Folded, because on Windows and macOS `README` and `readme` are one file,
+    // and the later entry would silently be the one both this program and the
+    // editor read.
+    const folded = cleaned.toLowerCase();
+    if (this.taken.has(folded)) return refuse('the same name twice, in case or in spelling');
+    this.taken.add(folded);
+    return { kind: 'write', name: cleaned };
   }
 }
 

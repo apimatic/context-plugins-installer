@@ -8,7 +8,7 @@ import type { FetchResponseLike, HttpPorts } from '../../types/ports.js';
 import { err, ok, type Result } from '../../types/result.js';
 import type { MarketplaceListener } from '../../types/session.js';
 import { errorMessage } from '../../types/util.js';
-import { hostOf, isUpstreamOutage, upstreamFailure } from '../github-registry-client.js';
+import { hostOf, isUpstreamOutage } from '../github-registry-client.js';
 
 // Fetching an archive, which is the one request this program makes that can
 // legitimately run for minutes and arrive without a length. So it is also the
@@ -48,6 +48,12 @@ const timedOut = (url: string): Failure =>
   new Failure(
     `The download from ${hostOf(url)} stopped responding.`,
     'Check the connection and try again.',
+  );
+
+const unavailable = (url: string, status: number): Failure =>
+  new Failure(
+    `${hostOf(url)} is temporarily unavailable (HTTP ${status}).`,
+    'Try again in a moment. If it persists, check whether a proxy is answering for it.',
   );
 
 const unreachable = (url: string, cause: unknown): Failure =>
@@ -111,6 +117,13 @@ async function drain(
   }
 
   const out = fs.createWriteStream(to.toString());
+  // Listened for from the start: a disk that fills between two chunks emits
+  // `error` while nothing is awaiting the stream, and an unheard one ends the
+  // process.
+  let broken: unknown = null;
+  out.on('error', (e) => {
+    broken ??= e;
+  });
   let seen = 0;
   try {
     for await (const chunk of body) {
@@ -120,13 +133,23 @@ async function drain(
         discard(res);
         return err(tooBig(url));
       }
+      if (broken !== null) break;
       if (!out.write(chunk)) await once(out, 'drain');
     }
+  } catch (e) {
+    if (broken === null) throw e;
   } finally {
     await new Promise<void>((resolve) => out.end(resolve));
   }
+  if (broken !== null) return err(unwritable(to, broken));
   return ok(seen);
 }
+
+const unwritable = (to: FilePath, cause: unknown): Failure =>
+  new Failure(
+    `Could not write the download to ${to}: ${errorMessage(cause)}`,
+    'Check the disk has room, or point CP_STATE_DIR at one that does.',
+  );
 
 export interface DownloadRequest {
   url: string;
@@ -154,8 +177,12 @@ export async function downloadArchive(
     if (!arrived.ok) return err(arrived.error);
     const { res } = arrived.value;
 
-    if (isUpstreamOutage(res.status)) return err(upstreamFailure(arrived.value.url, res.status));
     if (!res.ok) {
+      // Never read, so never left to hold the socket open.
+      discard(res);
+      // Its own sentence rather than the registry client's, whose hint blames an
+      // outage at GitHub - and this host is whoever the user named.
+      if (isUpstreamOutage(res.status)) return err(unavailable(arrived.value.url, res.status));
       return err(
         new Failure(
           `${hostOf(url)} answered ${res.status} ${res.statusText ?? ''}`.trim(),

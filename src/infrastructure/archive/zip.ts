@@ -107,8 +107,11 @@ function readEocd(fd: number, size: number, describe: string): Result<Directory,
     const locator = readAt(fd, at - 20, 20);
     if (locator.length === 20 && locator.readUInt32LE(0) === EOCD64_LOCATOR) {
       const record = Number(locator.readBigUInt64LE(8));
-      const zip64 = readAt(fd, record, 56);
-      if (zip64.length < 56 || zip64.readUInt32LE(0) !== EOCD64) {
+      // Checked before the read: a pointer past the file is a malformed archive
+      // to report, and one past the safe-integer range is one `readSync` throws on.
+      const zip64 =
+        Number.isSafeInteger(record) && record + 56 <= at ? readAt(fd, record, 56) : null;
+      if (zip64 === null || zip64.readUInt32LE(0) !== EOCD64) {
         return err(damaged(describe, 'its zip64 directory record is missing'));
       }
       found = {
@@ -260,8 +263,13 @@ function contentsOf(fd: number, entry: ZipEntry, describe: string): Result<Buffe
   let data: Buffer;
   try {
     // Bounded by what the entry declared, so a lying header fails here rather
-    // than allocating whatever it asked for.
-    data = entry.method === STORED ? raw : inflateRawSync(raw, { maxOutputLength: entry.size });
+    // than allocating whatever it asked for. Never below one: zlib refuses a
+    // bound of zero, and an empty file deflated - which Python's zipfile and
+    // Java both write - would fail the whole archive over two bytes.
+    data =
+      entry.method === STORED
+        ? raw
+        : inflateRawSync(raw, { maxOutputLength: Math.max(1, entry.size) });
   } catch (e) {
     return err(
       damaged(describe, `${JSON.stringify(entry.name)} did not decompress (${errorMessage(e)})`),

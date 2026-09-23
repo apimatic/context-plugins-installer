@@ -3,13 +3,15 @@ import assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { downloadArchive } from '../../src/infrastructure/archive/download.js';
 import { openArchive } from '../../src/infrastructure/archive/index.js';
 import type { ArchiveReader } from '../../src/infrastructure/archive/index.js';
-import { DirectoryPath } from '../../src/types/file/paths.js';
+import { openArchive as openThroughFetcher } from '../../src/infrastructure/source-fetcher.js';
+import { DirectoryPath, FilePath } from '../../src/types/file/paths.js';
 import type { Failure } from '../../src/types/failure.js';
 import type { Result } from '../../src/types/result.js';
 import { archiveAt, gzipOf, tarOf, zipOf } from '../archive-fixture.js';
-import { cleanupAll, tmpDir } from '../helpers.js';
+import { cleanupAll, portsFor, stubFetch, tmpDir } from '../helpers.js';
 
 test.after(cleanupAll);
 
@@ -55,6 +57,38 @@ test('a zip is read and written out, whichever method its entries used', async (
   assert.ok(out.ok, out.ok ? '' : out.error.message);
   assert.equal(out.value.files, 2);
   assert.equal(read(dest, ...MANIFEST.split('/')), manifest);
+  assert.equal(read(dest, 'skills', 'SKILL.md'), '# a skill');
+  opened.close();
+});
+
+test('an empty file that was deflated rather than stored is still a file', async () => {
+  // Python's zipfile and Java's ZipOutputStream both deflate an empty entry to
+  // two bytes; a bound of zero on the inflate refused every archive with a
+  // `.gitkeep` in it.
+  const entries = [...plugin, { name: 'hooks/.gitkeep', data: '', deflate: true }];
+  const opened = await reader(open(archiveAt('p.zip', zipOf(entries))));
+  const dest = into();
+  const out = opened.extract('', dest);
+  assert.ok(out.ok, out.ok ? '' : out.error.message);
+  assert.equal(out.value.files, 3);
+  assert.equal(read(dest, 'hooks', '.gitkeep'), '');
+  opened.close();
+});
+
+test('a tarball made of the current directory carries ./ on every name, and installs', async () => {
+  // `tar -czf plugin.tgz .` - GNU tar 1.35 writes `./`, `./.claude-plugin/`,
+  // `./.claude-plugin/plugin.json`. The dot says nothing and is dropped.
+  const entries = [
+    { name: './', type: '5' },
+    { name: './.claude-plugin/', type: '5' },
+    { name: `./${MANIFEST}`, data: manifest },
+    { name: './skills/SKILL.md', data: '# a skill' },
+  ];
+  const opened = await reader(open(archiveAt('p.tar', tarOf(entries)), 'p.tar'));
+  assert.deepEqual([...opened.names()], [MANIFEST, 'skills/SKILL.md']);
+  const dest = into();
+  const out = opened.extract('', dest);
+  assert.ok(out.ok, out.ok ? '' : out.error.message);
   assert.equal(read(dest, 'skills', 'SKILL.md'), '# a skill');
   opened.close();
 });
@@ -157,13 +191,37 @@ test('a tarballs symlink is dropped by its type', async () => {
   opened.close();
 });
 
-test('a hard link or a device node is refused by name, not quietly skipped', async () => {
-  for (const type of ['1', '3']) {
-    const err = await failed(
-      open(archiveAt('p.tar', tarOf([{ name: 'odd', type, data: '' }])), 'p.tar'),
-    );
-    assert.match(err.message, /not a plugin's file/, `type ${type}`);
-  }
+test('a hard link is a link: skipped and named, like a symlink', async () => {
+  const entries = [
+    { name: MANIFEST, data: manifest },
+    { name: 'twin', type: '1' },
+  ];
+  const opened = await reader(open(archiveAt('p.tar', tarOf(entries)), 'p.tar'));
+  const out = opened.extract('', into());
+  assert.ok(out.ok && out.value.skippedCount === 1 && out.value.skipped[0] === 'twin');
+  opened.close();
+});
+
+test('a device node is refused by name, not quietly skipped', async () => {
+  const err = await failed(
+    open(archiveAt('p.tar', tarOf([{ name: 'odd', type: '3', data: '' }])), 'p.tar'),
+  );
+  assert.match(err.message, /not a plugin's file/);
+});
+
+test('a file where a directory is needed fails the extraction rather than throwing', async () => {
+  // `a` is a file and `a/b` wants `a` to be a directory: the mkdir fails, and
+  // that is a Failure about the archive, not a stack trace.
+  const entries = [
+    { name: MANIFEST, data: manifest },
+    { name: 'a', data: 'file' },
+    { name: 'a/b', data: 'under it' },
+  ];
+  const opened = await reader(open(archiveAt('p.zip', zipOf(entries))));
+  const out = opened.extract('', into());
+  assert.ok(!out.ok, 'expected a failure');
+  assert.match(out.error.message, /Could not write/);
+  opened.close();
 });
 
 test('an encrypted entry says so rather than reading as corrupt', async () => {
@@ -238,6 +296,59 @@ test('what is never a plugins own file never reaches the destination', async () 
   assert.ok(opened.extract('', dest).ok);
   assert.equal(fs.existsSync(dest.join('.git').toString()), false);
   opened.close();
+});
+
+// The fetcher sits over the readers, and is where anything they did not check
+// for has to become a Failure: these three are the throws the review found.
+
+const throughFetcher = (file: FilePath, work: DirectoryPath) =>
+  openThroughFetcher(
+    { at: { kind: 'file', file }, describe: 'bad.zip' },
+    portsFor(stubFetch({})),
+    work,
+  );
+
+test('a zip64 locator pointing past the file is a Failure, not a RangeError', async () => {
+  const bytes = zipOf(plugin, { zip64Eocd: true });
+  const locator = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x06, 0x07]));
+  assert.ok(locator > 0, 'the fixture wrote a locator');
+  bytes.writeBigUInt64LE(0xffffffffffffffffn, locator + 8);
+
+  const handle = throughFetcher(archiveAt('bad.zip', bytes), workspace());
+  const files = await handle.files(null);
+  assert.ok(!files.ok, 'expected a failure');
+  assert.match(files.error.message, /zip64 directory record is missing/);
+  handle.cleanup();
+});
+
+test('a workspace that cannot be made is a Failure naming it', async () => {
+  const blocked = path.join(tmpDir('cp-blocked-'), 'work');
+  fs.writeFileSync(blocked, 'a file where the workspace should be');
+  const handle = throughFetcher(archiveAt('p.zip', zipOf(plugin)), new DirectoryPath(blocked));
+  const files = await handle.files(null);
+  assert.ok(!files.ok, 'expected a failure');
+  assert.match(files.error.message, /Could not create a working directory/);
+  assert.match(files.error.hint ?? '', /CP_STATE_DIR/);
+  handle.cleanup();
+});
+
+test('a download that cannot be written is a Failure, not an unhandled error event', async () => {
+  const url = 'https://acme.com/p.zip';
+  const fetchImpl = stubFetch({ [url]: { bytes: zipOf(plugin) } });
+  const to = new FilePath(path.join(tmpDir('cp-dl-'), 'no-such-dir', 'download'));
+  const got = await downloadArchive({ url, to }, portsFor(fetchImpl));
+  assert.ok(!got.ok, 'expected a failure');
+  assert.match(got.error.message, /Could not write the download/);
+});
+
+test('a host that answers 5xx is reported as unavailable, without blaming GitHub', async () => {
+  const url = 'https://acme.com/p.zip';
+  const fetchImpl = stubFetch({ [url]: { status: 503, body: 'nope' } });
+  const to = new FilePath(path.join(tmpDir('cp-dl-'), 'download'));
+  const got = await downloadArchive({ url, to }, portsFor(fetchImpl));
+  assert.ok(!got.ok, 'expected a failure');
+  assert.equal(got.error.message, 'acme.com is temporarily unavailable (HTTP 503).');
+  assert.ok(!(got.error.hint ?? '').includes('GitHub'), got.error.hint);
 });
 
 test('an archive that is not one says what it looks like instead', async () => {

@@ -306,7 +306,10 @@ that ends up somewhere else is a rule two callers can disagree about.
   rules an entry name passes **in order** - the order is the guard, since
   normalising `\` after checking for `..` is how `..\..\x` escapes on Windows -
   and answers `write`, `ignore` or `refuse`, the last of which ends the whole
-  archive rather than part of it. `pluginRoot` unwraps a lone directory while
+  archive rather than part of it. A `.` segment is dropped, not refused:
+  `tar -czf x.tgz .` writes every name as `./...`. Duplicates are found
+  case-folded, because on Windows and macOS `README` and `readme` are one
+  file and the later entry would silently be the one read. `pluginRoot` unwraps a lone directory while
   the level holds nothing else, keeps the whole chain rather than its end, and
   resolves a `#folder` under the deepest of them first: the entries of a GitHub
   archive are `<repo>-<ref>/plugins/slack/...` and the user types
@@ -447,8 +450,14 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   what makes a bomb refusable for free - and `maxOutputLength` plus the CRC
   catch a header that lied; a tarball has no such manifest, so its cap is a
   running count over the gunzip output, into a file rather than a Buffer. A
-  symlink is skipped and reported, not fatal, because `copyDir` carries links
-  today and an archive of a folder that installs must not fail. `zlib.crc32`
+  link - symbolic or hard - is skipped and reported, not fatal, because
+  `copyDir` carries links today and an archive of a folder that installs must
+  not fail; a device node still ends the archive. The inflate bound is never
+  below one: zlib refuses a bound of zero, and Python's `zipfile` deflates an
+  empty file to two bytes, so a `.gitkeep` failed every archive it was in. The
+  fetcher wraps the readers in the one try/catch that turns anything they did
+  not check for - a Zip64 pointer past the file, a `mkdir` over a file - into
+  a Failure rather than a stack trace. `zlib.crc32`
   would do the checksum and landed in Node 20.15, so the table is hand-rolled:
   Node 18 is the floor.
 - **The workspace** (`paths.workspaceDir`): an archive is downloaded and

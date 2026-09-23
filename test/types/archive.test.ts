@@ -114,6 +114,23 @@ test('a directory entry is a name without its trailing slash, and the root entry
   assert.equal(names.read('/').kind, 'ignore', 'an entry naming the root writes nothing');
 });
 
+test('a leading ./ says nothing and is dropped, the way tar writes it', () => {
+  const names = new EntryNames();
+  assert.equal(names.read('./').kind, 'ignore', 'the current directory is the root');
+  assert.deepEqual(names.read('./skills/SKILL.md'), { kind: 'write', name: 'skills/SKILL.md' });
+  assert.deepEqual(names.read('a/./b'), { kind: 'write', name: 'a/b' });
+  // Dropping `.` must not make `..` any more welcome.
+  assert.equal(names.read('./../x').kind, 'refuse');
+});
+
+test('two names that differ only in case are one file on half the machines, so they are refused', () => {
+  const names = new EntryNames();
+  assert.equal(names.read('README.md').kind, 'write');
+  const again = names.read('readme.md');
+  assert.equal(again.kind, 'refuse');
+  assert.match(again.kind === 'refuse' ? again.why : '', /twice/);
+});
+
 test('the root of an unwrapped archive is the archive itself', () => {
   const found = pluginRoot([MANIFEST, 'skills/SKILL.md'], null, 'p.zip');
   assert.deepEqual(found, { ok: true, value: '' });

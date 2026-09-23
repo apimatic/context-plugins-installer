@@ -107,6 +107,16 @@ const CASES: Record<MarketplaceEvent['kind'], [MarketplaceEvent, Line[]]> = {
   ],
 };
 
+test('a skipped listing that names only some of what it counted says how many more', () => {
+  const lines = said(
+    { kind: 'entry-skipped', names: ['a', 'b', 'c', 'd', 'e'], count: 12 },
+    announceMarketplace,
+  );
+  assert.deepEqual(lines, [
+    ['warn', 'Skipped 12 links the archive carried: a, b, c, d, e, and 7 more'],
+  ]);
+});
+
 for (const [kind, [event, expected]] of Object.entries(CASES)) {
   test(`a ${kind} event says its line`, () => {
     assert.deepEqual(said(event, announceMarketplace), expected);
