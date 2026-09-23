@@ -1,15 +1,15 @@
 import type { MarketplaceEvent } from '../types/session.js';
 import { log } from './terminal.js';
 
+/** The tail of a listing that names only some of what it counted. */
+const more = ({ names, count }: { names: readonly string[]; count: number }): string =>
+  count > names.length ? `, and ${count - names.length} more` : '';
+
 /**
  * The strings the registry client and the source fetcher used to print
  * themselves, one case per event. This is the shape Phase 4 gives every harness:
  * infrastructure reports what happened, and the words for it live here.
  */
-/** The tail of a listing that names only some of what it counted. */
-const more = ({ names, count }: { names: readonly string[]; count: number }): string =>
-  count > names.length ? `, and ${count - names.length} more` : '';
-
 export function announceMarketplace(event: MarketplaceEvent): void {
   switch (event.kind) {
     case 'registry-skipped':

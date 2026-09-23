@@ -45,6 +45,26 @@ function pluginDir(name = 'my-sdk', over: Record<string, unknown> = {}): string 
   return dir;
 }
 
+test('a --ref alongside a directory is said out loud rather than dropped', async () => {
+  const m = machine();
+  const dir = pluginDir();
+  const con = silenceConsole();
+  try {
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      ref: 'v2',
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+  } finally {
+    con.restore();
+  }
+  assert.match(flat(con), /A directory has no ref - --ref v2 was not used/);
+});
+
 const rowsOf = (m: Machine): Record<string, unknown>[] =>
   readRaw(paths.manifestPath(m.pathOpts)).plugins as Record<string, unknown>[];
 

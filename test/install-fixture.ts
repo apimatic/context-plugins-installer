@@ -118,9 +118,18 @@ const guarded = (sink?: EventSink): EventSink =>
  * fetcher is the real one over a stub fetch, because nothing should reach it:
  * if a test does, it fails loudly rather than quietly using a stub directory.
  */
+/** A workspace no test should reach, for the wirings that must not open one. */
+const scratch = (): DirectoryPath => new DirectoryPath(tmpDir('cp-unused-'));
+
 export const registryOnly = (fetch: FetchLike): Wiring => {
   const ports = portsFor(fetch);
-  return { ports, registry: registryClient(ports), fetcher: sourceFetcher(ports) };
+  return {
+    ports,
+    registry: registryClient(ports),
+    // Loud on both arms: a clone reaches the real git and fails, and an archive
+    // never reaches a workspace at all - least of all the developer's own.
+    fetcher: { ...sourceFetcher(ports, scratch()), openArchive: noArchives },
+  };
 };
 
 /**

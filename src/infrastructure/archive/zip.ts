@@ -1,22 +1,21 @@
 import { closeSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 
-import { EntryNames, LIMITS, relativeTo, under } from '../../types/archive.js';
+import { EntryNames, LIMITS } from '../../types/archive.js';
 import type { Failure } from '../../types/failure.js';
-import type { DirectoryPath, FilePath } from '../../types/file/paths.js';
+import type { FilePath } from '../../types/file/paths.js';
 import { err, ok, type Result } from '../../types/result.js';
 import { errorMessage } from '../../types/util.js';
 import {
   damaged,
+  extractUnder,
   openFile,
   readAt,
   refused,
+  tooLarge,
   tooMuch,
-  Unpacker,
-  SKIPPED_SHOWN,
   type ArchiveFile,
   type ArchiveReader,
-  type Unpacked,
 } from './reader.js';
 
 // A zip, read from its tail: the end-of-central-directory record, then the
@@ -246,6 +245,11 @@ function readCentral(
         damaged(describe, `${JSON.stringify(read.name)} claims more bytes than the file holds`),
       );
     }
+    // The total is not the whole bound: `contentsOf` inflates one entry into one
+    // Buffer, so a single file may ask for the entire budget without lying about
+    // anything - a 200 KB zip declaring a gigabyte is well formed, and no other
+    // guard here has a reason to disbelieve it.
+    if (sizes.size > LIMITS.entry) return err(tooLarge(describe, read.name, sizes.size));
     unpacked += sizes.size;
     if (unpacked > LIMITS.unpacked) {
       return err(tooMuch(describe, 'unpacks to more than it may', unpacked, LIMITS.unpacked));
@@ -329,34 +333,9 @@ export function openZip(file: FilePath, describe: string): Result<ArchiveReader,
   return ok({
     names: () => files.map((entry) => entry.name),
     close,
-    extract(prefix, dest: DirectoryPath): Result<Unpacked, Failure> {
-      const unpacker = new Unpacker(dest);
-      const skipped = links.filter((name) => under(name, prefix));
-      let written = 0;
-      let bytes = 0;
-      for (const entry of files) {
-        if (!under(entry.name, prefix)) continue;
-        // A read can fail for reasons the archive is innocent of - a disk that
-        // filled, a file that went away - and this is infrastructure, which
-        // answers rather than throws.
-        let data: Result<Buffer, Failure>;
-        try {
-          data = contentsOf(fd, entry, describe);
-        } catch (e) {
-          return err(damaged(describe, errorMessage(e)));
-        }
-        if (!data.ok) return err(data.error);
-        const put = unpacker.write(relativeTo(entry.name, prefix), data.value, entry.mode);
-        if (!put.ok) return err(put.error);
-        written++;
-        bytes += data.value.length;
-      }
-      return ok({
-        files: written,
-        bytes,
-        skipped: skipped.slice(0, SKIPPED_SHOWN),
-        skippedCount: skipped.length,
-      });
-    },
+    extract: (prefix, dest) =>
+      extractUnder({ files, links, describe, prefix, dest }, (entry) =>
+        contentsOf(fd, entry, describe),
+      ),
   });
 }

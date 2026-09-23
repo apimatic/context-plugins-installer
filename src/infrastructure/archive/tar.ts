@@ -3,22 +3,21 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 
-import { EntryNames, LIMITS, relativeTo, under } from '../../types/archive.js';
+import { EntryNames, LIMITS } from '../../types/archive.js';
 import type { Failure } from '../../types/failure.js';
-import type { DirectoryPath, FilePath } from '../../types/file/paths.js';
+import type { FilePath } from '../../types/file/paths.js';
 import { err, ok, type Result } from '../../types/result.js';
 import { errorMessage } from '../../types/util.js';
 import {
   damaged,
+  extractUnder,
   openFile,
   readAt,
   refused,
+  tooLarge,
   tooMuch,
-  Unpacker,
-  SKIPPED_SHOWN,
   type ArchiveFile,
   type ArchiveReader,
-  type Unpacked,
 } from './reader.js';
 
 // A tarball, read from its head: 512-byte headers, each followed by its file
@@ -167,6 +166,10 @@ function walk(fd: number, size: number, describe: string): Result<Walked, Failur
     if (files.length >= LIMITS.entries) {
       return err(tooMuch(describe, 'holds too many files', files.length + 1, LIMITS.entries));
     }
+    // Bounded per entry as well as in total, for the reason the zip is: a
+    // gigabyte of tar reaches `readAt` as a gigabyte of Buffer, and a gzipped
+    // tarball carrying one is a megabyte on the wire.
+    if (entrySize > LIMITS.entry) return err(tooLarge(describe, read.name, entrySize));
     unpacked += entrySize;
     if (unpacked > LIMITS.unpacked) {
       return err(tooMuch(describe, 'unpacks to more than it may', unpacked, LIMITS.unpacked));
@@ -265,35 +268,14 @@ export async function openTar({
   return ok({
     names: () => files.map((entry) => entry.name),
     close,
-    extract(prefix, dest: DirectoryPath): Result<Unpacked, Failure> {
-      const unpacker = new Unpacker(dest);
-      const skipped = links.filter((name) => under(name, prefix));
-      let written = 0;
-      let bytes = 0;
-      for (const entry of files) {
-        if (!under(entry.name, prefix)) continue;
-        // Guarded for the same reason the zip's read is: a disk that filled is
-        // not something this layer may throw about.
-        let data: Buffer;
-        try {
-          data = readAt(fd, entry.offset, entry.size);
-        } catch (e) {
-          return err(damaged(describe, errorMessage(e)));
-        }
-        if (data.length < entry.size) {
-          return err(damaged(describe, `${JSON.stringify(entry.name)} is truncated`));
-        }
-        const put = unpacker.write(relativeTo(entry.name, prefix), data, entry.mode);
-        if (!put.ok) return err(put.error);
-        written++;
-        bytes += data.length;
-      }
-      return ok({
-        files: written,
-        bytes,
-        skipped: skipped.slice(0, SKIPPED_SHOWN),
-        skippedCount: skipped.length,
-      });
-    },
+    extract: (prefix, dest) =>
+      extractUnder({ files, links, describe, prefix, dest }, (entry) => {
+        // A tarball carries no checksum, so the only thing that says an entry
+        // is whole is whether the bytes it claimed were there to read.
+        const data = readAt(fd, entry.offset, entry.size);
+        return data.length < entry.size
+          ? err(damaged(describe, `${JSON.stringify(entry.name)} is truncated`))
+          : ok(data);
+      }),
   });
 }

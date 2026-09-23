@@ -149,8 +149,9 @@ own name is not used, so renaming either does not rename the plugin.
 A few things worth knowing:
 
 - **You are asked first.** A plugin can run commands through its hooks and MCP servers, so a
-  source outside the marketplace is confirmed before any of its files are fetched or copied — a
-  repository's own manifest is read first, so the question can name the plugin. `-y` skips it.
+  source outside the marketplace is confirmed before anything at all is read, fetched or copied.
+  The question names the source you typed rather than the plugin — nothing has been read yet,
+  which is what makes declining cost nothing. `-y` skips it.
 - **It is a snapshot.** The files are copied as they are now. `context-plugins update` re-takes
   it — re-reading the folder, re-fetching the repository at the ref the row recorded, or
   downloading the archive again — so editing a plugin and running `update` is the loop. A folder or
@@ -163,7 +164,7 @@ A few things worth knowing:
 - **What comes out of an archive is checked.** A file that would land outside the plugin's folder,
   a name Windows cannot hold, or the same name twice (in any case) ends the install with nothing
   written; links are skipped, and their absence is reported. An archive is refused above 200 MB
-  downloaded, 1 GB unpacked, or 50,000 files.
+  downloaded, 1 GB unpacked, 64 MB in any one file, or 50,000 files.
 - **GitHub's `.zip` carries no permissions**, so a hook that has to be executable arrives without
   the bit. Its `.tar.gz` of the same commit does carry it, and is the link to prefer. A zip you
   made yourself on Linux or macOS keeps its modes, and they are applied — Windows ignores the bit

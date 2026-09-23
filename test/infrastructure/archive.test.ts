@@ -7,6 +7,7 @@ import { downloadArchive } from '../../src/infrastructure/archive/download.js';
 import { openArchive } from '../../src/infrastructure/archive/index.js';
 import type { ArchiveReader } from '../../src/infrastructure/archive/index.js';
 import { openArchive as openThroughFetcher } from '../../src/infrastructure/source-fetcher.js';
+import { LIMITS } from '../../src/types/archive.js';
 import { DirectoryPath, FilePath } from '../../src/types/file/paths.js';
 import type { Failure } from '../../src/types/failure.js';
 import type { FetchLike } from '../../src/types/ports.js';
@@ -211,6 +212,25 @@ test('an entry that claims more bytes than the archive holds is refused, not all
   assert.match(tarErr.message, /runs past the end of the file/);
 });
 
+test('one file may not claim the whole budget, however honest its header is', async () => {
+  // The running total bounds no single entry, and a reader holds a whole entry
+  // in memory: 200 KB of zip declaring a gigabyte is a well formed archive, so
+  // nothing else here has a reason to refuse it.
+  const zip = zipOf([
+    { name: MANIFEST, data: manifest },
+    { name: 'big.bin', data: 'hello', declaredSize: LIMITS.entry + 1 },
+  ]);
+  const zipErr = await failed(open(archiveAt('p.zip', zip)));
+  assert.match(zipErr.message, /"big\.bin", which is larger than one file may be/);
+
+  // A tarball has to carry the bytes, or the runs-past-the-end guard answers
+  // first. Extended rather than filled: the walk reads headers, never an entry.
+  const tar = archiveAt('p.tar', tarOf([{ name: 'big.bin', declaredSize: LIMITS.entry + 1 }]));
+  fs.truncateSync(tar.toString(), LIMITS.entry + 4096);
+  const tarErr = await failed(open(tar, 'p.tar'));
+  assert.match(tarErr.message, /"big\.bin", which is larger than one file may be/);
+});
+
 test('two directories differing only in case are not two files, so neither is refused', async () => {
   const zip = zipOf([{ name: 'Docs/' }, { name: 'docs/' }, ...plugin]);
   const fromZip = await reader(open(archiveAt('p.zip', zip)));
@@ -378,6 +398,38 @@ test('a download that cannot be written is a Failure, not an unhandled error eve
   assert.match(got.error.message, /Could not write the download/);
 });
 
+test('a body with no end to it is stopped at the limit, not drained', async () => {
+  // Counted as it arrives, because codeload sends no content-length and there
+  // is no other bound. One megabyte handed back over and over costs a megabyte
+  // of memory and two hundred of counted bytes, so the branch is drivable.
+  const url = 'https://acme.com/endless.zip';
+  const chunk = Buffer.alloc(1024 * 1024);
+  const cap = LIMITS.bytes / chunk.length;
+  let yielded = 0;
+  const fetchImpl: FetchLike = () =>
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      body: (async function* () {
+        for (;;) {
+          yielded++;
+          yield chunk;
+        }
+      })(),
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(''),
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    });
+
+  const to = new FilePath(path.join(tmpDir('cp-big-'), 'download'));
+  const got = await downloadArchive({ url, to }, portsFor(fetchImpl));
+  assert.ok(!got.ok, 'expected a failure');
+  assert.match(got.error.message, /is sending more than 200 MB/);
+  // Abandoned at the limit rather than read to an end it does not have.
+  assert.equal(yielded, cap + 1);
+});
+
 test('a slow redirect chain is not read as a stall: each hop gets its own budget', async () => {
   // The budget is thirty seconds, so the test shrinks it rather than waiting:
   // a `setTimeout` asking for exactly IDLE_MS gets a few hundred milliseconds
@@ -438,6 +490,40 @@ test('a host that answers 5xx is reported as unavailable, without blaming GitHub
   assert.ok(!got.ok, 'expected a failure');
   assert.equal(got.error.message, 'acme.com is temporarily unavailable (HTTP 503).');
   assert.ok(!(got.error.hint ?? '').includes('GitHub'), got.error.hint);
+});
+
+test('a failure behind a redirect names the host that was typed, not the one it reached', async () => {
+  // A github.com /archive/ link is answered by codeload, which the user never
+  // wrote down. Every sentence out here names what they did write - the 404
+  // beside this one always did, and this is the one that did not.
+  const typed = 'https://github.com/acme/mono/archive/refs/heads/main.tar.gz';
+  const behind = 'https://codeload.github.com/acme/mono/tar.gz/main';
+  const redirecting: FetchLike = (target) =>
+    Promise.resolve(
+      target === typed
+        ? {
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: { get: (name: string) => (name === 'location' ? behind : null) },
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve(''),
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+          }
+        : {
+            ok: false,
+            status: 503,
+            statusText: 'Service Unavailable',
+            json: () => Promise.resolve({}),
+            text: () => Promise.resolve(''),
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+          },
+    );
+
+  const to = new FilePath(path.join(tmpDir('cp-hop-'), 'download'));
+  const got = await downloadArchive({ url: typed, to }, portsFor(redirecting));
+  assert.ok(!got.ok, 'expected a failure');
+  assert.equal(got.error.message, 'github.com is temporarily unavailable (HTTP 503).');
 });
 
 test('an archive that is not one says what it looks like instead', async () => {

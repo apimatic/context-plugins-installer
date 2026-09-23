@@ -221,6 +221,12 @@ that ends up somewhere else is a rule two callers can disagree about.
 - **`types/result.ts`** and **`types/failure.ts`** - `Result<T, Failure>` is how
   infrastructure answers. A `Failure` is a message and a hint, which is exactly
   what the router prints.
+- **`types/http.ts`** - `hostOf` and `isUpstreamOutage`: the two questions every
+  boundary that speaks HTTP asks about a response, and the only two. Down here
+  rather than in `github-registry-client.ts`, where they started, because three
+  modules ask them - the registry read, the repository fetch and the archive
+  download - and only one of those is about GitHub. `upstreamFailure` stays with
+  the registry client, since its hint names GitHub on purpose.
 - **`types/events/`** - one class per telemetry event, each declaring its own
   property names in a `properties()` method. That is the whole Mixpanel
   contract: nothing else can misspell or widen it. `EventSink` is where they go.
@@ -284,15 +290,17 @@ that ends up somewhere else is a rule two callers can disagree about.
   the only way a private archive is installable here - no credential is ever
   sent - and its query would otherwise hide the extension. An `http` URL is
   refused where it is written, naming https, because a plugin runs commands
-  and there is no signature to fall back on. A URL whose path ends in an
-  archive extension `formatOf` does **not** know - `.7z`, `.tar.bz2`, `.dmg`
-  and the rest of `UNREADABLE` in `types/archive.ts` - is told which four this
-  tool reads, because "not a GitHub repository" is true of a pasted `.7z` link
-  and no help at all. Only a URL: `./my-plugin.rar` is a directory someone
-  named oddly as readily as it is an archive, and answering for it would take
-  the spec away from the arm that can go and look. That list is consulted only
-  once `formatOf` has said no, which is what keeps the `.gz` in it from
-  shadowing `.tar.gz`. Only a URL or a path can be an
+  and there is no signature to fall back on. Only the four spellings `formatOf`
+  knows name an archive, and nothing else is answered for: a `.7z` or a
+  `.tar.bz2` link falls through to the repository arm like any other URL this
+  program cannot read. A denylist of the formats it cannot read was tried and
+  removed - it bought one better sentence at the price of a list that reads as
+  exhaustive, can never be, and has to be maintained; and a blanket "unknown
+  extension" rule is not available in its place, because that also describes
+  `github.com/acme/repo/tree/main/tools/foo.js`, which has to keep parsing as a
+  folder. `./my-plugin.rar` is likewise a directory someone named oddly as
+  readily as it is an archive, so the spec stays with the arm that can go and
+  look. Only a URL or a path can be an
   archive, so `acme/my-plugin.zip` is still a repository; an `@` is part of
   the name, since an archive has no ref; and the `#folder` is split at the
   **last** `#`, and only when what precedes it is itself an archive, so
@@ -477,7 +485,12 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   bought a gigabyte of `Buffer` for a three-kilobyte tarball before the existing
   "is truncated" check disbelieved it. Only the compressed length and the local
   offset are read that way - an _uncompressed_ size larger than the file is what
-  compression is for. A
+  compression is for, and it is `LIMITS.entry` that bounds it. That one is per
+  **file**, not per archive, and it is the bound a well-formed archive needs:
+  both readers hold one whole entry in memory, so the running total alone let a
+  single honest entry claim the entire gigabyte - a 200 KB zip declaring one, and
+  nothing anywhere lying about anything. `tooLarge` in `reader.ts` is shared, so
+  the two cannot bound the same thing differently. A
   link - symbolic or hard - is skipped and reported, not fatal, because
   `copyDir` carries links today and an archive of a folder that installs must
   not fail; a device node still ends the archive. The inflate bound is never
@@ -934,7 +947,11 @@ fetch, and a `SourceFetcher` that hands over a directory rather than cloning
 one - and passes its own `EventSink` for the events. `registryOnly` is the
 wiring for a run that never fetches a plugin, with the real fetcher behind it
 so a test that unexpectedly reaches for one fails loudly instead of quietly
-using a stub. `PathOpts` still carries `platform` / `env` / `home`, and
+using a stub - and with `noArchives` on its archive arm, because that one would
+otherwise succeed rather than fail, into the developer's own state directory.
+That is also why `sourceFetcher` takes its workspace rather than defaulting one:
+a fetcher that downloads is told where to put what it downloads, and the
+composition root is what says where. `PathOpts` still carries `platform` / `env` / `home`, and
 `HarnessOpts` adds the `ProcessRunner` - which is what lets a test drive the
 Claude Code path with a fake `claude` rather than excluding it, and why finding
 that binary and spawning it cannot read different environments.

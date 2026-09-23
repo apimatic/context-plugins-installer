@@ -33,10 +33,17 @@ import {
 
 test.after(cleanupAll);
 
+/** No test here opens an archive; a sandboxed root is what says so out loud. */
+const scratch = (): DirectoryPath => new DirectoryPath(tmpDir('cp-unused-'));
+
 /** A session over one stubbed fetch, both clients built the way production builds them. */
 const sessionWith = (fetchImpl: FetchLike, notify?: MarketplaceListener): Session => {
   const ports = portsFor(fetchImpl);
-  return createSession({ registry: registryClient(ports), fetcher: sourceFetcher(ports), notify });
+  return createSession({
+    registry: registryClient(ports),
+    fetcher: sourceFetcher(ports, scratch()),
+    notify,
+  });
 };
 
 async function quietly<T>(fn: () => Promise<T>): Promise<T> {
@@ -245,7 +252,7 @@ test('a checkout that throws leaves the session able to remove the workspace', a
     const ports = portsFor(fetchImpl, { PATH: '', PATHEXT: '' });
     const session = createSession({
       registry: registryClient(ports),
-      fetcher: sourceFetcher(ports),
+      fetcher: sourceFetcher(ports, scratch()),
     });
 
     await assert.rejects(
@@ -329,7 +336,7 @@ test('one plugin manifest is read once per repo, ref and folder', async () => {
   });
   const session = createSession({
     registry: registryClient(portsFor(fetchImpl)),
-    fetcher: sourceFetcher(portsFor(fetchImpl)),
+    fetcher: sourceFetcher(portsFor(fetchImpl), scratch()),
   });
   try {
     await session.manifest({ repo: MANIFEST_REPO, ref: 'main', path: 'tools/foo' });

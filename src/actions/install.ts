@@ -162,7 +162,11 @@ export class InstallAction {
     if (req.ref && source.kind === 'github' && source.ref !== ref) {
       this.prompts.refIgnored(req.ref, source.ref);
     }
-    if (req.ref && source.kind === 'archive') this.prompts.refUnused(req.ref);
+    // Both kinds that have no ref, not just the newest one: a folder and an
+    // archive are whatever they are today, and a dropped flag reads as honoured.
+    if (req.ref && (source.kind === 'local' || source.kind === 'archive')) {
+      this.prompts.refUnused(req.ref, source.kind);
+    }
 
     const available = harnesses.detected(requested, this.pathOpts);
     const missing = requested.filter((name) => !available.includes(name));

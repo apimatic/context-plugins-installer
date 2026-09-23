@@ -88,9 +88,10 @@ export class InstallPrompts {
     log.warn(`Using ref '${used}' from the plugin spec - --ref ${flag} was not used.`);
   }
 
-  /** An archive is whatever it is today; a silently dropped flag reads as honoured. */
-  refUnused(flag: string): void {
-    log.warn(`An archive has no ref - --ref ${flag} was not used.`);
+  /** A source with no ref; a silently dropped flag reads as honoured. */
+  refUnused(flag: string, kind: 'local' | 'archive'): void {
+    const what = kind === 'local' ? 'A directory' : 'An archive';
+    log.warn(`${what} has no ref - --ref ${flag} was not used.`);
   }
 
   nothingTrusted(): void {

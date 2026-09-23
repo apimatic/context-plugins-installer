@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 
+import { LIMITS, relativeTo, under } from '../../types/archive.js';
 import { Failure } from '../../types/failure.js';
 import type { DirectoryPath, FilePath } from '../../types/file/paths.js';
 import { err, ok, type Result } from '../../types/result.js';
@@ -55,6 +56,19 @@ export const tooMuch = (describe: string, what: string, count: number, limit: nu
   new Failure(
     `${describe} ${what} (${count.toLocaleString('en-US')}, and the limit is ${limit.toLocaleString('en-US')}).`,
     'This is far larger than a plugin, so it is refused before anything is unpacked.',
+  );
+
+/**
+ * One entry, not the archive: a reader holds a whole entry in memory, so the
+ * total alone lets a single file claim all of it. Shared, so that the two
+ * readers cannot bound the same thing differently.
+ */
+export const tooLarge = (describe: string, name: string, size: number): Failure =>
+  tooMuch(
+    describe,
+    `holds ${JSON.stringify(name)}, which is larger than one file may be`,
+    size,
+    LIMITS.entry,
   );
 
 export interface OpenFile {
@@ -119,4 +133,52 @@ export class Unpacker {
 }
 
 /** Enough names to recognise what was dropped, and a count for the rest. */
-export const SKIPPED_SHOWN = 5;
+const SKIPPED_SHOWN = 5;
+
+export interface Extraction<E extends ArchiveFile> {
+  files: readonly E[];
+  /** Named rather than written: what an archive carries that this tool will not. */
+  links: readonly string[];
+  describe: string;
+  prefix: string;
+  dest: DirectoryPath;
+}
+
+/**
+ * Everything under `prefix`, written into `dest` with the prefix taken off. The
+ * two readers differ in how one entry's bytes are produced and in nothing else,
+ * so that is the parameter and the rest is here: what an extraction counts,
+ * skips and reports is one answer rather than two that happen to agree.
+ */
+export function extractUnder<E extends ArchiveFile>(
+  { files, links, describe, prefix, dest }: Extraction<E>,
+  bytesOf: (entry: E) => Result<Buffer, Failure>,
+): Result<Unpacked, Failure> {
+  const unpacker = new Unpacker(dest);
+  const skipped = links.filter((name) => under(name, prefix));
+  let written = 0;
+  let bytes = 0;
+  for (const entry of files) {
+    if (!under(entry.name, prefix)) continue;
+    // A read can fail for reasons the archive is innocent of - a disk that
+    // filled, a file that went away - and this is infrastructure, which answers
+    // rather than throws.
+    let data: Result<Buffer, Failure>;
+    try {
+      data = bytesOf(entry);
+    } catch (e) {
+      return err(damaged(describe, errorMessage(e)));
+    }
+    if (!data.ok) return err(data.error);
+    const put = unpacker.write(relativeTo(entry.name, prefix), data.value, entry.mode);
+    if (!put.ok) return err(put.error);
+    written++;
+    bytes += data.value.length;
+  }
+  return ok({
+    files: written,
+    bytes,
+    skipped: skipped.slice(0, SKIPPED_SHOWN),
+    skippedCount: skipped.length,
+  });
+}

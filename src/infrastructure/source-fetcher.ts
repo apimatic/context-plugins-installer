@@ -15,6 +15,7 @@ import type {
   SourcePorts,
 } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
+import { isUpstreamOutage } from '../types/http.js';
 import type { ArchiveAt } from '../types/plugin-source.js';
 import type { ArchiveHandle, MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
@@ -25,13 +26,7 @@ import {
 } from './archive/index.js';
 import { downloadArchive } from './archive/download.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
-import { workspaceDir } from './paths.js';
-import {
-  fetchRepoFile,
-  ghHeaders,
-  isUpstreamOutage,
-  upstreamFailure,
-} from './github-registry-client.js';
+import { fetchRepoFile, ghHeaders, upstreamFailure } from './github-registry-client.js';
 
 export const DOWNLOAD_CONCURRENCY = 8;
 
@@ -416,18 +411,18 @@ function sweep(root: string): void {
   }
 }
 
-/**
- * One archive, unpacked into a directory of its own. The download, the reading
- * and the extraction happen inside one cached promise, so two plugins from one
- * archive cost one of each - and so the line that explains the wait is said
- * once, where the wait is.
- */
 /** The reader, and the workspace it was opened in - both wanted by every folder. */
 interface Opened {
   reader: ArchiveReader;
   here: DirectoryPath;
 }
 
+/**
+ * One archive, unpacked into a directory of its own. The download, the reading
+ * and the extraction happen inside one cached promise, so two plugins from one
+ * archive cost one of each - and so the line that explains the wait is said
+ * once, where the wait is.
+ */
 export function openArchive(
   {
     at,
@@ -526,7 +521,12 @@ export function openArchive(
   };
 }
 
-export const sourceFetcher = (ports: SourcePorts, root?: DirectoryPath): SourceFetcher => ({
+/**
+ * `root` is required: a fetcher that downloads has to be told where to put what
+ * it downloads, and a default resolved off the ambient environment is how a
+ * test reaches the developer's own state directory without saying so.
+ */
+export const sourceFetcher = (ports: SourcePorts, root: DirectoryPath): SourceFetcher => ({
   openRepo: (args) => openRepo(args, ports),
-  openArchive: (args) => openArchive(args, ports, root ?? workspaceDir()),
+  openArchive: (args) => openArchive(args, ports, root),
 });

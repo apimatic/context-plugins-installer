@@ -31,7 +31,7 @@ export interface OpenRequest {
   work: DirectoryPath;
 }
 
-export function formatOfBytes(file: FilePath, describe: string): Result<ArchiveFormat, Failure> {
+function formatOfBytes(file: FilePath, describe: string): Result<ArchiveFormat, Failure> {
   const opened = openFile(file, describe);
   if (!opened.ok) return err(opened.error);
   const { fd, size } = opened.value;

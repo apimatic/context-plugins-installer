@@ -4,11 +4,11 @@ import * as fs from 'node:fs';
 import { LIMITS } from '../../types/archive.js';
 import { Failure } from '../../types/failure.js';
 import type { FilePath } from '../../types/file/paths.js';
+import { hostOf, isUpstreamOutage } from '../../types/http.js';
 import type { FetchResponseLike, HttpPorts } from '../../types/ports.js';
 import { err, ok, type Result } from '../../types/result.js';
 import type { MarketplaceListener } from '../../types/session.js';
 import { errorMessage } from '../../types/util.js';
-import { hostOf, isUpstreamOutage } from '../github-registry-client.js';
 
 // Fetching an archive, which is the one request this program makes that can
 // legitimately run for minutes and arrive without a length. So it is also the
@@ -64,15 +64,10 @@ function discard(res: FetchResponseLike): void {
   void res.body?.cancel?.().catch(() => undefined);
 }
 
-interface Arrival {
-  url: string;
-  res: FetchResponseLike;
-}
-
 async function follow(
   { url, signal, touched }: { url: string; signal: AbortSignal; touched: () => void },
   { fetch: doFetch }: HttpPorts,
-): Promise<Result<Arrival, Failure>> {
+): Promise<Result<FetchResponseLike, Failure>> {
   let at = url;
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     let res: FetchResponseLike;
@@ -90,7 +85,7 @@ async function follow(
     const location = REDIRECTS.has(res.status) ? (res.headers?.get('location') ?? null) : null;
     // A response this program cannot ask about its headers is the file, the
     // same reading every other stub gets here.
-    if (location === null) return ok({ url: at, res });
+    if (location === null) return ok(res);
 
     discard(res);
     let next: string;
@@ -134,10 +129,9 @@ async function drain(
     for await (const chunk of body) {
       touched();
       seen += chunk.length;
-      if (seen > LIMITS.bytes) {
-        discard(res);
-        return err(tooBig(url));
-      }
+      // Returning out of the loop is what cancels the body: the async iterator
+      // holds the reader's lock, so `cancel()` here could only be refused.
+      if (seen > LIMITS.bytes) return err(tooBig(url));
       if (broken !== null) break;
       if (!out.write(chunk)) await once(out, 'drain');
     }
@@ -180,14 +174,16 @@ export async function downloadArchive(
   try {
     const arrived = await follow({ url, signal: controller.signal, touched }, ports);
     if (!arrived.ok) return err(arrived.error);
-    const { res } = arrived.value;
+    const res = arrived.value;
 
     if (!res.ok) {
       // Never read, so never left to hold the socket open.
       discard(res);
       // Its own sentence rather than the registry client's, whose hint blames an
-      // outage at GitHub - and this host is whoever the user named.
-      if (isUpstreamOutage(res.status)) return err(unavailable(arrived.value.url, res.status));
+      // outage at GitHub - and named for the host the user typed, like every
+      // other sentence out here: a redirect to codeload is not something they
+      // asked for, so it is not something an error should hand back to them.
+      if (isUpstreamOutage(res.status)) return err(unavailable(url, res.status));
       return err(
         new Failure(
           `${hostOf(url)} answered ${res.status} ${res.statusText ?? ''}`.trim(),

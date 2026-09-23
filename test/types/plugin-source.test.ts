@@ -360,15 +360,16 @@ test('a # with nothing after it names no folder, and is not part of the archive 
   assert.match(named.location(), /my#plugin\.zip$/);
 });
 
-test('a URL naming an archive this tool cannot read says which four it can', () => {
+test('only the four readable spellings name an archive; nothing else is claimed', () => {
+  // A URL this tool cannot read is not answered for here: it falls through to
+  // the repository arm, and gets whatever answer any other unreadable URL gets.
   for (const spec of ['https://acme.com/p.tar.bz2', 'https://acme.com/p.7z']) {
     const result = parse(spec);
     assert.ok(!result.ok, spec);
-    assert.match(result.error.message, /is not an archive this tool can read/);
-    assert.match(result.error.hint ?? '', /\.tar\.gz, \.tgz, \.zip and \.tar/);
+    assert.match(result.error.message, /not a plugin id, a path, or a GitHub repository/);
   }
-  // A path and a repository spelled the same way are not answered for: either
-  // could be a directory or a repo whose name happens to end that way.
+  // Nor is a path or a repository spelled that way: either could be a directory
+  // or a repo whose name happens to end there.
   assert.ok(value(parse('./my-plugin.rar')) instanceof LocalSource);
   assert.ok(value(parse('acme/my-plugin.7z')) instanceof GithubSource);
 });

@@ -1,4 +1,4 @@
-import { formatOf, isUnreadableArchive, READABLE_FORMATS } from './archive.js';
+import { formatOf } from './archive.js';
 import { DirectoryPath, FilePath, HOST, type PathRules } from './file/paths.js';
 import { Failure } from './failure.js';
 import { GitRef } from './ids/git-ref.js';
@@ -318,12 +318,6 @@ function splitFragment(spec: string): { at: string; path: string | null } {
   return { at: head, path: spec.slice(hash + 1) || null };
 }
 
-const unreadableFormat = (spec: string): Failure =>
-  new Failure(
-    `'${spec}' is not an archive this tool can read.`,
-    `It reads ${READABLE_FORMATS}. Unpack it and install the folder, or point at one of those.`,
-  );
-
 const bareFile = (spec: string): Failure =>
   new Failure(
     `'${spec}' is a file name, not a plugin id.`,
@@ -349,13 +343,7 @@ function parseArchive(
 ): Result<ArchiveSource, Failure> | null {
   const { at, path } = splitFragment(spec);
   const name = archiveName(at);
-  if (name === null) return null;
-  if (formatOf(name) === null) {
-    // A URL only. `./my-plugin.rar` is a directory someone named oddly as
-    // readily as it is an archive, and answering for it would take the spec
-    // away from the arm that can go and look.
-    return HTTP_URL.test(at) && isUnreadableArchive(name) ? err(unreadableFormat(spec)) : null;
-  }
+  if (name === null || formatOf(name) === null) return null;
 
   const isUrl = HTTP_URL.test(at);
   // `acme/my-plugin.zip` is still a repository: only a URL or a path can name
