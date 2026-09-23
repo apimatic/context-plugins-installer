@@ -7,7 +7,8 @@ import type { EntryKey, RawManifest } from './installed-record.js';
 import type { PluginManifest } from './plugin-manifest.js';
 import type { DomainEvent } from './events/domain-event.js';
 import type { TelemetryLine, TelemetryStatus } from './telemetry.js';
-import type { MarketplaceListener, RepoHandle } from './session.js';
+import type { ArchiveAt } from './plugin-source.js';
+import type { ArchiveHandle, MarketplaceListener, RepoHandle } from './session.js';
 
 // The interfaces through which this program reaches anything outside itself: a
 // process, the network, a person at a terminal. Every one of them is the seam a
@@ -54,7 +55,7 @@ export interface FetchResponseLike {
    * write by hand; a response without it is read whole through `arrayBuffer`,
    * the same way a response without headers is taken at its word.
    */
-  body?: AsyncIterable<Uint8Array> | null;
+  body?: (AsyncIterable<Uint8Array> & { cancel?: () => Promise<unknown> }) | null;
   json(): Promise<unknown>;
   text(): Promise<string>;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -155,6 +156,12 @@ export interface RegistryClient {
 
 export interface SourceFetcher {
   openRepo(args: { repo: string; ref: string; notify?: MarketplaceListener }): Promise<RepoHandle>;
+  /** Per archive, not per folder in it: which folder is `ArchiveHandle.files`' question. */
+  openArchive(args: {
+    at: ArchiveAt;
+    describe: string;
+    notify?: MarketplaceListener;
+  }): ArchiveHandle;
 }
 
 export interface Prompter {

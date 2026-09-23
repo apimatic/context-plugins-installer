@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { pluginRoot } from '../types/archive.js';
 import { Failure } from '../types/failure.js';
 import { DirectoryPath } from '../types/file/paths.js';
 import { GitRef } from '../types/ids/git-ref.js';
@@ -14,9 +15,13 @@ import type {
   SourcePorts,
 } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
-import type { MarketplaceListener, RepoHandle } from '../types/session.js';
+import type { ArchiveAt } from '../types/plugin-source.js';
+import type { ArchiveHandle, MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
+import { openArchive as openArchiveFile, type ArchiveReader } from './archive/index.js';
+import { downloadArchive } from './archive/download.js';
 import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
+import { workspaceDir } from './paths.js';
 import {
   fetchRepoFile,
   ghHeaders,
@@ -387,6 +392,108 @@ export async function openRepo(
   };
 }
 
-export const sourceFetcher = (ports: SourcePorts): SourceFetcher => ({
+/** Anything left by a run that was killed; a day is long past any live one. */
+const STALE_MS = 24 * 60 * 60 * 1000;
+
+function sweep(root: string): void {
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      const at = path.join(root, entry.name);
+      if (Date.now() - fs.statSync(at).mtimeMs > STALE_MS) rmrf(at);
+    }
+  } catch {
+    /* a workspace that cannot be swept is not a reason to fail an install */
+  }
+}
+
+/**
+ * One archive, unpacked into a directory of its own. The download, the reading
+ * and the extraction happen inside one cached promise, so two plugins from one
+ * archive cost one of each - and so the line that explains the wait is said
+ * once, where the wait is.
+ */
+/** The reader, and the workspace it was opened in - both wanted by every folder. */
+interface Opened {
+  reader: ArchiveReader;
+  here: DirectoryPath;
+}
+
+export function openArchive(
+  {
+    at,
+    describe,
+    notify = nothing,
+  }: { at: ArchiveAt; describe: string; notify?: MarketplaceListener },
+  ports: HttpPorts,
+  root: DirectoryPath,
+): ArchiveHandle {
+  let work: DirectoryPath | null = null;
+  let opening: Promise<Result<Opened, Failure>> | null = null;
+  let reader: ArchiveReader | null = null;
+  const done = new Map<string, DirectoryPath>();
+
+  // Downloaded and opened once, however many folders come out of it - the same
+  // split `openRepo` makes between one clone and each checkout. The promise is
+  // cached rather than its result, so two folders asked for at once share it.
+  const open = async (): Promise<Result<Opened, Failure>> => {
+    const base = ensureDir(root);
+    sweep(base);
+    const here = new DirectoryPath(fs.mkdtempSync(path.join(base, 'archive-')));
+    work = here;
+
+    const file = at.kind === 'file' ? at.file : here.file('download');
+    if (at.kind === 'url') {
+      const got = await downloadArchive({ url: at.url, to: file, notify }, ports);
+      if (!got.ok) return err(got.error);
+    }
+
+    const opened = await openArchiveFile({ file, describe, work: here });
+    if (!opened.ok) return err(opened.error);
+    reader = opened.value;
+    return ok({ reader: opened.value, here });
+  };
+
+  return {
+    async files(inside) {
+      const key = inside ?? '';
+      const cached = done.get(key);
+      if (cached) return ok(cached);
+
+      opening ??= open();
+      const opened = await opening;
+      if (!opened.ok) return err(opened.error);
+      const { reader: archive, here } = opened.value;
+
+      const prefix = pluginRoot(archive.names(), inside, describe);
+      if (!prefix.ok) return err(prefix.error);
+      // Mirrors the archive's own layout, so two plugins out of one never share
+      // a destination.
+      const under = prefix.value === '' ? [] : prefix.value.split('/');
+      const files = new DirectoryPath(ensureDir(here.join('files', ...under)));
+      const out = archive.extract(prefix.value, files);
+      if (!out.ok) return err(out.error);
+      if (out.value.skippedCount) {
+        notify({ kind: 'entry-skipped', names: out.value.skipped, count: out.value.skippedCount });
+      }
+      notify({ kind: 'unpacked', files: out.value.files, bytes: out.value.bytes });
+      done.set(key, files);
+      return ok(files);
+    },
+    cleanup() {
+      reader?.close();
+      reader = null;
+      if (work === null) return;
+      try {
+        rmrf(work);
+      } catch {
+        /* a locked workspace is not worth failing over */
+      }
+      work = null;
+    },
+  };
+}
+
+export const sourceFetcher = (ports: SourcePorts, root?: DirectoryPath): SourceFetcher => ({
   openRepo: (args) => openRepo(args, ports),
+  openArchive: (args) => openArchive(args, ports, root ?? workspaceDir()),
 });

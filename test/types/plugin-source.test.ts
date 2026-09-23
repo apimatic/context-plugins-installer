@@ -5,6 +5,7 @@ import { rulesFor } from '../../src/types/file/paths.js';
 import type { Failure } from '../../src/types/failure.js';
 import { PluginId } from '../../src/types/ids/plugin-id.js';
 import {
+  ArchiveSource,
   GithubSource,
   LocalSource,
   MarketplaceSource,
@@ -252,8 +253,106 @@ test('the manifest key keeps two plugins out of one repository apart', () => {
   assert.notEqual(github('acme/x').key(), value(parse('paypal')).key());
 });
 
+const archive = (spec: unknown, over: Partial<typeof POSIX> = {}): ArchiveSource => {
+  const source = value(parse(spec, over));
+  assert.ok(source instanceof ArchiveSource, `expected an archive for ${String(spec)}`);
+  return source;
+};
+
+test('an https URL ending in an archive extension is an archive', () => {
+  for (const [spec, url] of [
+    ['https://acme.com/my-plugin.zip', 'https://acme.com/my-plugin.zip'],
+    ['https://acme.com/my-plugin.tar.gz', 'https://acme.com/my-plugin.tar.gz'],
+    ['https://acme.com/my-plugin.tgz', 'https://acme.com/my-plugin.tgz'],
+    // The extension is read off the URL's path, so a presigned link - the only
+    // way a private archive is installable here - still names one.
+    [
+      'https://acme.com/dl/p.zip?X-Amz-Signature=abc',
+      'https://acme.com/dl/p.zip?X-Amz-Signature=abc',
+    ],
+    // Both of github.com's own archive links, neither of which is a repository.
+    [
+      'https://github.com/acme/x/releases/download/v1/p.zip',
+      'https://github.com/acme/x/releases/download/v1/p.zip',
+    ],
+    [
+      'https://github.com/acme/mono/archive/refs/heads/main.tar.gz',
+      'https://github.com/acme/mono/archive/refs/heads/main.tar.gz',
+    ],
+  ] as const) {
+    const source = archive(spec);
+    assert.deepEqual(source.at, { kind: 'url', url }, spec);
+    assert.equal(source.path, null, spec);
+  }
+});
+
+test('a folder inside an archive is the fragment, split at the last #', () => {
+  const source = archive('https://acme.com/mono.zip#tools/foo');
+  assert.equal(source.location(), 'https://acme.com/mono.zip');
+  assert.equal(source.path, 'tools/foo');
+  assert.equal(source.key(), 'archive:https://acme.com/mono.zip#tools/foo');
+});
+
+test('a # that is part of a name is not a fragment', () => {
+  // The rule is the same shape as the @ref split: what precedes it has to be
+  // the thing the separator belongs to.
+  const source = archive('./my#plugin.zip');
+  assert.equal(source.path, null);
+  assert.deepEqual(source.at, {
+    kind: 'file',
+    file: source.at.kind === 'file' ? source.at.file : null,
+  });
+  assert.match(source.location(), /my#plugin\.zip$/);
+});
+
+test('an archive has no ref, so an @ in its name stays in its name', () => {
+  const source = archive('https://acme.com/p@2.zip');
+  assert.equal(source.location(), 'https://acme.com/p@2.zip');
+});
+
+test('an archive on this machine is resolved against the cwd, and the home is expanded', () => {
+  assert.equal(archive('./my-plugin.zip').location(), '/work/proj/my-plugin.zip');
+  assert.equal(archive('~/dl/my-plugin.tgz').location(), '/home/dev/dl/my-plugin.tgz');
+  assert.equal(archive('C:\\dl\\my-plugin.zip', WIN).location(), 'C:\\dl\\my-plugin.zip');
+});
+
+test('http is refused where it is written, and says why', () => {
+  const result = parse('http://acme.com/my-plugin.zip');
+  assert.ok(!result.ok);
+  assert.match(result.error.message, /is not an https URL/);
+  assert.match(result.error.hint ?? '', /hooks/);
+});
+
+test('only a URL or a path can be an archive, so a repository named like one is not', () => {
+  const source = value(parse('acme/my-plugin.zip'));
+  assert.ok(source instanceof GithubSource, 'a repo whose name ends in .zip is still a repo');
+  assert.equal(source.repo, 'acme/my-plugin.zip');
+});
+
+test('a URL that names no archive is still read as a repository, and fails as one', () => {
+  const result = parse('https://acme.com/my-plugin');
+  assert.ok(!result.ok);
+  assert.match(result.error.message, /not a plugin id, a path, or a GitHub repository/);
+});
+
+test('a folder inside an archive is validated the way a repositorys is', () => {
+  for (const bad of ['..', 'a/../b', '-flag']) {
+    const result = parse(`https://acme.com/mono.zip#${bad}`);
+    assert.ok(!result.ok, bad);
+    assert.match(result.error.message, /not a usable folder name/, bad);
+  }
+});
+
 test('a recorded key restores as the source it was written from', () => {
-  for (const spec of ['paypal', 'acme/mono/tools/foo', 'acme/x', '/opt/x']) {
+  for (const spec of [
+    'paypal',
+    'acme/mono/tools/foo',
+    'acme/x',
+    '/opt/x',
+    'https://acme.com/p.zip',
+    'https://acme.com/mono.zip#tools/foo',
+    '/opt/my-plugin.tar.gz',
+  ]) {
     const source = value(parse(spec));
     const back = restoreSource(source.key(), { plugin: new PluginId('my-sdk'), ref: 'main' });
     assert.equal(back.kind, source.kind, spec);
@@ -271,5 +370,6 @@ test('the kind of a recorded key is readable without building a source', () => {
   assert.equal(sourceKindOf('acme/plugin-marketplace'), 'marketplace');
   assert.equal(sourceKindOf('local:/opt/x'), 'local');
   assert.equal(sourceKindOf('github:acme/x'), 'github');
+  assert.equal(sourceKindOf('archive:https://acme.com/p.zip'), 'archive');
   assert.equal(sourceKindOf(undefined), 'marketplace');
 });

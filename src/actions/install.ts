@@ -118,7 +118,9 @@ export class InstallAction {
 
     if (!parsed.ok) return failed(parsed.error);
     const source = parsed.value;
-    report.ref = source.kind === 'local' ? null : source.ref;
+    // Only two of the four have one; a directory and an archive are whatever
+    // they are today.
+    report.ref = source.kind === 'marketplace' || source.kind === 'github' ? source.ref : null;
 
     const records = openManifest(paths.manifestPath(this.pathOpts));
 
@@ -160,6 +162,7 @@ export class InstallAction {
     if (req.ref && source.kind === 'github' && source.ref !== ref) {
       this.prompts.refIgnored(req.ref, source.ref);
     }
+    if (req.ref && source.kind === 'archive') this.prompts.refUnused(req.ref);
 
     const available = harnesses.detected(requested, this.pathOpts);
     const missing = requested.filter((name) => !available.includes(name));
@@ -258,6 +261,32 @@ export class InstallAction {
   };
 
   private async resolve(source: PluginSource, brand: Brand): Promise<Result<Resolution, Failure>> {
+    if (source.kind === 'archive') {
+      // The one source whose resolve is a fetch: nothing about an archive is
+      // known until it has been downloaded and opened, so the stage says so -
+      // a failed transfer must not be counted as a failed manifest read.
+      this.at = 'fetch';
+      const unpacked = await this.session.archive({
+        at: source.at,
+        path: source.path,
+        // The archive, not the folder in it: the reader is shared by every
+        // plugin that comes out of one, and names itself the same to each.
+        describe: source.location(),
+      });
+      this.at = 'resolve';
+      if (!unpacked.ok) return err(unpacked.error);
+      // Named after the archive, never after the workspace it was unpacked into.
+      const read = readLocalPlugin(unpacked.value, this.pathOpts, source.toString());
+      if (!read.ok) return err(read.error);
+      this.id = read.value.id;
+      return ok({
+        id: read.value.id,
+        origin: localMarketplace(this.pathOpts),
+        description: read.value.description,
+        files: { kind: 'on-disk', dir: read.value.dir },
+      });
+    }
+
     if (source.kind === 'local') {
       const read = readLocalPlugin(source.dir, this.pathOpts);
       if (!read.ok) return err(read.error);

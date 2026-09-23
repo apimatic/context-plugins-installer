@@ -88,6 +88,23 @@ const CASES: Record<MarketplaceEvent['kind'], [MarketplaceEvent, Line[]]> = {
     { kind: 'downloaded', files: 7 },
     [['info', 'Downloaded 7 files via the GitHub API.']],
   ],
+  // The third line that explains a wait before it happens, and the only one
+  // that can name a host the user chose - said here, and never sent anywhere.
+  downloading: [
+    { kind: 'downloading', url: 'https://acme.com/my-plugin.zip' },
+    [
+      ['info', 'Downloading the archive ...'],
+      ['debug', 'https://acme.com/my-plugin.zip'],
+    ],
+  ],
+  unpacked: [
+    { kind: 'unpacked', files: 9, bytes: 4096 },
+    [['debug', '9 files unpacked (4096 bytes)']],
+  ],
+  'entry-skipped': [
+    { kind: 'entry-skipped', names: ['escape', 'other'], count: 2 },
+    [['warn', 'Skipped 2 links the archive carried: escape, other']],
+  ],
 };
 
 for (const [kind, [event, expected]] of Object.entries(CASES)) {

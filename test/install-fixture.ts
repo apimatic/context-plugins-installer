@@ -9,7 +9,9 @@ import { InstallCommand } from '../src/commands/install.js';
 import { UninstallCommand } from '../src/commands/uninstall.js';
 import { UpdateCommand } from '../src/commands/update.js';
 import { registryClient } from '../src/infrastructure/github-registry-client.js';
+import * as paths from '../src/infrastructure/paths.js';
 import { sourceFetcher } from '../src/infrastructure/source-fetcher.js';
+import type { PathOpts } from '../src/types/env.js';
 import type { Ask } from '../src/prompts/install.js';
 import { createSession } from '../src/infrastructure/session.js';
 import { harnesses } from '../src/harnesses/index.js';
@@ -25,6 +27,7 @@ import type { Harness, HarnessName, HarnessOpts } from '../src/types/harness.js'
 import type { FetchLike, RegistryClient, SourceFetcher, SourcePorts } from '../src/types/ports.js';
 import { ok } from '../src/types/result.js';
 import {
+  noArchives,
   portsFor,
   resolveBrand,
   runnerFor,
@@ -120,6 +123,20 @@ export const registryOnly = (fetch: FetchLike): Wiring => {
   return { ports, registry: registryClient(ports), fetcher: sourceFetcher(ports) };
 };
 
+/**
+ * The real fetcher, with its workspace inside the sandboxed machine - the one
+ * seam an archive test must not take from production, since it is where a
+ * download lands.
+ */
+export const archiveWiring = (fetch: FetchLike, opts: PathOpts): Wiring => {
+  const ports = portsFor(fetch);
+  return {
+    ports,
+    registry: registryClient(ports),
+    fetcher: sourceFetcher(ports, paths.workspaceDir(opts)),
+  };
+};
+
 /** One session over a test's wiring, announcing what it does like a real run. */
 export const sessionOver = (w: Wiring): Session =>
   createSession({ registry: w.registry, fetcher: w.fetcher, notify: announceMarketplace });
@@ -199,6 +216,7 @@ export function wiring({
         cleanup: () => {},
         checkout: async () => ok(new DirectoryPath(srcDir)),
       }),
+      openArchive: noArchives,
     },
   };
 }

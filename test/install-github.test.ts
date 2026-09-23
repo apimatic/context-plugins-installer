@@ -26,7 +26,14 @@ import {
   type Tracked,
   type Wiring,
 } from './install-fixture.js';
-import { cleanupAll, portsFor, silenceConsole, stubFetch, type StubRoute } from './helpers.js';
+import {
+  type StubRoute,
+  cleanupAll,
+  noArchives,
+  portsFor,
+  silenceConsole,
+  stubFetch,
+} from './helpers.js';
 
 test.after(cleanupAll);
 
@@ -75,6 +82,7 @@ function githubWiring(spec: GithubSpec): {
         return ok(new DirectoryPath(srcDir));
       },
     }),
+    openArchive: noArchives,
   };
   return {
     wiring: { ports, registry: registryClient(ports), fetcher },

@@ -46,7 +46,12 @@ export class InstallPrompts {
   }
 
   private where(source: UntrustedSource): string {
-    return source.kind === 'local' ? f.path(source.dir, this.home) : source.toString();
+    if (source.kind === 'local') return f.path(source.dir, this.home);
+    if (source.kind === 'archive' && source.at.kind === 'file') {
+      const inside = source.path === null ? '' : `#${source.path}`;
+      return `${f.path(source.at.file, this.home)}${inside}`;
+    }
+    return source.toString();
   }
 
   intro(
@@ -81,6 +86,11 @@ export class InstallPrompts {
 
   refIgnored(flag: string, used: string): void {
     log.warn(`Using ref '${used}' from the plugin spec - --ref ${flag} was not used.`);
+  }
+
+  /** An archive is whatever it is today; a silently dropped flag reads as honoured. */
+  refUnused(flag: string): void {
+    log.warn(`An archive has no ref - --ref ${flag} was not used.`);
   }
 
   nothingTrusted(): void {

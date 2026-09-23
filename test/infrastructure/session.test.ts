@@ -22,6 +22,7 @@ import { ok } from '../../src/types/result.js';
 import type { MarketplaceEvent, MarketplaceListener, Session } from '../../src/types/session.js';
 import {
   cleanupAll,
+  noArchives,
   pinTempRoot,
   portsFor,
   runnerFor,
@@ -181,6 +182,7 @@ test('a session opens each repo workspace once, and disposes it at the end', asy
         checkout: async () => ok(new DirectoryPath('/tmp/whatever')),
       };
     },
+    openArchive: noArchives,
   };
   const session = createSession({ registry: registryClient(portsFor(stubFetch({}))), fetcher });
 

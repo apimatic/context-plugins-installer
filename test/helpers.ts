@@ -10,6 +10,7 @@ import type {
   SourcePorts,
 } from '../src/types/ports.js';
 import type { Failure } from '../src/types/failure.js';
+import type { ArchiveHandle } from '../src/types/session.js';
 import type { Env } from '../src/types/env.js';
 import type { Result } from '../src/types/result.js';
 import { readBrand, type ResolveBrandOptions } from '../src/composition/brand.js';
@@ -81,6 +82,10 @@ export interface StubRoute {
   status?: number;
   /** An object is serialized; a string is served verbatim. */
   body?: unknown;
+  /** Served as bytes, for the one thing this program downloads rather than reads. */
+  bytes?: Buffer;
+  /** Omits the streamable body, so a caller falls back to reading it whole. */
+  noStream?: boolean;
 }
 
 export type StubFetch = FetchLike & { calls: string[] };
@@ -111,6 +116,28 @@ export function stubFetch(routes: Record<string, StubRoute>): StubFetch {
     }
     const status = hit.status || 200;
     const body = typeof hit.body === 'string' ? hit.body : JSON.stringify(hit.body ?? {});
+    if (hit.bytes) {
+      const bytes = hit.bytes;
+      // In three pieces, because a body that arrives whole never exercises the
+      // loop that counts it.
+      const streamed = async function* (): AsyncGenerator<Uint8Array> {
+        const size = Math.ceil(bytes.length / 3) || 1;
+        for (let at = 0; at < bytes.length; at += size) yield bytes.subarray(at, at + size);
+      };
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: status === 200 ? 'OK' : 'Error',
+        ...(hit.noStream ? {} : { body: streamed() }),
+        text: async () => bytes.toString('utf8'),
+        json: async (): Promise<unknown> => JSON.parse(bytes.toString('utf8')),
+        arrayBuffer: async () => {
+          const ab = new ArrayBuffer(bytes.byteLength);
+          new Uint8Array(ab).set(bytes);
+          return ab;
+        },
+      };
+    }
     return {
       ok: status >= 200 && status < 300,
       status,
@@ -242,3 +269,13 @@ export function pinTempRoot(root: string): () => void {
     }
   };
 }
+
+/**
+ * A fetcher's archive arm for a test that has no archive in it. Loud rather than
+ * empty, for the reason `registryOnly` keeps the real fetcher behind it: a test
+ * that unexpectedly reaches for one should fail saying so.
+ */
+export const noArchives = (): ArchiveHandle => ({
+  cleanup: () => {},
+  files: () => Promise.reject(new Error('this test was not expected to open an archive')),
+});

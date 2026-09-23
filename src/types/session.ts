@@ -2,6 +2,7 @@ import type { Catalog } from './catalog.js';
 import type { Failure } from './failure.js';
 import type { DirectoryPath } from './file/paths.js';
 import type { PluginManifest } from './plugin-manifest.js';
+import type { ArchiveAt } from './plugin-source.js';
 import type { Result } from './result.js';
 
 // Work shared by every plugin in one run: the registry read, the clone, the
@@ -25,7 +26,10 @@ export type MarketplaceEvent =
   | { kind: 'cloning'; url: string; ref: string }
   | { kind: 'checked-out'; files: number }
   | { kind: 'tree-truncated' }
-  | { kind: 'downloaded'; files: number };
+  | { kind: 'downloaded'; files: number }
+  | { kind: 'downloading'; url: string }
+  | { kind: 'unpacked'; files: number; bytes: number }
+  | { kind: 'entry-skipped'; names: readonly string[]; count: number };
 
 export type MarketplaceListener = (event: MarketplaceEvent) => void;
 
@@ -34,6 +38,27 @@ export interface RepoHandle {
   cleanup(): void;
   /** `null` is the repository itself, for a repo that is a plugin rather than a marketplace. */
   checkout(sourcePath: string | null): Promise<Result<DirectoryPath, Failure>>;
+}
+
+/**
+ * One archive, downloaded (or opened where it lies) and unpacked into a
+ * workspace of its own. Shaped like `RepoHandle` for the same reason, and with
+ * the same split: the download is per archive and the extraction per folder, so
+ * two plugins out of one monorepo archive cost one of the first and two of the
+ * second.
+ */
+export interface ArchiveHandle {
+  cleanup(): void;
+  /** A folder inside the archive, or `null` for whatever it wraps. */
+  files(inside: string | null): Promise<Result<DirectoryPath, Failure>>;
+}
+
+export interface ArchiveRequest {
+  at: ArchiveAt;
+  /** The folder inside the archive, or null for whatever it wraps. */
+  path: string | null;
+  /** How the user named it, which is what every failure below here says back. */
+  describe: string;
 }
 
 export interface Session {
@@ -55,5 +80,7 @@ export interface Session {
     /** `null` is the repository itself; a path is a folder inside it. */
     sourcePath: string | null;
   }): Promise<Result<DirectoryPath, Failure>>;
+  /** One download per archive in a run, however many plugins come out of it. */
+  archive(args: ArchiveRequest): Promise<Result<DirectoryPath, Failure>>;
   cleanup(): Promise<void>;
 }
