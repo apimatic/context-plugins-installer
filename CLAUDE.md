@@ -439,7 +439,11 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   bytes as they arrive, since `codeload.github.com` answers chunked with no
   `content-length` at all, and gives up after thirty seconds of silence or ten
   minutes in total: this is the one request this program makes that can
-  legitimately run for minutes. No `Authorization` on any hop, to any host -
+  legitimately run for minutes. The idle timer is re-armed as each response's
+  headers arrive, so the thirty seconds bound **one** wait rather than being
+  shared out between DNS, TLS, six requests and the first byte - a
+  `/archive/` link is answered by a server that builds the tarball before
+  sending it, and a chain armed once called that a stall. No `Authorization` on any hop, to any host -
   `ghHeaders` is deliberately not reused, because attaching a token is the one
   thing it does. `zip.ts` reads from the tail (end-of-central-directory, Zip64
   when the locator is there, then one entry at a time through a positioned

@@ -70,8 +70,7 @@ interface Arrival {
 }
 
 async function follow(
-  url: string,
-  signal: AbortSignal,
+  { url, signal, touched }: { url: string; signal: AbortSignal; touched: () => void },
   { fetch: doFetch }: HttpPorts,
 ): Promise<Result<Arrival, Failure>> {
   let at = url;
@@ -82,6 +81,12 @@ async function follow(
     } catch (e) {
       return err(signal.aborted ? timedOut(at) : unreachable(at, e));
     }
+    // Every wait gets the whole budget rather than a share of one: this hop's,
+    // and - for the response that turns out to be the file - the one before its
+    // first byte. Armed once for the chain, thirty seconds had to cover DNS,
+    // TLS, six requests and a server still building the tarball it was asked
+    // for, and `/archive/` links are answered by exactly such a server.
+    touched();
     const location = REDIRECTS.has(res.status) ? (res.headers?.get('location') ?? null) : null;
     // A response this program cannot ask about its headers is the file, the
     // same reading every other stub gets here.
@@ -173,7 +178,7 @@ export async function downloadArchive(
   notify?.({ kind: 'downloading', url });
   touched();
   try {
-    const arrived = await follow(url, controller.signal, ports);
+    const arrived = await follow({ url, signal: controller.signal, touched }, ports);
     if (!arrived.ok) return err(arrived.error);
     const { res } = arrived.value;
 

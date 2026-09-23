@@ -9,6 +9,7 @@ import type { ArchiveReader } from '../../src/infrastructure/archive/index.js';
 import { openArchive as openThroughFetcher } from '../../src/infrastructure/source-fetcher.js';
 import { DirectoryPath, FilePath } from '../../src/types/file/paths.js';
 import type { Failure } from '../../src/types/failure.js';
+import type { FetchLike } from '../../src/types/ports.js';
 import type { Result } from '../../src/types/result.js';
 import { archiveAt, gzipOf, tarOf, zipOf } from '../archive-fixture.js';
 import { cleanupAll, portsFor, stubFetch, tmpDir } from '../helpers.js';
@@ -358,6 +359,58 @@ test('a download that cannot be written is a Failure, not an unhandled error eve
   const got = await downloadArchive({ url, to }, portsFor(fetchImpl));
   assert.ok(!got.ok, 'expected a failure');
   assert.match(got.error.message, /Could not write the download/);
+});
+
+test('a slow redirect chain is not read as a stall: each hop gets its own budget', async () => {
+  // The budget is thirty seconds, so the test shrinks it rather than waiting:
+  // a `setTimeout` asking for exactly IDLE_MS gets a few hundred milliseconds
+  // instead, and the ten-minute total is left alone. Three hops, each well
+  // inside one budget and all three well past it - armed once for the chain,
+  // as it was, the last of them aborts a download that never stalled.
+  const IDLE_MS = 30 * 1000;
+  const BUDGET = 400;
+  const HOP_MS = 150;
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = ((fn: () => void, ms?: number) =>
+    real(fn, ms === IDLE_MS ? BUDGET : ms)) as typeof globalThis.setTimeout;
+  const after = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      real(resolve, ms);
+    });
+
+  try {
+    const bytes = zipOf(plugin);
+    const hops = ['https://acme.com/a.zip', 'https://acme.com/b.zip', 'https://acme.com/c.zip'];
+    const fetchImpl: FetchLike = async (url, init) => {
+      await after(HOP_MS);
+      // What a real fetch does once the signal has fired under it.
+      if (init?.signal?.aborted) throw new Error('This operation was aborted');
+      const next = hops[hops.indexOf(url) + 1];
+      const body = next === undefined ? bytes : Buffer.alloc(0);
+      return {
+        ok: next === undefined,
+        status: next === undefined ? 200 : 302,
+        statusText: next === undefined ? 'OK' : 'Found',
+        headers: {
+          get: (name: string) => (name.toLowerCase() === 'location' ? (next ?? null) : null),
+        },
+        json: () => Promise.resolve({}),
+        text: () => Promise.resolve(body.toString('utf8')),
+        arrayBuffer: () => {
+          const buffer = new ArrayBuffer(body.byteLength);
+          new Uint8Array(buffer).set(body);
+          return Promise.resolve(buffer);
+        },
+      };
+    };
+
+    const to = new FilePath(path.join(tmpDir('cp-slow-'), 'download'));
+    const got = await downloadArchive({ url: hops[0] as string, to }, portsFor(fetchImpl));
+    assert.ok(got.ok, got.ok ? '' : got.error.message);
+    assert.equal(got.value, bytes.length);
+  } finally {
+    globalThis.setTimeout = real;
+  }
 });
 
 test('a host that answers 5xx is reported as unavailable, without blaming GitHub', async () => {
