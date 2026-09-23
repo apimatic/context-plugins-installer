@@ -164,8 +164,10 @@ A few things worth knowing:
   a name Windows cannot hold, or the same name twice (in any case) ends the install with nothing
   written; links are skipped, and their absence is reported. An archive is refused above 200 MB
   downloaded, 1 GB unpacked, or 50,000 files.
-- **`.zip` loses the executable bit** — GitHub's zip files carry no permissions at all. If your
-  plugin ships hooks that need to be executable, prefer the `.tar.gz` link, which does carry them.
+- **GitHub's `.zip` carries no permissions**, so a hook that has to be executable arrives without
+  the bit. Its `.tar.gz` of the same commit does carry it, and is the link to prefer. A zip you
+  made yourself on Linux or macOS keeps its modes, and they are applied — Windows ignores the bit
+  either way.
 - **Claude Code needs a marketplace**, so one is generated at `~/.context-plugins/marketplace/`
   holding every plugin you installed this way. It appears once in
   `claude plugin marketplace list`, as `context-plugins-local`, and goes away when the last such
