@@ -123,6 +123,17 @@ test('a leading ./ says nothing and is dropped, the way tar writes it', () => {
   assert.equal(names.read('./../x').kind, 'refuse');
 });
 
+test('a directory claims no name, because it writes none', () => {
+  const names = new EntryNames();
+  // Linux is entitled to both, and neither writes anything - every parent is
+  // made by the write that needs it - so neither can be the other's file.
+  assert.deepEqual(names.read('Docs/', true), { kind: 'write', name: 'Docs' });
+  assert.deepEqual(names.read('docs/', true), { kind: 'write', name: 'docs' });
+  // The rule still holds for what is inside them, which does write.
+  assert.equal(names.read('Docs/a.md').kind, 'write');
+  assert.equal(names.read('docs/A.md').kind, 'refuse');
+});
+
 test('two names that differ only in case are one file on half the machines, so they are refused', () => {
   const names = new EntryNames();
   assert.equal(names.read('README.md').kind, 'write');

@@ -115,7 +115,7 @@ export type EntryName =
 export class EntryNames {
   private readonly taken = new Set<string>();
 
-  read(raw: string): EntryName {
+  read(raw: string, isDirectory = false): EntryName {
     const refuse = (why: string): EntryName => ({ kind: 'refuse', why });
     if (!raw || raw.length > MAX_NAME) return refuse('an empty or absurdly long name');
     if (raw.includes('\0')) return refuse('a NUL byte in its name');
@@ -141,6 +141,12 @@ export class EntryNames {
 
     const cleaned = segments.join('/');
     if (isIgnored(cleaned)) return { kind: 'ignore' };
+    // Only a file claims a name. A directory entry writes nothing - every
+    // parent is made by the write that needs it - so two of them cannot be one
+    // file, and refusing `Docs/` beside `docs/` ended an archive Linux is
+    // entitled to hold over a collision that has no consequence. It defaults to
+    // a file: a caller that says nothing gets the rule, not the exemption.
+    if (isDirectory) return { kind: 'write', name: cleaned };
     // Folded, because on Windows and macOS `README` and `readme` are one file,
     // and the later entry would silently be the one both this program and the
     // editor read.

@@ -309,7 +309,12 @@ that ends up somewhere else is a rule two callers can disagree about.
   archive rather than part of it. A `.` segment is dropped, not refused:
   `tar -czf x.tgz .` writes every name as `./...`. Duplicates are found
   case-folded, because on Windows and macOS `README` and `readme` are one
-  file and the later entry would silently be the one read. `pluginRoot` unwraps a lone directory while
+  file and the later entry would silently be the one read - but only a
+  **file** claims a name, since a directory entry writes nothing and refusing
+  `Docs/` beside `docs/` ended an archive Linux is entitled to hold over a
+  collision with no consequence. Each reader says which it has (the trailing
+  separator, the type byte); the parameter defaults to a file, so a caller
+  that says nothing gets the rule rather than the exemption. `pluginRoot` unwraps a lone directory while
   the level holds nothing else, keeps the whole chain rather than its end, and
   resolves a `#folder` under the deepest of them first: the entries of a GitHub
   archive are `<repo>-<ref>/plugins/slack/...` and the user types

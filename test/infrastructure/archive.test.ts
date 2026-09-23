@@ -211,6 +211,23 @@ test('an entry that claims more bytes than the archive holds is refused, not all
   assert.match(tarErr.message, /runs past the end of the file/);
 });
 
+test('two directories differing only in case are not two files, so neither is refused', async () => {
+  const zip = zipOf([{ name: 'Docs/' }, { name: 'docs/' }, ...plugin]);
+  const fromZip = await reader(open(archiveAt('p.zip', zip)));
+  assert.deepEqual([...fromZip.names()], [MANIFEST, 'skills/SKILL.md']);
+  fromZip.close();
+
+  const tar = tarOf([
+    { name: 'Docs/', type: '5' },
+    { name: 'docs/', type: '5' },
+    { name: MANIFEST, data: manifest },
+  ]);
+  const fromTar = await reader(open(archiveAt('p.tar', tar), 'p.tar'));
+  const out = fromTar.extract('', into());
+  assert.ok(out.ok, out.ok ? '' : out.error.message);
+  fromTar.close();
+});
+
 test('a hard link is a link: skipped and named, like a symlink', async () => {
   const entries = [
     { name: MANIFEST, data: manifest },

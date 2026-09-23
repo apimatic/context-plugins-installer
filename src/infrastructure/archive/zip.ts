@@ -206,7 +206,10 @@ function readCentral(
     zip64Extra(buffer.subarray(nameAt + nameLength, nameAt + nameLength + extraLength), sizes);
     at = nameAt + nameLength + extraLength + commentLength;
 
-    const read = names.read(raw);
+    // A zip says so with a trailing separator and nothing else; the entry is
+    // read as one before its name is, because a directory claims no name.
+    const isDirectory = raw.endsWith('/') || raw.endsWith('\\');
+    const read = names.read(raw, isDirectory);
     if (read.kind === 'refuse') return err(refused(describe, raw, read.why));
     if (read.kind === 'ignore') continue;
 
@@ -226,7 +229,7 @@ function readCentral(
     }
     // A directory entry writes nothing: the tree is read from the file names,
     // and every parent is created by the write that needs it.
-    if (raw.endsWith('/') || raw.endsWith('\\')) continue;
+    if (isDirectory) continue;
 
     if (method !== STORED && method !== DEFLATED) {
       return err(

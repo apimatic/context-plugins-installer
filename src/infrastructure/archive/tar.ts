@@ -143,7 +143,7 @@ function walk(fd: number, size: number, describe: string): Result<Walked, Failur
     longName = null;
     paxName = null;
 
-    const read = names.read(raw);
+    const read = names.read(raw, type === DIRECTORY);
     if (read.kind === 'refuse') return err(refused(describe, raw, read.why));
     if (read.kind === 'ignore') continue;
 
