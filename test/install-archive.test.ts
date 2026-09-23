@@ -250,7 +250,14 @@ test('an archive that has left the machine is reported, not failed', async () =>
       wiring: archiveWiring(served({}), m.pathOpts),
     }),
   );
-  assert.equal(report.rows[0]?.outcome, 'failed', 'the archive is gone, and says so');
+  // Unavailable rather than failed: an archive that has moved is an ordinary
+  // day for whoever is writing the plugin, not an install that went wrong.
+  const row = report.rows[0];
+  assert.equal(row?.outcome, 'unavailable');
+  assert.match(
+    row?.outcome === 'unavailable' ? row.reason : '',
+    /the archive it was installed from/,
+  );
   assert.equal(rowsOf(m).length, 1, 'and the row stays: the copy in the editor is still there');
 });
 
