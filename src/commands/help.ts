@@ -12,7 +12,7 @@ export function helpText(bin: string, brand: Pick<Brand, 'displayName' | 'label'
 ${brand.displayName} - install marketplace plugins into ${everyEditor('and')}.
 
 Usage
-  ${bin} install <plugin|path|repo> [options]
+  ${bin} install <plugin|path|repo|archive> [options]
   ${bin} uninstall <plugin> [options]
   ${bin} update
   ${bin} list
@@ -29,12 +29,21 @@ Install sources
                         itself a plugin: owner/repo, owner/repo/folder, or the
                         github.com URL for it - for a folder, the /tree/ link.
                         An @ref after any of them wins over --ref.
+  <archive>             A .zip, .tar.gz, .tgz or .tar that is itself a plugin,
+                        at an https URL or on this machine. Name a folder
+                        inside it after a #, as in mono.zip#tools/my-plugin.
+                        An archive GitHub builds is unwrapped for you, so the
+                        folder is the one its page showed you.
 
-  A plugin from a path or a repo is named by its own manifest rather than by
-  the folder or the repository, and Claude Code installs it through a
-  marketplace this tool generates under ~/.context-plugins. ${bin} update
-  re-syncs it from wherever it came from; a folder that has moved away is
-  reported rather than failing the run.
+  A plugin from a path, a repo or an archive is named by its own manifest rather
+  than by the folder, the repository or the file, and Claude Code installs it
+  through a marketplace this tool generates under ~/.context-plugins.
+  ${bin} update re-syncs it from wherever it came from; a folder or an archive
+  that has moved away is reported rather than failing the run.
+
+  Nothing is downloaded before you have confirmed the source, no credential is
+  ever sent to fetch an archive, and only https is followed - a plugin can run
+  commands through its hooks, and there is no signature to check.
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
@@ -68,6 +77,9 @@ Examples
   ${bin} install ~/dev/my-plugin --targets claude
   ${bin} install acme/my-plugin
   ${bin} install acme/monorepo/tools/my-plugin@v1.2
+  ${bin} install https://acme.com/my-plugin.zip
+  ${bin} install https://github.com/acme/monorepo/archive/refs/heads/main.tar.gz#tools/my-plugin
+  ${bin} install ./my-plugin.zip
   ${bin} uninstall paypal
 `.trimStart();
 }

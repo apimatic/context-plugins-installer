@@ -7,8 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `context-plugins` installs plugins into Claude Code, Cursor, and VS Code with one
 command - from a plugin marketplace (a GitHub repo carrying a
 `.claude-plugin/marketplace.json` registry), from a directory on the machine
-that is itself a plugin, or from a GitHub repository (or a folder inside one)
-that is itself a plugin. Published to npm; users run it via `npx`. The README is end-user documentation
+that is itself a plugin, from a GitHub repository (or a folder inside one)
+that is itself a plugin, or from a `.zip` or `.tar.gz` of one, at an https URL
+or on this machine. Published to npm; users run it via `npx`. The README is end-user documentation
 only, by explicit decision — contributor and agent knowledge belongs here, not there.
 
 ## Commands
@@ -83,7 +84,11 @@ pinning it would stop it noticing the next change to a schema this project does 
   class in `types/events/` declares (`plugin` once validated - and withheld entirely for a
   plugin installed from a directory, whose name came from a folder the user chose - `harness`,
   `marketplace` as the built-in repo or `custom`, `source_kind` as `marketplace`,
-  `github` or `local`, `stage`, `error_kind`, `targets_explicit`, `duration_ms`) in step.
+  `github`, `local` or `archive`, `stage`, `error_kind`, `targets_explicit`,
+  `duration_ms`) in step. An archive reports the kind and nothing else: not the
+  URL, not its host, and not the plugin's name - a local archive and one at a URL
+  are the same `archive`, because where the bytes came from is exactly the part
+  that is not reportable.
   `PluginSource.reportableId` is where that id is decided and
   `MarketplaceLabel.forSource` where a path or repo install is kept from naming the
   built-in marketplace it never touched: both live on the types, so no command answers
@@ -256,9 +261,12 @@ that ends up somewhere else is a rule two callers can disagree about.
   `owner/repo/folder` shorthand still names a folder called `blob` if that is
   what it is called. `key()` is the manifest's `repo` column - a
   marketplace source's is the repo verbatim, so no record migrates, and the
-  other two are prefixed `local:` / `github:` so they can never collide with a
+  other three are prefixed `local:` / `github:` / `archive:` so they can never
+  collide with a
   slug; a repository's folder is separated by `//`, which is what keeps two
-  plugins out of one monorepo in two rows. `restoreSource` reads that column
+  plugins out of one monorepo in two rows. An archive's is separated by the `#`
+  the user typed instead, because a URL carries `//` in its own scheme and
+  `githubOf`'s `indexOf('//')` would cut it there. `restoreSource` reads that column
   back into a source and is **total**: a key this build cannot parse is a
   marketplace repo, because a row that no command could reach is worse than a
   row that reads oddly. `sourceKindOf` is the same question for a caller that
@@ -268,7 +276,42 @@ that ends up somewhere else is a rule two callers can disagree about.
   URL as a path, where a `?` or a `#` truncates the request and some other file
   would be read as the manifest. It is pure: whether a directory or a repository really
   holds a plugin is a question for `infrastructure/local-plugin.ts` and
-  `readPluginManifest`, which go and look.
+  `readPluginManifest`, which go and look. The fourth arm is an **archive**,
+  and it is told apart before the repository one so that a github.com URL
+  naming a release asset or an `archive/` link is read as what it is rather
+  than refused as a view word. The test is the URL's **`pathname`** ending in
+  an extension `formatOf` knows, never the whole string: a presigned link is
+  the only way a private archive is installable here - no credential is ever
+  sent - and its query would otherwise hide the extension. An `http` URL is
+  refused where it is written, naming https, because a plugin runs commands
+  and there is no signature to fall back on. Only a URL or a path can be an
+  archive, so `acme/my-plugin.zip` is still a repository; an `@` is part of
+  the name, since an archive has no ref; and the `#folder` is split at the
+  **last** `#`, and only when what precedes it is itself an archive, so
+  `./my#plugin.zip` is a file with a `#` in its name. `ArchiveSource` covers
+  both a URL and a file in one class because only one step differs, and that
+  step is a discriminated union for the same reason `MarketplaceOrigin` is.
+  `location()` is the archive without the folder inside it: what a reader is
+  named after, and what the session memoises on, so two plugins out of one
+  monorepo archive cost one download and two extractions.
+- **`types/archive.ts`** - what an archive is allowed to be, as rules rather
+  than as code that reads one, so the zip reader and the tar reader cannot
+  disagree about any of it. Three of those rules answer something measured:
+  the **bytes** pick the reader rather than the extension, because `fetch`
+  decodes a `Content-Encoding: gzip` and a `.tgz` served that way arrives as a
+  bare tar; the tree is read from the **file names**, because
+  `Compress-Archive` writes no directory entries at all; and `__MACOSX/` is
+  ignored, because every zip the macOS Finder makes carries one and "exactly
+  one top-level directory" is false for all of them. `EntryNames` holds the
+  rules an entry name passes **in order** - the order is the guard, since
+  normalising `\` after checking for `..` is how `..\..\x` escapes on Windows -
+  and answers `write`, `ignore` or `refuse`, the last of which ends the whole
+  archive rather than part of it. `pluginRoot` unwraps a lone directory while
+  the level holds nothing else, keeps the whole chain rather than its end, and
+  resolves a `#folder` under the deepest of them first: the entries of a GitHub
+  archive are `<repo>-<ref>/plugins/slack/...` and the user types
+  `#plugins/slack`, so reading the fragment at the literal root would fail on
+  every archive that needs one.
 - **`types/plugin-manifest.ts`** - a plugin's own `plugin.json` as this build
   reads it, beside `normalize` in `types/catalog.ts` for the same reason: two
   boundaries read those bytes (a directory, and a repo over both GitHub hosts)
@@ -321,7 +364,7 @@ decision needs a fact from the world, the fact is a parameter.
 
 ### `src/infrastructure/` - the world, and it never prints
 
-Fourteen modules over the file system, the network, the process table, the
+Nineteen modules over the file system, the network, the process table, the
 `claude` binary and the state files. Two rules hold across all of them, and both
 are lint-enforced: they answer with a `Result` rather than throwing, and they
 say nothing. Whether anyone hears a diagnostic depends on `--verbose`, which is
@@ -386,6 +429,36 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   stays parseable; `downloadPath` folds it to one line per folder rather than
   one per blob in flight.
 
+- **Reading an archive** (`infrastructure/archive/`): `download.ts` follows its
+  own redirects - `redirect: 'manual'`, five hops, every `Location` checked for
+  https, every redirect's body cancelled - because a hop is the only place the
+  https rule can be enforced and Node's own following would not. It counts
+  bytes as they arrive, since `codeload.github.com` answers chunked with no
+  `content-length` at all, and gives up after thirty seconds of silence or ten
+  minutes in total: this is the one request this program makes that can
+  legitimately run for minutes. No `Authorization` on any hop, to any host -
+  `ghHeaders` is deliberately not reused, because attaching a token is the one
+  thing it does. `zip.ts` reads from the tail (end-of-central-directory, Zip64
+  when the locator is there, then one entry at a time through a positioned
+  read) and `tar.ts` from the head; `index.ts` sniffs the first bytes and hands
+  back one `ArchiveReader` either way, so everything above is format-blind.
+  Neither holds an archive in memory. A zip's declared sizes are summed against
+  `LIMITS.unpacked` **before** anything is inflated - the central directory is
+  what makes a bomb refusable for free - and `maxOutputLength` plus the CRC
+  catch a header that lied; a tarball has no such manifest, so its cap is a
+  running count over the gunzip output, into a file rather than a Buffer. A
+  symlink is skipped and reported, not fatal, because `copyDir` carries links
+  today and an archive of a folder that installs must not fail. `zlib.crc32`
+  would do the checksum and landed in Node 20.15, so the table is hand-rolled:
+  Node 18 is the floor.
+- **The workspace** (`paths.workspaceDir`): an archive is downloaded and
+  unpacked under the state directory, not `os.tmpdir()`, which on Fedora and
+  Arch is a tmpfs sized at half of RAM - and an archive may unpack to a
+  gigabyte. A sibling of `marketplace/`, never its parent, so the guard that
+  stops a plugin being copied over its own source still reads the two as
+  different places. `openArchive` sweeps anything a day old on its way in, so a
+  run that was killed mid-download leaks nothing permanently, and the session
+  disposes of the rest.
 - **A checkout of a whole repository** (`RepoHandle.checkout(null)`): `null` is
   the repository itself rather than a folder in it, which is what a repo that
   _is_ a plugin needs. Neither arm could express it before: `sparse-checkout
@@ -596,6 +669,26 @@ class - never to `terminal.ts`, which the lint refuses by name. It decides
 nothing a pure function could decide (that is `application/`) and knows nothing
 about flags (that is the command).
 
+The trust confirmation sits **above** `resolve`, not after it. Resolving an
+archive means downloading it, so anywhere else that sentence would be untrue -
+and it was already slightly untrue of a repository, whose manifest read is a
+request. What it costs is that the banner naming the plugin comes after the
+question, which is right: the question has only ever named the source, which is
+the thing the user typed and the thing they are being asked to trust. What it
+buys is that declining costs nothing at all, and that a directory the user
+declined is never read - the failure for a path that does not exist would
+otherwise be a message about the wrong thing entirely.
+
+An archive is also the one source whose `resolve` does the fetching, so the
+action sets `at = 'fetch'` around the transfer and back to `'resolve'` for the
+manifest read: `stage` is the only thing a failure event carries, and a failed
+200 MB download is not a failed manifest read. The manifest is read with
+`readLocalPlugin`'s `describeAs`, so every message names the archive rather
+than the workspace it was unpacked into - the same bug reading
+`blob/main/tools/foo` as a folder once had. After that an archive **is** a
+directory install: `mustStage`, `stageLocalPlugin`, `conflictFor`,
+`recordInstall` and every harness need no arm for it.
+
 `update` is the one action that drives another: it threads a single session
 through every row so three plugins from one marketplace read the registry once,
 and the install it delegates to speaks through the `InstallPrompts` that
@@ -607,13 +700,15 @@ path - its own brand, its own registry - and the other two hand the install a
 `PluginSource` rebuilt from the key rather than an id to re-read. That
 distinction is load-bearing: `parseSource('my-sdk')` against the run's
 marketplace is a different plugin that happens to share a name, so a path row
-whose id was passed as a string would install the wrong thing. The one source
-that answers `unavailable` instead is a directory that is gone, which is an
+whose id was passed as a string would install the wrong thing. The sources that
+answer `unavailable` instead are a directory that is gone and an archive
+**on this machine** that is gone, which is an
 ordinary day for whoever is writing a plugin; a repository that cannot be read
 fails its row like any other install, because a 404 and an outage are not
 distinguishable from here and "your plugin's source is gone" must not be what
-a bad network day says. `unavailable` sends no event - nothing reached an
-install, and its reason names a directory.
+a bad network day says - and an archive at a URL is that same case, so it fails
+rather than being reported. `unavailable` sends no event - nothing reached an
+install, and its reason names a directory or a file.
 
 One thing that follows from the record's keying and is worth knowing before
 changing either: a plugin named by its own manifest can **rename itself**
@@ -806,6 +901,15 @@ using a stub. `PathOpts` still carries `platform` / `env` / `home`, and
 `HarnessOpts` adds the `ProcessRunner` - which is what lets a test drive the
 Claude Code path with a fake `claude` rather than excluding it, and why finding
 that binary and spawning it cannot read different environments.
+An archive test takes one seam more: `archiveWiring` builds the **real**
+fetcher with its workspace inside the sandboxed machine, because that is where
+a download lands, and `test/archive-fixture.ts` writes the zips and tarballs by
+hand - which is what lets the ones nobody ships on purpose (a name that climbs
+out, a symlink, a lying checksum, an encrypted entry, no directory entries at
+all) be written down rather than found, and keeps the repository free of binary
+fixtures. `noArchives` is the other arm every non-archive fetcher stub carries:
+loud rather than empty, for the reason `registryOnly` keeps the real fetcher
+behind it.
 `test/install-fixture.ts` holds the three convenience wrappers the
 suite drives (`installPlugin`, `uninstallPlugin`, `updateAll`) - they were
 `src/install.ts` until the router became the only caller a released build
