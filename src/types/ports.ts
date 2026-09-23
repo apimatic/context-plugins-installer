@@ -45,8 +45,6 @@ export interface FetchResponseLike {
    * this program asks a response about is what it is carrying.
    */
   headers?: { get(name: string): string | null };
-  /** Where the response came from, after whatever redirects the caller allowed. */
-  url?: string;
   /**
    * The bytes as they arrive, for a caller that has to stop reading partway. A
    * download with no `content-length` - which is every archive GitHub serves -
