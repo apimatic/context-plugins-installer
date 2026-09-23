@@ -340,6 +340,19 @@ test('only a URL or a path can be an archive, so a repository named like one is 
   assert.equal(source.repo, 'acme/my-plugin.zip');
 });
 
+test('a URL naming an archive this tool cannot read says which four it can', () => {
+  for (const spec of ['https://acme.com/p.tar.bz2', 'https://acme.com/p.7z']) {
+    const result = parse(spec);
+    assert.ok(!result.ok, spec);
+    assert.match(result.error.message, /is not an archive this tool can read/);
+    assert.match(result.error.hint ?? '', /\.tar\.gz, \.tgz, \.zip and \.tar/);
+  }
+  // A path and a repository spelled the same way are not answered for: either
+  // could be a directory or a repo whose name happens to end that way.
+  assert.ok(value(parse('./my-plugin.rar')) instanceof LocalSource);
+  assert.ok(value(parse('acme/my-plugin.7z')) instanceof GithubSource);
+});
+
 test('a URL that names no archive is still read as a repository, and fails as one', () => {
   const result = parse('https://acme.com/my-plugin');
   assert.ok(!result.ok);

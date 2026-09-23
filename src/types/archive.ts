@@ -39,6 +39,41 @@ const EXTENSIONS: readonly (readonly [string, ArchiveFormat])[] = Object.freeze(
 export const ARCHIVE_EXTENSIONS: readonly string[] = Object.freeze(EXTENSIONS.map(([ext]) => ext));
 
 /**
+ * The same four in prose, which is the only thing a message ever does with
+ * them - so the list and the sentence that names it cannot drift apart.
+ */
+export const READABLE_FORMATS = `${ARCHIVE_EXTENSIONS.slice(0, -1).join(', ')} and ${
+  ARCHIVE_EXTENSIONS[ARCHIVE_EXTENSIONS.length - 1] as string
+}`;
+
+/**
+ * Archives and compressed files this program can name and cannot read. Asked
+ * only once `formatOf` has answered no, which is what keeps `.gz` here from
+ * shadowing `.tar.gz` - the readable spellings are always tried first. It
+ * exists so a pasted `.7z` link is told what this tool reads rather than told
+ * it is not a GitHub repository, which is true and no help at all.
+ */
+const UNREADABLE: readonly string[] = Object.freeze([
+  '.7z',
+  '.rar',
+  '.bz2',
+  '.xz',
+  '.zst',
+  '.lz',
+  '.lzma',
+  '.gz',
+  '.z',
+  '.cab',
+  '.iso',
+  '.dmg',
+]);
+
+export function isUnreadableArchive(name: string): boolean {
+  const lower = name.toLowerCase();
+  return UNREADABLE.some((ext) => lower.endsWith(ext));
+}
+
+/**
  * By extension, over a URL's pathname or a file's name: the question asked at
  * parse time, where there are no bytes to look at yet.
  */

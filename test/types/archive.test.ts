@@ -3,6 +3,8 @@ import assert from 'node:assert';
 
 import {
   ARCHIVE_EXTENSIONS,
+  isUnreadableArchive,
+  READABLE_FORMATS,
   EntryNames,
   LIMITS,
   formatOf,
@@ -37,6 +39,18 @@ test('an extension names a format, longest first', () => {
   assert.equal(formatOf('my-plugin'), null);
   assert.equal(formatOf(''), null);
   assert.deepEqual([...ARCHIVE_EXTENSIONS], ['.tar.gz', '.tgz', '.zip', '.tar']);
+  assert.equal(READABLE_FORMATS, '.tar.gz, .tgz, .zip and .tar');
+});
+
+test('an archive this tool cannot read is still recognisable as an archive', () => {
+  for (const name of ['/dl/p.7z', '/dl/p.tar.bz2', '/dl/P.RAR', '/dl/p.xz', '/dl/p.dmg']) {
+    assert.ok(isUnreadableArchive(name), name);
+  }
+  // Asked only once formatOf has said no, so `.gz` in that list cannot shadow
+  // a tarball - but nothing else may rely on the order, so it is pinned here.
+  assert.ok(isUnreadableArchive('/dl/p.tar.gz'), 'the list is not the arbiter, formatOf is');
+  assert.ok(!isUnreadableArchive('/dl/p.zip'));
+  assert.ok(!isUnreadableArchive('/dl/plugin'));
 });
 
 test('the bytes decide the reader, whatever the name said', () => {

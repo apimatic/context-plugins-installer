@@ -284,7 +284,15 @@ that ends up somewhere else is a rule two callers can disagree about.
   the only way a private archive is installable here - no credential is ever
   sent - and its query would otherwise hide the extension. An `http` URL is
   refused where it is written, naming https, because a plugin runs commands
-  and there is no signature to fall back on. Only a URL or a path can be an
+  and there is no signature to fall back on. A URL whose path ends in an
+  archive extension `formatOf` does **not** know - `.7z`, `.tar.bz2`, `.dmg`
+  and the rest of `UNREADABLE` in `types/archive.ts` - is told which four this
+  tool reads, because "not a GitHub repository" is true of a pasted `.7z` link
+  and no help at all. Only a URL: `./my-plugin.rar` is a directory someone
+  named oddly as readily as it is an archive, and answering for it would take
+  the spec away from the arm that can go and look. That list is consulted only
+  once `formatOf` has said no, which is what keeps the `.gz` in it from
+  shadowing `.tar.gz`. Only a URL or a path can be an
   archive, so `acme/my-plugin.zip` is still a repository; an `@` is part of
   the name, since an archive has no ref; and the `#folder` is split at the
   **last** `#`, and only when what precedes it is itself an archive, so
