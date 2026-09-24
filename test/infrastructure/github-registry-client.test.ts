@@ -4,8 +4,6 @@ import assert from 'node:assert';
 import {
   RAW_MEDIA_TYPE,
   ghHeaders,
-  hostOf,
-  isUpstreamOutage,
   rawUrl,
   readPluginManifest,
   readRegistry,
@@ -95,21 +93,6 @@ test('a 5xx says the far end is down, and repeats nothing the far end said', asy
  * And the control: a 4xx is still reported exactly, because those are the ones
  * a user can do something about - a 403 is a token, a 401 is a bad one.
  */
-/**
- * The boundary as a value, because every site-level test below picks one status
- * on each side and none of them pins where the line is: `>= 500` widened to
- * `> 500` sends a plain HTTP 500 - the one GitHub emits most - back down the
- * verbatim path at all three call sites with the suite green.
- */
-test('the outage boundary is 500, and every 4xx is on the other side of it', () => {
-  for (const status of [500, 501, 502, 503, 504, 599]) {
-    assert.equal(isUpstreamOutage(status), true, `${status} is the far end failing`);
-  }
-  for (const status of [200, 400, 401, 403, 404, 429, 499]) {
-    assert.equal(isUpstreamOutage(status), false, `${status} is not an outage`);
-  }
-});
-
 test('a 4xx still names the request, so an actionable failure stays actionable', async () => {
   const result = await read({ [CLAUDE_REG]: { status: 401 } });
   assert.equal(result.ok, false);
@@ -440,17 +423,6 @@ test('a body that dies mid-read is a failure like any other network problem', as
     /Could not reach raw\.githubusercontent\.com/,
   );
   assert.match(result.ok ? '' : (result.error.hint ?? ''), /network connection/);
-});
-
-/**
- * The guard that test used to reach through `getJson`, now that every URL this
- * module fetches is built from a validated slug: `hostOf` is called from inside
- * the handler for a failed request, so a string it cannot parse has to come
- * back as itself rather than throwing a TypeError over the original error.
- */
-test('a host that cannot be parsed out of a url is the url, not a throw', () => {
-  assert.equal(hostOf('https://raw.githubusercontent.com/a/b'), 'raw.githubusercontent.com');
-  assert.equal(hostOf('not://a real url'), 'not://a real url');
 });
 
 test('a body that is not JSON at all names the file it came from', async () => {

@@ -1,6 +1,10 @@
 import type { MarketplaceEvent } from '../types/session.js';
 import { log } from './terminal.js';
 
+/** The tail of a listing that names only some of what it counted. */
+const more = ({ names, count }: { names: readonly string[]; count: number }): string =>
+  count > names.length ? `, and ${count - names.length} more` : '';
+
 /**
  * The strings the registry client and the source fetcher used to print
  * themselves, one case per event. This is the shape Phase 4 gives every harness:
@@ -35,6 +39,21 @@ export function announceMarketplace(event: MarketplaceEvent): void {
       return;
     case 'downloaded':
       log.info(`Downloaded ${event.files} files via the GitHub API.`);
+      return;
+    case 'downloading':
+      log.info('Downloading the archive ...');
+      log.debug(event.url);
+      return;
+    case 'unpacked':
+      log.debug(`${event.files} files unpacked (${event.bytes} bytes)`);
+      return;
+    case 'entry-skipped':
+      // Named rather than counted: a plugin missing a file it shipped is worth
+      // knowing about, and a link is the one thing an archive carries that this
+      // tool will not write.
+      log.warn(
+        `Skipped ${log.plural(event.count, 'link')} the archive carried: ${event.names.join(', ')}${more(event)}`,
+      );
       return;
     default: {
       // A new event kind reaches here as `never`, so adding one without a line

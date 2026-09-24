@@ -94,6 +94,19 @@ test('a manifest that is not JSON is reported as such, with the path', () => {
   assert.match(err.message, /plugin\.json/);
 });
 
+test('a source named from outside is what the messages name, never the directory', () => {
+  const dir = pluginDir({ files: { '.claude-plugin/plugin.json': '{ not json' } });
+  const broken = failure(readLocalPlugin(dir, undefined, 'my-plugin.zip'));
+  assert.match(broken.message, /\.claude-plugin\/plugin\.json in my-plugin\.zip/);
+  assert.ok(
+    !broken.message.includes(dir.toString()),
+    'the directory it was unpacked into is nobody the user typed',
+  );
+
+  const none = failure(readLocalPlugin(pluginDir(), undefined, 'my-plugin.zip'));
+  assert.match(none.message, /^my-plugin\.zip does not look like a plugin/);
+});
+
 test('a directory with no manifest lists the three places it looked', () => {
   const err = failure(readLocalPlugin(pluginDir()));
   assert.match(err.message, /does not look like a plugin/);

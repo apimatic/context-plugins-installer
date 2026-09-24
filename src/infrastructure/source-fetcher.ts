@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { pluginRoot } from '../types/archive.js';
 import { Failure } from '../types/failure.js';
 import { DirectoryPath } from '../types/file/paths.js';
 import { GitRef } from '../types/ids/git-ref.js';
@@ -14,15 +15,18 @@ import type {
   SourcePorts,
 } from '../types/ports.js';
 import { ok, err, type Result } from '../types/result.js';
-import type { MarketplaceListener, RepoHandle } from '../types/session.js';
+import { isUpstreamOutage } from '../types/http.js';
+import type { ArchiveAt } from '../types/plugin-source.js';
+import type { ArchiveHandle, MarketplaceListener, RepoHandle } from '../types/session.js';
 import { isPlainObject, errorMessage } from '../types/util.js';
-import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
 import {
-  fetchRepoFile,
-  ghHeaders,
-  isUpstreamOutage,
-  upstreamFailure,
-} from './github-registry-client.js';
+  openArchive as openArchiveFile,
+  type ArchiveReader,
+  type Unpacked,
+} from './archive/index.js';
+import { downloadArchive } from './archive/download.js';
+import { countFiles, ensureDir, isDirNonEmpty, rmrf } from './file-system.js';
+import { fetchRepoFile, ghHeaders, upstreamFailure } from './github-registry-client.js';
 
 export const DOWNLOAD_CONCURRENCY = 8;
 
@@ -387,6 +391,142 @@ export async function openRepo(
   };
 }
 
-export const sourceFetcher = (ports: SourcePorts): SourceFetcher => ({
+const unreadable = (describe: string, cause: unknown): Failure =>
+  new Failure(
+    `${describe} could not be unpacked: ${errorMessage(cause)}`,
+    'The file may not be the archive it is named after, or the disk it is being written to may be full.',
+  );
+
+/** Anything left by a run that was killed; a day is long past any live one. */
+const STALE_MS = 24 * 60 * 60 * 1000;
+
+function sweep(root: string): void {
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      const at = path.join(root, entry.name);
+      if (Date.now() - fs.statSync(at).mtimeMs > STALE_MS) rmrf(at);
+    }
+  } catch {
+    /* a workspace that cannot be swept is not a reason to fail an install */
+  }
+}
+
+/** The reader, and the workspace it was opened in - both wanted by every folder. */
+interface Opened {
+  reader: ArchiveReader;
+  here: DirectoryPath;
+}
+
+/**
+ * One archive, unpacked into a directory of its own. The download, the reading
+ * and the extraction happen inside one cached promise, so two plugins from one
+ * archive cost one of each - and so the line that explains the wait is said
+ * once, where the wait is.
+ */
+export function openArchive(
+  {
+    at,
+    describe,
+    notify = nothing,
+  }: { at: ArchiveAt; describe: string; notify?: MarketplaceListener },
+  ports: HttpPorts,
+  root: DirectoryPath,
+): ArchiveHandle {
+  let work: DirectoryPath | null = null;
+  let opening: Promise<Result<Opened, Failure>> | null = null;
+  let reader: ArchiveReader | null = null;
+  const done = new Map<string, DirectoryPath>();
+
+  // Downloaded and opened once, however many folders come out of it - the same
+  // split `openRepo` makes between one clone and each checkout. The promise is
+  // cached rather than its result, so two folders asked for at once share it.
+  const open = async (): Promise<Result<Opened, Failure>> => {
+    let here: DirectoryPath;
+    try {
+      const base = ensureDir(root);
+      sweep(base);
+      here = new DirectoryPath(fs.mkdtempSync(path.join(base, 'archive-')));
+    } catch (e) {
+      return err(
+        new Failure(
+          `Could not create a working directory under ${root}: ${errorMessage(e)}`,
+          'Check that the directory is writable, or point CP_STATE_DIR somewhere that is.',
+        ),
+      );
+    }
+    work = here;
+
+    const file = at.kind === 'file' ? at.file : here.file('download');
+    if (at.kind === 'url') {
+      const got = await downloadArchive({ url: at.url, to: file, notify }, ports);
+      if (!got.ok) return err(got.error);
+    }
+
+    // A reader over a malformed archive can still trip on something it did not
+    // check for, and this is infrastructure: a bad file is a Failure to report,
+    // never a stack trace.
+    try {
+      const opened = await openArchiveFile({ file, describe, work: here });
+      if (!opened.ok) return err(opened.error);
+      reader = opened.value;
+      return ok({ reader: opened.value, here });
+    } catch (e) {
+      return err(unreadable(describe, e));
+    }
+  };
+
+  return {
+    async files(inside) {
+      const key = inside ?? '';
+      const cached = done.get(key);
+      if (cached) return ok(cached);
+
+      opening ??= open();
+      const opened = await opening;
+      if (!opened.ok) return err(opened.error);
+      const { reader: archive, here } = opened.value;
+
+      const prefix = pluginRoot(archive.names(), inside, describe);
+      if (!prefix.ok) return err(prefix.error);
+      // Mirrors the archive's own layout, so two plugins out of one never share
+      // a destination.
+      const under = prefix.value === '' ? [] : prefix.value.split('/');
+      let files: DirectoryPath;
+      let out: Result<Unpacked, Failure>;
+      try {
+        files = new DirectoryPath(ensureDir(here.join('files', ...under)));
+        out = archive.extract(prefix.value, files);
+      } catch (e) {
+        return err(unreadable(describe, e));
+      }
+      if (!out.ok) return err(out.error);
+      if (out.value.skippedCount) {
+        notify({ kind: 'entry-skipped', names: out.value.skipped, count: out.value.skippedCount });
+      }
+      notify({ kind: 'unpacked', files: out.value.files, bytes: out.value.bytes });
+      done.set(key, files);
+      return ok(files);
+    },
+    cleanup() {
+      reader?.close();
+      reader = null;
+      if (work === null) return;
+      try {
+        rmrf(work);
+      } catch {
+        /* a locked workspace is not worth failing over */
+      }
+      work = null;
+    },
+  };
+}
+
+/**
+ * `root` is required: a fetcher that downloads has to be told where to put what
+ * it downloads, and a default resolved off the ambient environment is how a
+ * test reaches the developer's own state directory without saying so.
+ */
+export const sourceFetcher = (ports: SourcePorts, root: DirectoryPath): SourceFetcher => ({
   openRepo: (args) => openRepo(args, ports),
+  openArchive: (args) => openArchive(args, ports, root),
 });

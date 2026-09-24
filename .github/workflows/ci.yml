@@ -136,6 +136,41 @@ jobs:
           test -d "$CP_CURSOR_DIR/plugins/local/slack"
           node bin/cli.js installed
           node bin/cli.js uninstall slack --targets cursor
+      # The two archive paths, against archives nothing in the suite can serve: a
+      # real chunked download with no content-length, over a redirect, of the file
+      # GitHub actually builds - and a zip written by the system `zip`.
+      - name: install from an archive on this machine
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state-zip"
+          export CP_CURSOR_DIR="$RUNNER_TEMP/.cursor-zip"
+          export CP_VSCODE_USER_DIR="$RUNNER_TEMP/code-user-zip"
+          mkdir -p "$CP_CURSOR_DIR" "$CP_VSCODE_USER_DIR"
+          src="$RUNNER_TEMP/zip-src/smoke-plugin"
+          mkdir -p "$src/.claude-plugin" "$src/skills"
+          echo '{"name":"smoke-plugin","description":"a plugin in an archive"}' > "$src/.claude-plugin/plugin.json"
+          echo '# skill' > "$src/skills/SKILL.md"
+          # Zipped from one folder up by a writer this project did not build, so
+          # the archive is wrapped the way a hand-made one is.
+          (cd "$RUNNER_TEMP/zip-src" && zip -qr "$RUNNER_TEMP/smoke.zip" smoke-plugin)
+          node bin/cli.js install "$RUNNER_TEMP/smoke.zip" --targets cursor,vscode -y
+          test -f "$CP_CURSOR_DIR/plugins/local/smoke-plugin/skills/SKILL.md"
+          node bin/cli.js uninstall smoke-plugin --targets cursor,vscode
+          test -f "$RUNNER_TEMP/smoke.zip"
+      - name: install from an archive GitHub built
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state-tgz"
+          export CP_CURSOR_DIR="$RUNNER_TEMP/.cursor-tgz"
+          export CP_VSCODE_USER_DIR="$RUNNER_TEMP/code-user-tgz"
+          mkdir -p "$CP_CURSOR_DIR" "$CP_VSCODE_USER_DIR"
+          # Wrapped in `plugin-marketplace-main/`, which the # fragment is
+          # resolved under - the whole point of the folder rule.
+          node bin/cli.js install 'https://github.com/context-plugins/plugin-marketplace/archive/refs/heads/main.tar.gz#plugins/slack' --targets cursor -y
+          test -d "$CP_CURSOR_DIR/plugins/local/slack"
+          node bin/cli.js installed
+          node bin/cli.js update
+          node bin/cli.js uninstall slack --targets cursor
+          # The workspace an archive is unpacked in is the run's, not the user's.
+          test -z "$(ls -A "$CP_STATE_DIR/work" 2>/dev/null || true)"
 
   claude:
     name: claude code smoke test
@@ -190,6 +225,17 @@ jobs:
           mkdir -p "$CLAUDE_CONFIG_DIR"
           node bin/cli.js install context-plugins/plugin-marketplace/plugins/slack \
             --targets claude -y
+          claude plugin list --json | grep -q 'slack@context-plugins-local'
+          node bin/cli.js uninstall slack --targets claude
+          test -z "$(claude plugin list --json | grep slack || true)"
+      # And the same through an archive, which is staged from a download rather
+      # than from a clone - the one path no unit test can drive end to end.
+      - name: install an archive into Claude Code
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state-archive"
+          export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/claude-config-archive"
+          mkdir -p "$CLAUDE_CONFIG_DIR"
+          node bin/cli.js install 'https://github.com/context-plugins/plugin-marketplace/archive/refs/heads/main.tar.gz#plugins/slack' --targets claude -y
           claude plugin list --json | grep -q 'slack@context-plugins-local'
           node bin/cli.js uninstall slack --targets claude
           test -z "$(claude plugin list --json | grep slack || true)"

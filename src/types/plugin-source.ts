@@ -1,4 +1,5 @@
-import { DirectoryPath, HOST, type PathRules } from './file/paths.js';
+import { formatOf } from './archive.js';
+import { DirectoryPath, FilePath, HOST, type PathRules } from './file/paths.js';
 import { Failure } from './failure.js';
 import { GitRef } from './ids/git-ref.js';
 import { PluginId } from './ids/plugin-id.js';
@@ -101,10 +102,57 @@ export class LocalSource {
   }
 }
 
-export type PluginSource = MarketplaceSource | GithubSource | LocalSource;
+const ARCHIVE_PREFIX = 'archive:';
+
+export const isArchiveKey = (repo: unknown): repo is string =>
+  typeof repo === 'string' && repo.startsWith(ARCHIVE_PREFIX);
+
+/** Where an archive's bytes are. One source class covers both, because only this differs. */
+export type ArchiveAt = { kind: 'url'; url: string } | { kind: 'file'; file: FilePath };
+
+/**
+ * A zip or a tarball that is itself a plugin, at an https URL or on this
+ * machine. Like a repository it carries no id - what the plugin is called comes
+ * from its own manifest, read once the archive is open - and like a folder
+ * inside a repository it can name one inside the archive.
+ */
+export class ArchiveSource {
+  readonly kind = 'archive' as const;
+
+  constructor(
+    readonly at: ArchiveAt,
+    /** The folder inside the archive, from the `#` fragment. */
+    readonly path: string | null,
+  ) {}
+
+  /**
+   * The archive itself, without the folder inside it. What a reader is named
+   * after, and the reason two rows out of one archive share a download: the
+   * handle is per archive, and only the extraction is per folder.
+   */
+  location(): string {
+    return this.at.kind === 'url' ? this.at.url : this.at.file.toString();
+  }
+
+  /** The URL or the absolute path, and the fragment the user wrote after it. */
+  key(): string {
+    return `${ARCHIVE_PREFIX}${this.toString()}`;
+  }
+
+  reportableId(): PluginId | null {
+    return null;
+  }
+
+  toString(): string {
+    const at = this.location();
+    return this.path === null ? at : `${at}#${this.path}`;
+  }
+}
+
+export type PluginSource = MarketplaceSource | GithubSource | LocalSource | ArchiveSource;
 
 /** Sources this program was not shipped pointing at - what the trust question is about. */
-export type UntrustedSource = GithubSource | LocalSource;
+export type UntrustedSource = GithubSource | LocalSource | ArchiveSource;
 
 export type SourceKind = PluginSource['kind'];
 
@@ -237,6 +285,82 @@ function parseGithub(spec: string, ref: string): Result<GithubSource, Failure> {
   return ok(new GithubSource(slug.value.toString(), gitRef.value.toString(), path.value));
 }
 
+const HTTP_URL = /^(https?):\/\//i;
+
+/**
+ * What the extension is read off: a URL's path, so a presigned link's query
+ * does not hide it, and the whole of anything else. `new URL` only where there
+ * is a scheme - `C:\dev\p.zip` parses as one, with `c:` for a protocol.
+ */
+function archiveName(spec: string): string | null {
+  if (!HTTP_URL.test(spec)) return spec;
+  try {
+    return new URL(spec).pathname;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `<archive>#<folder>`, split at the **last** `#` and only when what precedes
+ * it is an archive - so `./my#plugin.zip` is a file with a `#` in its name, the
+ * way `release/1.0` is a branch with a slash in its. An empty fragment names no
+ * folder, and is dropped rather than left on the spec: carried along it put a
+ * meaningless `#` in the manifest key a URL is recorded under, and turned
+ * `./p.zip#` into a directory of that name, since `formatOf` saw the `#` too.
+ */
+function splitFragment(spec: string): { at: string; path: string | null } {
+  const hash = spec.lastIndexOf('#');
+  if (hash <= 0) return { at: spec, path: null };
+  const head = spec.slice(0, hash);
+  const name = archiveName(head);
+  if (name === null || formatOf(name) === null) return { at: spec, path: null };
+  return { at: head, path: spec.slice(hash + 1) || null };
+}
+
+const bareFile = (spec: string): Failure =>
+  new Failure(
+    `'${spec}' is a file name, not a plugin id.`,
+    `A relative path starts with ./ - write it as ./${spec}, or give the full path.`,
+  );
+
+const notHttps = (spec: string): Failure =>
+  new Failure(
+    `${spec} is not an https URL.`,
+    'A plugin can run commands through its hooks, and there is no signature to check, so the connection is the only thing vouching for what arrives. Use https, or download it and install the file.',
+  );
+
+function archiveFile(spec: string, { cwd, home, rules }: Required<ParseSourceOptions>): FilePath {
+  const expanded =
+    spec === '~' ? home : HOME_PREFIXED.test(spec) ? rules.join(home, spec.slice(2)) : spec;
+  return new FilePath(rules.resolve(cwd, expanded), rules);
+}
+
+/** `null` when the spec is not an archive at all, so the caller reads on. */
+function parseArchive(
+  spec: string,
+  opts: Required<ParseSourceOptions>,
+): Result<ArchiveSource, Failure> | null {
+  const { at, path } = splitFragment(spec);
+  const name = archiveName(at);
+  if (name === null || formatOf(name) === null) return null;
+
+  const isUrl = HTTP_URL.test(at);
+  // `acme/my-plugin.zip` is still a repository: only a URL or a path can name
+  // an archive, which is what keeps every argument this program already took
+  // meaning what it did. A bare `my-plugin.zip` is neither, and the id's own
+  // failure - "expected kebab-case" - would send the user the wrong way.
+  if (!isUrl && !PATH_LIKE.test(at)) return at.includes('/') ? null : err(bareFile(spec));
+  if (isUrl && !/^https:/i.test(at)) return err(notHttps(at));
+
+  const folder = path === null ? ok(null) : repoPath(path.split('/').filter(Boolean), spec);
+  if (!folder.ok) return err(folder.error);
+  const where: ArchiveAt = isUrl
+    ? { kind: 'url', url: at }
+    : { kind: 'file', file: archiveFile(at, opts) };
+  return ok(new ArchiveSource(where, folder.value));
+}
+
 export function parseSource(
   spec: unknown,
   { repo, ref, cwd, home, rules = HOST }: ParseSourceOptions,
@@ -244,6 +368,8 @@ export function parseSource(
   const id = PluginId.parse(spec);
   if (id.ok) return ok(new MarketplaceSource(id.value, repo, ref));
   if (typeof spec !== 'string') return err(id.error);
+  const archive = parseArchive(spec, { repo, ref, cwd, home, rules });
+  if (archive) return archive;
   if (PATH_LIKE.test(spec)) return ok(localSource(spec, { repo, ref, cwd, home, rules }));
   if (REMOTE_LIKE.test(spec) || spec.includes('/')) return parseGithub(spec, ref);
   return err(id.error);
@@ -267,8 +393,25 @@ export function restoreSource(
   if (dir !== null) return new LocalSource(new DirectoryPath(dir, rules));
   const gh = githubOf(repo);
   if (gh) return new GithubSource(gh.repo, ref, gh.path);
+  const archive = archiveOf(repo);
+  if (archive) {
+    const at: ArchiveAt = HTTP_URL.test(archive.at)
+      ? { kind: 'url', url: archive.at }
+      : { kind: 'file', file: new FilePath(archive.at, rules) };
+    return new ArchiveSource(at, archive.path);
+  }
   return new MarketplaceSource(plugin, typeof repo === 'string' ? repo : '', ref);
 }
 
+/** The two halves of an archive key, for the row that has to be read back or shown. */
+export const archiveOf = (repo: unknown): { at: string; path: string | null } | null =>
+  isArchiveKey(repo) ? splitFragment(repo.slice(ARCHIVE_PREFIX.length)) : null;
+
 export const sourceKindOf = (repo: unknown): SourceKind =>
-  isLocalKey(repo) ? 'local' : isGithubKey(repo) ? 'github' : 'marketplace';
+  isLocalKey(repo)
+    ? 'local'
+    : isGithubKey(repo)
+      ? 'github'
+      : isArchiveKey(repo)
+        ? 'archive'
+        : 'marketplace';

@@ -56,6 +56,13 @@ export class UpdateAction {
     if (source.kind === 'local' && !exists(source.dir)) {
       return { reason: 'the folder it was installed from is gone' };
     }
+    // A downloaded archive is like a repository - a bad day and a 404 are not
+    // distinguishable from here, so its row fails like any other install. One
+    // on this machine is like a folder: gone is gone, and an ordinary day for
+    // whoever is writing the plugin.
+    if (source.kind === 'archive' && source.at.kind === 'file' && !exists(source.at.file)) {
+      return { reason: 'the archive it was installed from is gone' };
+    }
     return { source };
   }
 

@@ -56,7 +56,7 @@ export const services = (): Services => ({
   session: (notify, ports = realPorts()) =>
     createSession({
       registry: registryClient(ports),
-      fetcher: sourceFetcher(ports),
+      fetcher: sourceFetcher(ports, paths.workspaceDir()),
       notify,
     }),
 

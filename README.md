@@ -17,14 +17,15 @@ npx context-plugins install paypal
 installed are skipped. Nothing is installed globally; `npx` runs the CLI from a cache.
 
 You can also install a plugin that is not in the marketplace at all — a folder on your own
-machine, or a GitHub repository that is itself a plugin:
+machine, a GitHub repository that is itself a plugin, or a zip or tarball of one:
 
 ```bash
 npx context-plugins install ./my-plugin
 npx context-plugins install acme/my-plugin
+npx context-plugins install https://acme.com/my-plugin.zip
 ```
 
-See [Installing from a folder or a repository](#installing-from-a-folder-or-a-repository).
+See [Installing from a folder, a repository or an archive](#installing-from-a-folder-a-repository-or-an-archive).
 
 ## Requirements
 
@@ -40,6 +41,7 @@ See [Installing from a folder or a repository](#installing-from-a-folder-or-a-re
 context-plugins install <plugin> [options]     # install into the assistants you choose
 context-plugins install <path> [options]       # install a plugin from a folder on this machine
 context-plugins install <owner/repo> [options] # install a plugin from a GitHub repository
+context-plugins install <url.zip> [options]    # install a plugin from a zip or tarball
 context-plugins uninstall <plugin> [options]   # remove it again
 context-plugins update                         # refresh everything already installed
 context-plugins list                           # what the marketplace offers
@@ -104,10 +106,10 @@ The question is skipped when the answer is already known: with `--targets`, with
 `update` (which reuses your earlier choices), and in a non-interactive shell such as CI, where it
 falls back to every detected assistant rather than waiting on input.
 
-## Installing from a folder or a repository
+## Installing from a folder, a repository or an archive
 
-`install` also takes a plugin that no marketplace lists: a directory on this machine, or a GitHub
-repository — or a folder inside one — that is itself a plugin.
+`install` also takes a plugin that no marketplace lists: a directory on this machine, a GitHub
+repository — or a folder inside one — that is itself a plugin, or a `.zip` or `.tar.gz` of one.
 
 ```bash
 npx context-plugins install ./my-plugin          # relative to where you are
@@ -118,16 +120,27 @@ npx context-plugins install acme/my-plugin              # the repository is the 
 npx context-plugins install acme/monorepo/tools/foo     # a folder inside it
 npx context-plugins install acme/my-plugin@v1.2         # at a tag, branch or commit
 npx context-plugins install https://github.com/acme/monorepo/tree/v2/tools/foo
+
+npx context-plugins install https://acme.com/my-plugin.zip          # an archive at a URL
+npx context-plugins install ./my-plugin.tar.gz                      # or one you already have
+npx context-plugins install https://acme.com/mono.zip#tools/foo     # a folder inside it
 ```
 
 Which one you meant is read off the argument, so there is no extra flag: anything starting with
-`.`, `/`, `~` or a drive letter is a path, anything holding a `/` after that is a repository, and
-a plain name is a plugin in the marketplace as it has always been. An `@ref` on a repository wins
-over `--ref`, on a URL or an `scp` address as much as on the short `owner/repo` form.
+`.`, `/`, `~` or a drive letter is a path, an https URL whose path ends in `.zip`, `.tar.gz`,
+`.tgz` or `.tar` is an archive, anything holding a `/` after that is a repository, and a plain name
+is a plugin in the marketplace as it has always been. An `@ref` on a repository wins over `--ref`,
+on a URL or an `scp` address as much as on the short `owner/repo` form.
 
 Of the links github.com hands out, the one for a **folder** - `.../tree/<ref>/<folder>` - is the one
 to copy. A link to a file (`/blob/`, `/raw/`) or to a page such as `issues` is refused by name
-rather than read as a folder that is not there.
+rather than read as a folder that is not there. A release asset and a `Download ZIP` link both end
+in an archive extension, so both install as archives.
+
+An archive is opened where you would expect: if its plugin sits at the root, that is the plugin; if
+everything is inside one wrapping folder — which is how every archive GitHub builds is shaped — that
+folder is unwrapped for you. Name a folder inside it after a `#`, as the page showed it to you:
+`.../archive/refs/heads/main.zip#tools/foo` works without your having to know the wrapper's name.
 
 Either way the plugin needs a manifest — `.claude-plugin/plugin.json`, or the Cursor or root
 equivalent — and the `name` in it is what the plugin is called. The folder's or the repository's
@@ -136,13 +149,26 @@ own name is not used, so renaming either does not rename the plugin.
 A few things worth knowing:
 
 - **You are asked first.** A plugin can run commands through its hooks and MCP servers, so a
-  source outside the marketplace is confirmed before any of its files are fetched or copied — a
-  repository's own manifest is read first, so the question can name the plugin. `-y` skips it.
+  source outside the marketplace is confirmed before anything at all is read, fetched or copied.
+  The question names the source you typed rather than the plugin — nothing has been read yet,
+  which is what makes declining cost nothing. `-y` skips it.
 - **It is a snapshot.** The files are copied as they are now. `context-plugins update` re-takes
-  it — re-reading the folder, or re-fetching the repository at the ref the row recorded — so
-  editing a plugin and running `update` is the loop. A folder you have since moved or deleted is
-  reported and skipped rather than failing the run; install it again from its new home, or
-  uninstall it.
+  it — re-reading the folder, re-fetching the repository at the ref the row recorded, or
+  downloading the archive again — so editing a plugin and running `update` is the loop. A folder or
+  an archive you have since moved or deleted is reported and skipped rather than failing the run;
+  install it again from its new home, or uninstall it.
+- **An archive is fetched over https, with no credential.** Nothing is sent that could identify
+  you, and a redirect to a plain `http` link ends the download. A private archive is therefore not
+  installable by URL: download it yourself and install the file. A link that expires — a presigned
+  one, say — works while it works, query string and all.
+- **What comes out of an archive is checked.** A file that would land outside the plugin's folder,
+  a name Windows cannot hold, or the same name twice (in any case) ends the install with nothing
+  written; links are skipped, and their absence is reported. An archive is refused above 200 MB
+  downloaded, 1 GB unpacked, 64 MB in any one file, or 50,000 files.
+- **GitHub's `.zip` carries no permissions**, so a hook that has to be executable arrives without
+  the bit. Its `.tar.gz` of the same commit does carry it, and is the link to prefer. A zip you
+  made yourself on Linux or macOS keeps its modes, and they are applied — Windows ignores the bit
+  either way.
 - **Claude Code needs a marketplace**, so one is generated at `~/.context-plugins/marketplace/`
   holding every plugin you installed this way. It appears once in
   `claude plugin marketplace list`, as `context-plugins-local`, and goes away when the last such

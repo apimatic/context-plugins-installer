@@ -3,6 +3,7 @@ import type { Catalog } from '../types/catalog.js';
 import { REGISTRY_FILES, normalize } from '../types/catalog.js';
 import type { Env } from '../types/env.js';
 import { Failure } from '../types/failure.js';
+import { hostOf, isUpstreamOutage } from '../types/http.js';
 import { GitRef } from '../types/ids/git-ref.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
 import { MANIFEST_FILES, readManifest, type PluginManifest } from '../types/plugin-manifest.js';
@@ -39,27 +40,6 @@ function networkHint(env: Env = process.env): string {
   }
   return 'Check your network connection, or whether access to github.com is blocked.';
 }
-
-// The host is what the "could not reach" line names, and a URL too malformed to
-// parse would otherwise throw a TypeError from inside the handler for the
-// original error, replacing it.
-export const hostOf = (url: string): string => {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-};
-
-/**
- * Anything 500 and up is the far end failing, not this run - so every one of
- * them says the same sentence. The response itself is not repeated: a status
- * line, or the Varnish error page a CDN puts in front of one, tells the user
- * nothing they can act on and reads as though their marketplace, their token or
- * their network were at fault. The code is kept because it is the one part of
- * the response worth putting in a bug report; nothing else of it is shown.
- */
-export const isUpstreamOutage = (status: number): boolean => status >= 500;
 
 export const upstreamFailure = (url: string, status: number): Failure =>
   new Failure(

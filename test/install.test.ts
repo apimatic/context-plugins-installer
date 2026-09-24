@@ -23,7 +23,14 @@ import {
   wiring,
   withClaude,
 } from './install-fixture.js';
-import { FailureError, cleanupAll, parseJsonc, silenceConsole, stubFetch } from './helpers.js';
+import {
+  FailureError,
+  cleanupAll,
+  noArchives,
+  parseJsonc,
+  silenceConsole,
+  stubFetch,
+} from './helpers.js';
 
 test.after(cleanupAll);
 
@@ -1178,6 +1185,7 @@ test('nothing is downloaded when every harness is declined', async () => {
             fetched = true;
             throw new Error('should not fetch');
           },
+          openArchive: noArchives,
         },
       },
       ask: scriptedConfirm([false, false]),

@@ -9,7 +9,7 @@ import { ok } from '../../src/types/result.js';
 import { isPlainObject } from '../../src/types/util.js';
 import { rawUrl, registryClient } from '../../src/infrastructure/github-registry-client.js';
 import { foreignTargets } from '../../src/types/installed-record.js';
-import { cleanupAll, portsFor, silenceConsole, stubFetch } from '../helpers.js';
+import { cleanupAll, noArchives, portsFor, silenceConsole, stubFetch } from '../helpers.js';
 import {
   brandFor,
   installPlugin,
@@ -150,6 +150,7 @@ test('update reads the registry once for the whole run, not once per plugin', as
         checkout: async (sourcePath: string) =>
           ok(new DirectoryPath(pluginSource(sourcePath.split('/').pop()))),
       }),
+      openArchive: noArchives,
     },
   };
 

@@ -38,6 +38,17 @@ export function telemetryPath(o?: PathOpts): FilePath {
   return stateDir(o).file('telemetry.json');
 }
 
+/**
+ * Where an archive is downloaded and unpacked. Under the state directory rather
+ * than `os.tmpdir()`, which on Fedora and Arch is a tmpfs sized at half of RAM -
+ * and an archive may unpack to a gigabyte. A sibling of the generated
+ * marketplace, never its parent, so the guard that stops a plugin being copied
+ * over its own source still reads the two as different places.
+ */
+export function workspaceDir(o?: PathOpts): DirectoryPath {
+  return stateDir(o).join('work');
+}
+
 export function localMarketplaceDir(o?: PathOpts): DirectoryPath {
   return stateDir(o).join('marketplace');
 }

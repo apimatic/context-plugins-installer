@@ -31,23 +31,34 @@ function overlap(dir: DirectoryPath, plugin: PluginId, opts?: PathOpts): Directo
   return null;
 }
 
-function readJsonFile(file: string): Result<unknown, Failure> {
+function readJsonFile(file: string, label: string): Result<unknown, Failure> {
   try {
     return ok(JSON.parse(stripBom(fs.readFileSync(file, 'utf8'))) as unknown);
   } catch (e) {
-    return err(new Failure(`${file} could not be read as JSON: ${errorMessage(e)}`));
+    return err(new Failure(`${label} could not be read as JSON: ${errorMessage(e)}`));
   }
 }
 
-export function readLocalPlugin(dir: DirectoryPath, opts?: PathOpts): Result<LocalPlugin, Failure> {
+/**
+ * What a directory declares itself to be. `describeAs` is how the user named the
+ * source: a directory names itself, and anything unpacked into one - an archive -
+ * names what it came from, because every message below would otherwise point at
+ * a working directory nobody typed.
+ */
+export function readLocalPlugin(
+  dir: DirectoryPath,
+  opts?: PathOpts,
+  describeAs?: string,
+): Result<LocalPlugin, Failure> {
   const at = dir.toString();
+  const where = describeAs ?? at;
   let stat: fs.Stats;
   try {
     stat = fs.statSync(at);
   } catch (e) {
     return err(
       new Failure(
-        `Could not read ${at}: ${errorMessage(e)}`,
+        `Could not read ${where}: ${errorMessage(e)}`,
         'Check the path, and that you have permission to read it.',
       ),
     );
@@ -55,7 +66,7 @@ export function readLocalPlugin(dir: DirectoryPath, opts?: PathOpts): Result<Loc
   if (!stat.isDirectory()) {
     return err(
       new Failure(
-        `${at} is not a directory.`,
+        `${where} is not a directory.`,
         'Point at the plugin folder itself - the one holding .claude-plugin/plugin.json.',
       ),
     );
@@ -65,12 +76,15 @@ export function readLocalPlugin(dir: DirectoryPath, opts?: PathOpts): Result<Loc
   for (const file of MANIFEST_FILES) {
     const manifestPath = dir.file(...file.split('/'));
     if (!exists(manifestPath)) continue;
-    const data = readJsonFile(manifestPath.toString());
+    // Named the way a repository's manifest is - `<file> in <source>` - so the
+    // boundaries that read a manifest report one the same way.
+    const named = describeAs === undefined ? manifestPath.toString() : `${file} in ${describeAs}`;
+    const data = readJsonFile(manifestPath.toString(), named);
     if (!data.ok) {
       problem ??= data.error;
       continue;
     }
-    const manifest = readManifest(data.value, manifestPath.toString());
+    const manifest = readManifest(data.value, named);
     if (!manifest.ok) {
       problem ??= manifest.error;
       continue;
@@ -79,7 +93,7 @@ export function readLocalPlugin(dir: DirectoryPath, opts?: PathOpts): Result<Loc
     if (clash) {
       return err(
         new Failure(
-          `${at} is where installing '${manifest.value.id}' would write (${clash}).`,
+          `${where} is where installing '${manifest.value.id}' would write (${clash}).`,
           'Installing it would delete the source before reading it. Move the plugin somewhere else and try again.',
         ),
       );
@@ -90,7 +104,7 @@ export function readLocalPlugin(dir: DirectoryPath, opts?: PathOpts): Result<Loc
   if (problem) return err(problem);
   return err(
     new Failure(
-      `${at} does not look like a plugin.`,
+      `${where} does not look like a plugin.`,
       `No plugin manifest there. Looked for ${MANIFEST_FILES.join(', ')}.`,
     ),
   );

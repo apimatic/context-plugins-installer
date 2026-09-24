@@ -7,7 +7,8 @@ import type { EntryKey, RawManifest } from './installed-record.js';
 import type { PluginManifest } from './plugin-manifest.js';
 import type { DomainEvent } from './events/domain-event.js';
 import type { TelemetryLine, TelemetryStatus } from './telemetry.js';
-import type { MarketplaceListener, RepoHandle } from './session.js';
+import type { ArchiveAt } from './plugin-source.js';
+import type { ArchiveHandle, MarketplaceListener, RepoHandle } from './session.js';
 
 // The interfaces through which this program reaches anything outside itself: a
 // process, the network, a person at a terminal. Every one of them is the seam a
@@ -44,6 +45,15 @@ export interface FetchResponseLike {
    * this program asks a response about is what it is carrying.
    */
   headers?: { get(name: string): string | null };
+  /**
+   * The bytes as they arrive, for a caller that has to stop reading partway. A
+   * download with no `content-length` - which is every archive GitHub serves -
+   * can be bounded no other way. `AsyncIterable` rather than a stream type,
+   * because it is the whole of what a reader needs and the one shape a test can
+   * write by hand; a response without it is read whole through `arrayBuffer`,
+   * the same way a response without headers is taken at its word.
+   */
+  body?: (AsyncIterable<Uint8Array> & { cancel?: () => Promise<unknown> }) | null;
   json(): Promise<unknown>;
   text(): Promise<string>;
   arrayBuffer(): Promise<ArrayBuffer>;
@@ -144,6 +154,12 @@ export interface RegistryClient {
 
 export interface SourceFetcher {
   openRepo(args: { repo: string; ref: string; notify?: MarketplaceListener }): Promise<RepoHandle>;
+  /** Per archive, not per folder in it: which folder is `ArchiveHandle.files`' question. */
+  openArchive(args: {
+    at: ArchiveAt;
+    describe: string;
+    notify?: MarketplaceListener;
+  }): ArchiveHandle;
 }
 
 export interface Prompter {

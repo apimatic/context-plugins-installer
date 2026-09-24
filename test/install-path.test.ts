@@ -45,6 +45,26 @@ function pluginDir(name = 'my-sdk', over: Record<string, unknown> = {}): string 
   return dir;
 }
 
+test('a --ref alongside a directory is said out loud rather than dropped', async () => {
+  const m = machine();
+  const dir = pluginDir();
+  const con = silenceConsole();
+  try {
+    await installPlugin({
+      brand: brand(),
+      plugin: dir,
+      ref: 'v2',
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+  } finally {
+    con.restore();
+  }
+  assert.match(flat(con), /A directory has no ref - --ref v2 was not used/);
+});
+
 const rowsOf = (m: Machine): Record<string, unknown>[] =>
   readRaw(paths.manifestPath(m.pathOpts)).plugins as Record<string, unknown>[];
 
@@ -239,6 +259,28 @@ test('the source is named, and the warning about what a plugin can run is said',
   assert.match(said, /not from Claude Code's marketplace/);
   assert.match(said, /can run commands/);
   assert.match(said, /Installing 'my-sdk' from/);
+  assert.ok(
+    said.indexOf('can run commands') < said.indexOf("Installing 'my-sdk' from"),
+    'the question about the source is asked before the banner that names the plugin',
+  );
+});
+
+test('the question comes before the source is read, so a declined one is never opened', async () => {
+  const m = machine();
+  const report = await quietly(() =>
+    installPlugin({
+      brand: brand(),
+      plugin: path.join(tmpDir('cp-gone-'), 'not-here'),
+      targets: ['cursor'],
+      ask: () => false,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    }),
+  );
+  // Reading it first would fail the run on a directory the user declined to
+  // trust, which is a message about the wrong thing entirely.
+  assert.deepEqual(report.targets, []);
+  assert.deepEqual(rowsOf(m), []);
 });
 
 test('declining the source installs nothing and is not a failure', async () => {
