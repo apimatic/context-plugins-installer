@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/apimatic/context-plugins-installer/compare/v0.9.0...v0.10.0) (2026-09-24)
+
+
+### Features
+
+* install a plugin from a zip or a tarball ([#15](https://github.com/apimatic/context-plugins-installer/issues/15)) ([9b30207](https://github.com/apimatic/context-plugins-installer/commit/9b30207519d83804fbaad42fbc6d9284dd77cb59))
+
 # [0.9.0](https://github.com/apimatic/context-plugins-installer/compare/v0.8.0...v0.9.0) (2026-09-16)
 
 
