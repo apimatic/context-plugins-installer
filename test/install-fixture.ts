@@ -322,23 +322,60 @@ export function withCodex<M extends Machine & { pathOpts: HarnessOpts }>(
   };
 }
 
-/** Unlike `withClaude`, this fake answers every call, not just a listing. */
-export type ClaudeMachine = ReturnType<typeof withClaude> & { calls: string[] };
+/**
+ * Unlike `withClaude`, this fake answers every call, not just a listing - and
+ * it remembers directory registrations the way a real Claude does, so the
+ * ownership check `forgetMarketplace` runs against the listing has something
+ * real to check. Seed `marketplaces` to model a registration from elsewhere.
+ */
+export type ClaudeMachine = ReturnType<typeof withClaude> & {
+  calls: string[];
+  marketplaces: Record<string, unknown>[];
+};
 
 export function claudeMachine(): ClaudeMachine {
   const m = withClaude(machine());
   const calls: string[] = [];
+  const marketplaces: Record<string, unknown>[] = [];
+  // The name a real Claude files a directory marketplace under: the one its
+  // registry declares. An address that is not one is left unremembered, which
+  // is the stateless answer this fake always gave for a repo.
+  const nameFor = (at: string): string | null => {
+    try {
+      const parsed: unknown = JSON.parse(
+        fs.readFileSync(path.join(at, '.claude-plugin', 'marketplace.json'), 'utf8'),
+      );
+      const name = (parsed as { name?: unknown } | null)?.name;
+      return typeof name === 'string' ? name : null;
+    } catch {
+      return null;
+    }
+  };
   const runner = {
     which: m.pathOpts.runner?.which ?? ((): string | null => null),
     run: async (_file: string, args: string[]) => {
       const line = args.join(' ');
       calls.push(line);
       if (line.startsWith('plugin list')) return { code: 0, stdout: '[]', stderr: '' };
-      if (line.startsWith('plugin marketplace list')) return { code: 0, stdout: '[]', stderr: '' };
+      if (line.startsWith('plugin marketplace list')) {
+        return { code: 0, stdout: JSON.stringify(marketplaces), stderr: '' };
+      }
+      if (line.startsWith('plugin marketplace add ')) {
+        const at = line.slice('plugin marketplace add '.length);
+        const name = nameFor(at);
+        if (name) marketplaces.push({ name, source: 'directory', path: at, installLocation: at });
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      if (line.startsWith('plugin marketplace remove ')) {
+        const name = line.slice('plugin marketplace remove '.length);
+        const found = marketplaces.findIndex((e) => e.name === name);
+        if (found >= 0) marketplaces.splice(found, 1);
+        return { code: 0, stdout: '', stderr: '' };
+      }
       return { code: 0, stdout: '', stderr: '' };
     },
   };
-  return { ...m, pathOpts: { ...m.pathOpts, runner }, calls };
+  return { ...m, pathOpts: { ...m.pathOpts, runner }, calls, marketplaces };
 }
 
 /** Console output as one line, with `log`'s column wrapping collapsed. */

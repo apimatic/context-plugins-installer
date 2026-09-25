@@ -161,6 +161,7 @@ export type CodexEvent = { harness: 'codex' } & (
   | { kind: 'plugin-uninstalled'; target: string }
   | { kind: 'plugin-uninstall-failed'; target: string; code: number; detail: string }
   | { kind: 'plugin-left-behind'; target: string; dir: DirectoryPath }
+  | { kind: 'plugin-unverified'; target: string }
   | { kind: 'marketplace-removed'; known: string }
   | { kind: 'reload'; after: HarnessVerb }
 );

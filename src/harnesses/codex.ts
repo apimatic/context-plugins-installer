@@ -267,16 +267,20 @@ export class CodexHarness implements Harness {
    * Whether Codex holds the plugin under this marketplace. Either answer is
    * enough: the listing hides a plugin its marketplace no longer offers, while
    * the cache folder is what Codex actually loads and what `remove` deletes.
+   * `null` is "could not tell": with the marketplace listing broken too,
+   * `known` is a guess, and an empty cache under a guessed name proves nothing.
    */
   private async holds(
     cli: CodexCli,
     plugin: string,
     known: string,
+    nameSettled: boolean,
     opts?: HarnessOpts,
-  ): Promise<boolean> {
+  ): Promise<boolean | null> {
     if (exists(paths.codexPluginCacheDir(known, plugin, opts))) return true;
     const rows = await cli.listPlugins();
-    return Boolean(rows?.some((r) => r.plugin === plugin && r.marketplace === known));
+    if (rows) return rows.some((r) => r.plugin === plugin && r.marketplace === known);
+    return nameSettled ? false : null;
   }
 
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {
@@ -290,7 +294,13 @@ export class CodexHarness implements Harness {
       return 'skipped';
     }
     const cli = this.cliFor(codex, opts);
-    const known = (await this.registeredName(cli, origin)) || origin.name;
+    // The listing itself, not just the name it resolves: whether it answered
+    // decides what an empty cache is allowed to mean below. A listing that
+    // answered without our entry has itself answered - the marketplace is not
+    // registered, so nothing under it is loaded.
+    const entries = await cli.listMarketplaces();
+    const hit = entries?.find((e) => isSameOrigin(e, origin));
+    const known = (hit && nonEmptyString(hit.name) ? hit.name : null) || origin.name;
     if (!known) {
       say({ harness: 'codex', kind: 'no-marketplace-name', after: 'uninstall' });
       return 'skipped';
@@ -298,7 +308,7 @@ export class CodexHarness implements Harness {
     const target = `${plugin}@${known}`;
 
     // Read before the removal: afterwards both answers are "not here".
-    const had = await this.holds(cli, plugin, known, opts);
+    const had = await this.holds(cli, plugin, known, entries !== null, opts);
     const res = await cli.pluginRemove(target);
     // Could not look, not looked-and-failed: this Codex never held a plugin.
     if (res.code !== 0 && NO_PLUGIN_COMMAND.test(output(res))) {
@@ -321,6 +331,13 @@ export class CodexHarness implements Harness {
       say({ harness: 'codex', kind: 'plugin-left-behind', target, dir });
       return 'failed';
     }
+    // `remove` exits 0 whether or not anything was there, so with the question
+    // above unanswered this run has established nothing: `absent` is a positive
+    // finding that clears the record, and an unanswered question is a skip.
+    if (had === null) {
+      say({ harness: 'codex', kind: 'plugin-unverified', target });
+      return 'skipped';
+    }
     if (!had) {
       say({ harness: 'codex', kind: 'plugin-absent', target });
       return 'absent';
@@ -331,10 +348,14 @@ export class CodexHarness implements Harness {
   }
 
   /**
-   * By name, because a registration whose directory has gone is exactly what
-   * stops Codex listing anything - so a failed listing is no reason to keep it.
-   * A listing that does answer can still show the name belongs to another
-   * directory, and then it is not ours to remove.
+   * By the name Codex filed it under, which the listing resolves - the name in
+   * marketplace.json can drift after registration, and removing by today's
+   * name would miss the entry and leave it dangling. A listing that answers
+   * without an entry of ours removes nothing: a same-named entry from another
+   * directory is not ours to remove. Only a listing that cannot answer falls
+   * back to the configured name, because a registration whose directory has
+   * gone is exactly what stops Codex listing anything - so a failed listing is
+   * no reason to keep it.
    */
   async forgetMarketplace(
     origin: DirectoryMarketplace,
@@ -345,11 +366,12 @@ export class CodexHarness implements Harness {
     if (!codex) return;
     const cli = this.cliFor(codex, opts);
     const entries = await cli.listMarketplaces();
-    const entry = entries?.find((e) => e.name === origin.name);
-    if (entries && (!entry || !isSameOrigin(entry, origin))) return;
-    const dropped = await cli.marketplaceRemove(origin.name);
+    const entry = entries?.find((e) => isSameOrigin(e, origin));
+    if (entries && !entry) return;
+    const known = entry && nonEmptyString(entry.name) ? entry.name : origin.name;
+    const dropped = await cli.marketplaceRemove(known);
     if (dropped.code === 0) {
-      listener({ harness: 'codex', kind: 'marketplace-removed', known: origin.name });
+      listener({ harness: 'codex', kind: 'marketplace-removed', known });
     }
   }
 }

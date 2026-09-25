@@ -62,6 +62,11 @@ export function announceCodex(event: CodexEvent, home?: string): void {
         `codex plugin remove ${event.target} reported success, but ${f.path(event.dir, home)} is still there.`,
       );
       return;
+    case 'plugin-unverified':
+      log.warn(
+        `Codex's listings are not answering, so whether it still holds '${event.target}' is unknown - leaving the record as it is.`,
+      );
+      return;
     case 'marketplace-removed':
       log.info(
         `Removed the generated marketplace '${event.known}' from Codex - it holds nothing now.`,

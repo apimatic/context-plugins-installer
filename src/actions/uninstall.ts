@@ -2,7 +2,11 @@ import { resolvePlugin } from '../application/plugin-resolution.js';
 import { resolveTargets } from '../application/target-selection.js';
 import { decideUninstall, uninstallLines } from '../application/uninstall-decision.js';
 import { harnesses } from '../harnesses/index.js';
-import { localMarketplace, unstageLocalPlugin } from '../infrastructure/local-marketplace.js';
+import {
+  localMarketplace,
+  unstageLocalPlugin,
+  wouldEmptyMarketplace,
+} from '../infrastructure/local-marketplace.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UninstallPrompts } from '../prompts/uninstall.js';
@@ -111,33 +115,48 @@ export class UninstallAction {
    * every such CLI forget the directory. Here rather than in a harness because
    * the marketplace is shared: one editor's uninstall cannot see whether the
    * other still reads it, and Codex left registered to a directory that has
-   * gone refuses to list any plugin at all. "Still holds" is the record's
-   * answer - an editor left on the row, or one whose removal failed.
+   * gone refuses to list any plugin at all.
+   *
+   * "Still holds" has three spellings, and any of them keeps the staging: an
+   * editor left on the row or one whose removal failed; an asked editor that
+   * could not look (`skipped` - a CLI off `PATH` right now is still registered
+   * to the directory, and `--force` dropping its row does not deregister it);
+   * and a row that survives in a shape this build cannot read, which is
+   * exactly the row that says an editor this build cannot see may hold it.
+   *
+   * Registrations are dropped before the directory goes, not after: deleting
+   * it first is what breaks Codex's listing, and a live listing is what lets
+   * each CLI find the name it filed the marketplace under - possibly drifted -
+   * and check the entry really points here rather than at a same-named
+   * marketplace from another directory.
    */
   private async release(
     plugin: string,
     origin: DirectoryMarketplace,
     decision: UninstallDecision,
+    outcomes: ReadonlyMap<HarnessName, UninstallOutcome>,
   ): Promise<void> {
+    if (decision.rowLeft === 'foreign' || decision.rowLeft === 'unusable') return;
     if ([...decision.stuck, ...decision.failed].some(viaMarketplace)) return;
-    const unstaged = unstageLocalPlugin({ plugin }, this.pathOpts);
-    if (!unstaged.ok) {
-      this.prompts.stagingLeft(unstaged.error.message);
-      return;
-    }
-    if (!unstaged.value.removed) return;
-    // Every such editor on the machine, not only the ones asked: a CLI that
-    // registered it for another plugin points at the same missing directory.
-    // Caught per editor, like the uninstalls above: the plugin is already gone
-    // and recorded as such, so a spawn that fails here is a warning, not a crash.
-    for (const harness of harnesses.all()) {
-      if (!harness.forgetMarketplace || !harness.detect(this.pathOpts)) continue;
-      try {
-        await harness.forgetMarketplace(origin, this.prompts.harnessListener, this.pathOpts);
-      } catch (err) {
-        this.prompts.harnessThrew(harness.title, errorMessage(err));
+    const unsettled = (o: UninstallOutcome): boolean => o === 'skipped' || o === 'failed';
+    if ([...outcomes].some(([name, o]) => viaMarketplace(name) && unsettled(o))) return;
+
+    if (wouldEmptyMarketplace({ plugin }, this.pathOpts)) {
+      // Every such editor on the machine, not only the ones asked: a CLI that
+      // registered it for another plugin points at the same doomed directory.
+      // Caught per editor, like the uninstalls above: a spawn that fails here
+      // is a warning, not a crash.
+      for (const harness of harnesses.all()) {
+        if (!harness.forgetMarketplace || !harness.detect(this.pathOpts)) continue;
+        try {
+          await harness.forgetMarketplace(origin, this.prompts.harnessListener, this.pathOpts);
+        } catch (err) {
+          this.prompts.harnessThrew(harness.title, errorMessage(err));
+        }
       }
     }
+    const unstaged = unstageLocalPlugin({ plugin }, this.pathOpts);
+    if (!unstaged.ok) this.prompts.stagingLeft(unstaged.error.message);
   }
 
   readonly execute = async (req: UninstallRequest): Promise<ActionResult<UninstallResult>> => {
@@ -203,11 +222,16 @@ export class UninstallAction {
     }
 
     const decision = decideUninstall({ recorded: recorded ?? null, outcomes, want, force });
+    // Released before the record write, not after: the write can fail - and
+    // throws when it does - and a release skipped then would never run again,
+    // because a later run that finds no row rebuilds a marketplace-kind origin
+    // and cannot reach it.
+    if (found.origin.kind === 'directory') {
+      await this.release(plugin, found.origin, decision, outcomes);
+    }
     // Not in a `finally`: a write failure on the success path must not pass
     // silently as one more thing that went wrong.
     records.applyUninstall(key, decision);
-
-    if (found.origin.kind === 'directory') await this.release(plugin, found.origin, decision);
 
     this.prompts.summary(uninstallLines(decision, { plugin, bin: BIN }));
 

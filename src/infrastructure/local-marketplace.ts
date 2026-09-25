@@ -126,12 +126,26 @@ export function stageLocalPlugin(
   } catch (e) {
     return err(
       new Failure(
-        `Could not stage '${plugin}' for Claude Code in ${origin.dir}: ${errorMessage(e)}`,
+        `Could not stage '${plugin}' into the generated marketplace at ${origin.dir}: ${errorMessage(e)}`,
         'Check that the state directory is writable, or set CP_STATE_DIR somewhere it is.',
       ),
     );
   }
   return ok(origin);
+}
+
+/**
+ * Whether taking this plugin out would leave the marketplace holding nothing -
+ * the question the uninstall action asks *before* unstaging, because the CLIs'
+ * registrations have to be dropped while the directory still stands: deleting
+ * it first is what breaks Codex's listing, and a live listing is what lets
+ * each CLI find the name it filed the marketplace under. A directory that does
+ * not exist is already empty.
+ */
+export function wouldEmptyMarketplace({ plugin }: { plugin: string }, opts?: PathOpts): boolean {
+  const origin = localMarketplace(opts);
+  if (!exists(origin.dir)) return true;
+  return stagedPlugins(origin.dir).every((name) => name === plugin);
 }
 
 export interface Unstaged {

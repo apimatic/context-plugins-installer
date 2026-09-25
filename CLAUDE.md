@@ -566,13 +566,29 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
   Codex) is actually a target, so a run that never touched one leaves no
   marketplace holding a plugin it never got. Unstaging is the uninstall
   action's too, for the same reason: the marketplace is shared by both CLIs,
-  so a plugin leaves it only once neither editor is still on the row (or failed
-  to let go), and the last plugin out takes the whole directory with it -
-  after which the action asks **every** detected CLI-driven harness to
-  `forgetMarketplace`, not only the ones the run asked. That is not tidiness:
-  Codex left registered to a directory that has gone refuses to list any
-  plugin at all (`codex plugin list` exits 1), and one whose plugin vanished
-  from the registry silently stops showing it. A `github` source stages
+  so a plugin leaves it only once no editor that installs from it can still
+  hold the plugin - which `release` reads as three questions, any of which
+  keeps the staging: a CLI-driven editor left on the row or one that `failed`,
+  one this run asked that answered `skipped` (a CLI off `PATH` is still
+  registered, and `--force` dropping its row does not deregister it), and a
+  row that survives as `foreign` or `unusable`, which is exactly the row that
+  says an editor this build cannot see may hold it. When the last plugin is
+  about to leave, the action asks **every** detected CLI-driven harness to
+  `forgetMarketplace` - not only the ones the run asked, and **before** the
+  directory is deleted, because deleting it first is what breaks Codex's
+  listing, and a live listing is what lets each CLI find the (possibly
+  drifted) name it filed the marketplace under and check the entry really
+  points here rather than at a same-named marketplace from another state
+  directory (the generated marketplace's name is the same constant for every
+  state dir on a machine, so a bare-name removal can take out a registration
+  that was never this run's - Claude removes nothing it cannot verify, while
+  Codex still falls back to the configured name on a broken listing, because a
+  dangling registration is what breaks it). That is not tidiness: Codex left
+  registered to a directory that has gone refuses to list any plugin at all
+  (`codex plugin list` exits 1), and one whose plugin vanished from the
+  registry silently stops showing it. `release` also runs before the record
+  write, which throws on failure: skipped then, it would never run again,
+  since a later run that finds no row rebuilds a marketplace-kind origin. A `github` source stages
   the same way from the checkout instead of from a folder the user has, which
   is the reason the fetch condition is a compound one: `needsSource` stays a
   fact about an editor, "this origin has to be staged" is the fact about the
@@ -703,7 +719,11 @@ tell `removed` from `absent`. The harness therefore looks **before** removing:
 the cache folder `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>` (what Codex
 loads, and what `remove` deletes) or an `installed` row of `codex plugin list
 --json`. The listing alone is not enough: it hides a plugin its marketplace no
-longer offers. A removal that exits 0 and leaves the cache is `failed`.
+longer offers. A removal that exits 0 and leaves the cache is `failed`. And
+when **neither** listing answers and the marketplace's registered name went
+unconfirmed, an empty cache under the guessed name proves nothing: that is a
+`skipped`, because `absent` is a positive finding and an unanswered question
+must never be widened into it - the same invariant the Claude harness holds.
 `CODEX_HOME` is honoured instead of a `CP_*` override because it is what the
 binary reads, so one variable sandboxes both views. Its registration memo is a
 map of its own on the session (`codexMarketplaces`), since each CLI files a
@@ -714,8 +734,12 @@ rest (`unexpected argument 'marketplace' found`); `NO_PLUGIN_COMMAND` matches
 only the words this harness sends, and the harness answers a **skip**, never a
 `Failure`. That matters beyond wording: Codex is last in the loop, and the
 install action records the editors already installed before it returns any
-harness `Failure` - a copy with no row is one nothing can update or uninstall -
-but a skip keeps the run green as well.
+harness `Failure` - and before a throw goes up, since the loop is wrapped for
+exactly that - a copy with no row is one nothing can update or uninstall -
+but a skip keeps the run green as well. That record write also keeps every
+previously recorded editor this run asked but did not (re)install into:
+`recordInstall` replaces the known targets, and a re-install whose later
+editor fails must not shrink the row under the copy that editor still loads.
 
 To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written

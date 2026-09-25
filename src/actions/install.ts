@@ -234,38 +234,55 @@ export class InstallAction {
       listener: this.prompts.harnessListener,
     };
     const installed: HarnessName[] = [];
-    // Written on the way out of either arm below. An editor later in the loop
+    // Written on the way out of every arm below. An editor later in the loop
     // can fail after earlier ones have their copy - Codex comes last and is
     // the second CLI that can - and a copy with no row is one nothing will
     // ever update or uninstall.
     const record = (): void => {
       report.targets = installed;
       if (!installed.length) return;
+      // An editor recorded by an earlier run that this run asked but did not
+      // (re)install into - it failed, threw, or was skipped - still holds that
+      // earlier copy, so it stays on the row: `recordInstall` replaces the
+      // known targets, and dropping one here would strand a copy nothing could
+      // ever update or uninstall.
+      const kept = (recorded?.targets ?? []).filter(
+        (n) => !installed.includes(n) && !report.untouched.includes(n),
+      );
       records.recordInstall({
         plugin,
         repo: source.key(),
         marketplace,
         ref: report.ref,
         installed,
-        untouched: report.untouched,
+        untouched: [...report.untouched, ...kept],
       });
     };
-    for (const name of want) {
-      const harness = harnesses.byName(name);
-      this.prompts.beginHarness(harness.title);
-      if (harness.needsSource && !ctx.srcDir) {
-        this.prompts.noSource(harness.title);
-        continue;
+    try {
+      for (const name of want) {
+        const harness = harnesses.byName(name);
+        this.prompts.beginHarness(harness.title);
+        if (harness.needsSource && !ctx.srcDir) {
+          this.prompts.noSource(harness.title);
+          continue;
+        }
+        const outcome = await harness.install(ctx, this.pathOpts);
+        // An editor that looked and could not is the user's to fix, so the run
+        // stops here and says so - never tested for truth, because both arms of
+        // a `Result` and both outcomes inside one are objects and strings.
+        if (!outcome.ok) {
+          record();
+          return failed(outcome.error);
+        }
+        if (outcome.value === 'installed') installed.push(name);
       }
-      const outcome = await harness.install(ctx, this.pathOpts);
-      // An editor that looked and could not is the user's to fix, so the run
-      // stops here and says so - never tested for truth, because both arms of
-      // a `Result` and both outcomes inside one are objects and strings.
-      if (!outcome.ok) {
-        record();
-        return failed(outcome.error);
-      }
-      if (outcome.value === 'installed') installed.push(name);
+    } catch (e) {
+      // A throw out of a harness is a bug and stays one - the router still
+      // reports it as such - but the editors already installed get their row
+      // first, or their copies would be exactly the unrecorded state this
+      // closure exists to prevent.
+      record();
+      throw e;
     }
     record();
 
@@ -322,8 +339,9 @@ export class InstallAction {
       this.id = manifest.value.id;
       return ok({
         id: manifest.value.id,
-        // No registry lists this plugin, so Claude Code addresses it through
-        // the same generated marketplace a directory install uses.
+        // No registry lists this plugin, so the editors that install from a
+        // marketplace address it through the same generated one a directory
+        // install uses.
         origin: localMarketplace(this.pathOpts),
         description: manifest.value.description,
         files: {
