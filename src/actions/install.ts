@@ -196,11 +196,12 @@ export class InstallAction {
 
     const { files } = resolved;
     let srcDir: DirectoryPath | null = files.kind === 'on-disk' ? files.dir : null;
-    // Claude Code and Codex install only from a marketplace, so a plugin from
-    // anywhere else is staged into the generated one - which needs the files
-    // fetched even when no editor in this run copies them.
+    // An editor that addresses a plugin as `plugin@marketplace` can only take
+    // one from anywhere else through the generated marketplace - which needs
+    // the files fetched even when no editor in this run copies them.
     const mustStage =
-      origin.kind === 'directory' && want.some((name) => !harnesses.byName(name).needsSource);
+      origin.kind === 'directory' &&
+      want.some((name) => harnesses.byName(name).installsFromMarketplace);
     if (
       files.kind === 'remote' &&
       (mustStage || want.some((name) => harnesses.byName(name).needsSource))

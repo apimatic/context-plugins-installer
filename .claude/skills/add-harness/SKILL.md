@@ -25,15 +25,22 @@ flag.
 Read both existing shapes before writing anything; the new one is a copy of whichever
 matches, not a fresh design.
 
-| The editor...                                      | Template                                                                                                           | `needsSource` |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------- |
-| loads plugins from a folder on disk                | `src/harnesses/cursor.ts` (plain copy) or `src/harnesses/vscode.ts` (copy + registers the path in a settings file) | `true`        |
-| has its own CLI that installs from the marketplace | `src/harnesses/claude.ts`                                                                                          | `false`       |
+| The editor...                                      | Template                                                                                                           | `needsSource` | `installsFromMarketplace` |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------- | ------------------------- |
+| loads plugins from a folder on disk                | `src/harnesses/cursor.ts` (plain copy) or `src/harnesses/vscode.ts` (copy + registers the path in a settings file) | `true`        | `false`                   |
+| has its own CLI that installs from the marketplace | `src/harnesses/claude.ts` or `src/harnesses/codex.ts`                                                              | `false`       | `true`                    |
 
 `needsSource: true` means `actions/install.ts` clones or downloads the plugin folder first and
 hands the harness `ctx.srcDir`, a `DirectoryPath` - so ask it for `srcDir.file(...)`
 rather than reaching for `node:path`. `false` means the harness never sees the files and
 must not ask for them.
+
+`installsFromMarketplace: true` means the editor addresses a plugin as
+`plugin@marketplace`, so a plugin from a path, a repo or an archive has to be staged into
+the generated marketplace for it - and, on the way out, that registration has to be
+dropped (`forgetMarketplace`). Answer it on its own rather than assuming `!needsSource`:
+the two are opposites in both shapes above, but an editor that wants the files _and_ a
+marketplace to name them by is the case the separate property exists for.
 
 ## Steps
 
@@ -66,7 +73,7 @@ Work in this order: the type goes first so the compiler enumerates the rest.
    differs. Keep the contract the copy already follows:
    - A class implementing `Harness`, with `name: HarnessName`, `title` (`TITLES.<name>` -
      the string itself lives in `types/harness.ts`, so prose that lists editors and the
-     harness itself cannot disagree), `needsSource`.
+     harness itself cannot disagree), `needsSource` and `installsFromMarketplace`.
    - `detect(opts)` is cheap and side-effect free; `location(opts)` returns the
      `DirectoryPath` it looked at, which the caller prints as "not installed (looked in
      ...)" and `doctor` shows. Do not shorten it here: a harness cannot reach

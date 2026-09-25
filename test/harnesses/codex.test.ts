@@ -98,6 +98,9 @@ function cache(f: Fake, marketplace: string, plugin: string): string {
 
 test('it installs from the marketplace itself, so it needs no plugin files', () => {
   assert.equal(codex.needsSource, false);
+  // Two questions, asserted apart: what an editor is addressed by decides who
+  // the generated marketplace is staged for, and it is not `!needsSource`.
+  assert.equal(codex.installsFromMarketplace, true);
 });
 
 test('detect is the CLI on PATH, and says where it looked', () => {

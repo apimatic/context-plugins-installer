@@ -214,8 +214,16 @@ export type InstallOutcome = 'installed' | 'skipped';
 export interface Harness {
   name: HarnessName;
   title: string;
-  /** Whether install needs the plugin files on disk (Claude installs from the marketplace itself). */
+  /** Whether install needs the plugin files on disk. */
   needsSource: boolean;
+  /**
+   * Whether install addresses the plugin as `plugin@marketplace`, which is what
+   * decides who a generated marketplace is staged and registered for. Its own
+   * property rather than `!needsSource`: the two are opposites in every editor
+   * today, but an editor could want the files _and_ a marketplace to name them
+   * by, and reading one question off the other's answer is what would hide it.
+   */
+  installsFromMarketplace: boolean;
   detect(opts?: HarnessOpts): boolean;
   /**
    * Where detect looked, for "not installed (looked in ...)": a path for an

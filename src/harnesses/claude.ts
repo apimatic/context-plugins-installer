@@ -105,6 +105,7 @@ export class ClaudeHarness implements Harness {
   readonly name: HarnessName = 'claude';
   readonly title = TITLES.claude;
   readonly needsSource = false;
+  readonly installsFromMarketplace = true;
 
   detect(opts?: HarnessOpts): boolean {
     return Boolean(this.binary(opts));

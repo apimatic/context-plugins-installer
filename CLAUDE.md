@@ -562,7 +562,7 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
   later is the same class of bug, and only a real `claude` can find it - the
   unit tests drive a fake runner, so they assert the argv and never what Claude
   makes of the bytes. Staging happens in the action and only when an editor
-  that installs from a marketplace (`needsSource: false` - Claude Code or
+  that installs from a marketplace (`installsFromMarketplace` - Claude Code or
   Codex) is actually a target, so a run that never touched one leaves no
   marketplace holding a plugin it never got. Unstaging is the uninstall
   action's too, for the same reason: the marketplace is shared by both CLIs,
@@ -590,10 +590,13 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
   write, which throws on failure: skipped then, it would never run again,
   since a later run that finds no row rebuilds a marketplace-kind origin. A `github` source stages
   the same way from the checkout instead of from a folder the user has, which
-  is the reason the fetch condition is a compound one: `needsSource` stays a
-  fact about an editor, "this origin has to be staged" is the fact about the
-  run, and the action combines them - otherwise a run asking only for Claude
-  Code would fetch nothing and stage nothing.
+  is the reason the fetch condition is a compound one: `needsSource` and
+  `installsFromMarketplace` stay facts about an editor, "this origin has to be
+  staged" is the fact about the run, and the action combines them - otherwise a
+  run asking only for Claude Code would fetch nothing and stage nothing. Those
+  two are separate properties rather than one read both ways: they are
+  opposites in every editor today, but an editor could want the files _and_ a
+  marketplace to name them by, and answering one from the other would hide it.
   `readPluginManifest` is the same read over the network, sharing
   `types/plugin-manifest.ts` with the disk so the two boundaries cannot
   disagree about what a usable manifest is. It probes the three files in the
@@ -607,7 +610,7 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
 
 One class per editor implementing the `Harness`
 interface (`name`, `title`, `detect`, `location`, `install`, `uninstall`,
-`needsSource`). None of them prints, and none of them throws for anything the
+`needsSource`, `installsFromMarketplace`). None of them prints, and none of them throws for anything the
 user could fix: `install` answers with a `Result<InstallOutcome, Failure>` -
 `installed` or `skipped` on the ok arm, and a `Failure` for an editor that
 looked and could not. Only the Claude path has one of those (a marketplace
@@ -693,7 +696,8 @@ pure decision can say "Cursor" without importing the code that installs into
 it - and a caller that only wants a title should read `TITLES` rather than
 reach for a harness. `byName` is total over `HarnessName` - narrow a string
 with `isHarnessName` first. Claude Code installs
-through the `claude` CLI from the marketplace itself (`needsSource: false`); Cursor
+through the `claude` CLI from the marketplace itself (`needsSource: false`,
+`installsFromMarketplace: true`); Cursor
 and VS Code copy files and need the fetched source - as does Claude Code for a
 `directory` origin, which is why a path or repo install stages the files before
 the loop rather than asking a harness. The Claude path also removes the plugin

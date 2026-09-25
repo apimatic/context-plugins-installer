@@ -94,6 +94,7 @@ export class CodexHarness implements Harness {
   readonly name: HarnessName = 'codex';
   readonly title = TITLES.codex;
   readonly needsSource = false;
+  readonly installsFromMarketplace = true;
 
   detect(opts?: HarnessOpts): boolean {
     return Boolean(this.binary(opts));

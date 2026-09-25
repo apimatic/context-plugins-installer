@@ -32,7 +32,8 @@ import { errorMessage, nonEmptyString } from '../types/util.js';
 import { ActionResult } from './action-result.js';
 
 /** An editor that installs from a marketplace, and so addresses a plugin by one. */
-const viaMarketplace = (name: HarnessName): boolean => !harnesses.byName(name).needsSource;
+const viaMarketplace = (name: HarnessName): boolean =>
+  harnesses.byName(name).installsFromMarketplace;
 
 export interface UninstallRequest {
   brand: Brand;
