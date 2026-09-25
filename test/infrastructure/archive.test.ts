@@ -526,6 +526,76 @@ test('a failure behind a redirect names the host that was typed, not the one it 
   assert.equal(got.error.message, 'github.com is temporarily unavailable (HTTP 503).');
 });
 
+/** Each URL either redirects to the next or, last of all, is the zip. */
+function chain(...urls: string[]): FetchLike & { calls: string[] } {
+  const bytes = zipOf(plugin);
+  const calls: string[] = [];
+  const impl: FetchLike = (url) => {
+    calls.push(url);
+    const next = urls[urls.indexOf(url) + 1];
+    return Promise.resolve({
+      ok: next === undefined,
+      status: next === undefined ? 200 : 302,
+      statusText: next === undefined ? 'OK' : 'Found',
+      headers: {
+        get: (name: string) => (name.toLowerCase() === 'location' ? (next ?? null) : null),
+      },
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve(''),
+      arrayBuffer: () => {
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
+        return Promise.resolve(buffer);
+      },
+    });
+  };
+  return Object.assign(impl, { calls });
+}
+
+const fetched = (fetchImpl: FetchLike, url: string) =>
+  downloadArchive(
+    { url, to: new FilePath(path.join(tmpDir('cp-hop-'), 'download')) },
+    portsFor(fetchImpl),
+  );
+
+test('an http link the user typed is followed, onto http or up to https', async () => {
+  for (const hops of [
+    ['http://acme.com/p.zip'],
+    ['http://acme.com/p.zip', 'http://cdn.acme.com/p.zip'],
+    ['http://acme.com/p.zip', 'https://cdn.acme.com/p.zip'],
+  ]) {
+    const fetchImpl = chain(...hops);
+    const got = await fetched(fetchImpl, hops[0] as string);
+    assert.ok(got.ok, got.ok ? '' : got.error.message);
+    assert.deepEqual(fetchImpl.calls, hops);
+  }
+});
+
+test('an https download is never followed down to http, wherever the chain began', async () => {
+  // Plain http is the user's choice, by typing it; a server that upgraded a
+  // chain does not get to take that back either.
+  for (const hops of [
+    ['https://acme.com/p.zip', 'http://cdn.acme.com/p.zip'],
+    ['http://acme.com/p.zip', 'https://acme.com/p.zip', 'http://cdn.acme.com/p.zip'],
+  ]) {
+    const fetchImpl = chain(...hops);
+    const got = await fetched(fetchImpl, hops[0] as string);
+    assert.ok(!got.ok, 'expected a failure');
+    assert.match(got.error.message, /redirected an https download to a plain http link/);
+    assert.match(got.error.hint ?? '', /cdn\.acme\.com/);
+    assert.deepEqual(fetchImpl.calls, hops.slice(0, -1), 'the http hop is never requested');
+  }
+});
+
+test('a redirect to anything but http or https ends the download', async () => {
+  const fetchImpl = chain('http://acme.com/p.zip', 'file:///etc/passwd');
+  const got = await fetched(fetchImpl, 'http://acme.com/p.zip');
+  assert.ok(!got.ok, 'expected a failure');
+  assert.match(got.error.message, /redirected to a link that is not http or https/);
+  assert.match(got.error.hint ?? '', /a file: link/);
+  assert.deepEqual(fetchImpl.calls, ['http://acme.com/p.zip']);
+});
+
 test('an archive that is not one says what it looks like instead', async () => {
   const err = await failed(open(archiveAt('p.zip', Buffer.from('<!DOCTYPE html><html>'))));
   assert.match(err.message, /is not a zip or a tarball/);

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 command - from a plugin marketplace (a GitHub repo carrying a
 `.claude-plugin/marketplace.json` registry), from a directory on the machine
 that is itself a plugin, from a GitHub repository (or a folder inside one)
-that is itself a plugin, or from a `.zip` or `.tar.gz` of one, at an https URL
+that is itself a plugin, or from a `.zip` or `.tar.gz` of one, at an http(s) URL
 or on this machine. Published to npm; users run it via `npx`. The README is end-user documentation
 only, by explicit decision — contributor and agent knowledge belongs here, not there.
 
@@ -289,10 +289,12 @@ that ends up somewhere else is a rule two callers can disagree about.
   an extension `formatOf` knows, never the whole string: a presigned link is
   the only way a private archive is installable here - no credential is ever
   sent - and its query would otherwise hide the extension. An `http` URL is
-  refused where it is written, naming https, because a plugin runs commands
-  and there is no signature to fall back on. Only the four spellings `formatOf`
-  knows name an archive, and nothing else is answered for: a `.7z` or a
-  `.tar.bz2` link falls through to the repository arm like any other URL this
+  accepted, and `ArchiveSource.plainHttp` is what the trust confirmation asks,
+  so a plugin that runs commands and arrives with no signature and no TLS is
+  warned about before anything is fetched, `-y` or not. What stays refused is
+  a server choosing http for the user: see the redirect rule in `download.ts`.
+  Only the four spellings `formatOf` knows name an archive, and nothing else
+  is answered for: a `.7z` or a `.tar.bz2` link falls through to the repository arm like any other URL this
   program cannot read. A denylist of the formats it cannot read was tried and
   removed - it bought one better sentence at the price of a list that reads as
   exhaustive, can never be, and has to be maintained; and a blanket "unknown
@@ -458,9 +460,12 @@ renders it. `paths.ts` is here because it is infrastructure, and while it sat at
   one per blob in flight.
 
 - **Reading an archive** (`infrastructure/archive/`): `download.ts` follows its
-  own redirects - `redirect: 'manual'`, five hops, every `Location` checked for
-  https, every redirect's body cancelled - because a hop is the only place the
-  https rule can be enforced and Node's own following would not. It counts
+  own redirects - `redirect: 'manual'`, five hops, every `Location` checked,
+  every redirect's body cancelled - because a hop is the only place the rule
+  can be enforced and Node's own following would not. The rule is **no
+  downgrade**: a hop must be http or https, and one from https may not land on
+  http. Plain http is the user's to choose by typing it, never a server's to
+  choose for them by redirecting an https download to it. It counts
   bytes as they arrive, since `codeload.github.com` answers chunked with no
   `content-length` at all, and gives up after thirty seconds of silence or ten
   minutes in total: this is the one request this program makes that can

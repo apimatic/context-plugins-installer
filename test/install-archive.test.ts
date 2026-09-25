@@ -303,21 +303,45 @@ test('an archive with no plugin in it names the archive, never the workspace', a
   );
 });
 
-test('an http URL is refused where it is written, naming https', async () => {
+test('an http URL installs, and is warned about even under --yes', async () => {
   const m = machine();
-  await assert.rejects(
-    quietly(() =>
-      installPlugin({
-        brand: brand(),
-        plugin: 'http://acme.com/my-sdk.zip',
-        targets: ['cursor'],
-        assumeYes: true,
-        pathOpts: m.pathOpts,
-        wiring: archiveWiring(served({}), m.pathOpts),
-      }),
-    ),
-    /is not an https URL/,
-  );
+  const plain = 'http://acme.com/my-sdk.zip';
+  const fetchImpl = served({ [plain]: zipOf(entries()) });
+  const con = silenceConsole();
+  try {
+    await installPlugin({
+      brand: brand(),
+      plugin: plain,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: archiveWiring(fetchImpl, m.pathOpts),
+    });
+  } finally {
+    con.restore();
+  }
+  assert.deepEqual(fetchImpl.calls, [plain]);
+  assert.ok(fs.existsSync(cursorDir(m, 'my-sdk')));
+  assert.equal(rowsOf(m)[0]?.repo, `archive:${plain}`);
+  assert.match(flat(con), /fetched over plain http/);
+});
+
+test('an https URL says nothing about http', async () => {
+  const m = machine();
+  const con = silenceConsole();
+  try {
+    await installPlugin({
+      brand: brand(),
+      plugin: URL,
+      targets: ['cursor'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: archiveWiring(served({ [URL]: zipOf(entries()) }), m.pathOpts),
+    });
+  } finally {
+    con.restore();
+  }
+  assert.doesNotMatch(flat(con), /plain http/);
 });
 
 test('a --ref alongside an archive is said out loud rather than dropped', async () => {

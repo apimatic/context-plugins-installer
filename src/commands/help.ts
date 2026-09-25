@@ -30,8 +30,8 @@ Install sources
                         github.com URL for it - for a folder, the /tree/ link.
                         An @ref after any of them wins over --ref.
   <archive>             A .zip, .tar.gz, .tgz or .tar that is itself a plugin,
-                        at an https URL or on this machine. Name a folder
-                        inside it after a #, as in ./mono.zip#tools/my-plugin.
+                        at a URL or on this machine. Name a folder inside it
+                        after a #, as in ./mono.zip#tools/my-plugin.
                         An archive GitHub builds is unwrapped for you, so the
                         folder is the one its page showed you.
 
@@ -41,9 +41,10 @@ Install sources
   ${bin} update re-syncs it from wherever it came from; a folder or an archive
   that has moved away is reported rather than failing the run.
 
-  Nothing is downloaded before you have confirmed the source, no credential is
-  ever sent to fetch an archive, and only https is followed - a plugin can run
-  commands through its hooks, and there is no signature to check.
+  Nothing is downloaded before you have confirmed the source, and no credential
+  is ever sent to fetch an archive. Prefer https: a plugin can run commands
+  through its hooks and there is no signature to check, so an http link is
+  warned about, and an https one is never followed down to http.
 
 Options
   --repo <owner/repo>   Use a different marketplace   (default: ${brand.label})
