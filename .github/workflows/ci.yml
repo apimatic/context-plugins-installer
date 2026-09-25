@@ -239,3 +239,80 @@ jobs:
           claude plugin list --json | grep -q 'slack@context-plugins-local'
           node bin/cli.js uninstall slack --targets claude
           test -z "$(claude plugin list --json | grep slack || true)"
+
+  codex:
+    name: codex smoke test
+    runs-on: ubuntu-latest
+    env:
+      CP_TELEMETRY: off
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm prune --omit=dev
+      # Unpinned, like the claude job: the point is to hear about the next change
+      # to a CLI this project does not own. No login is needed to manage plugins.
+      - run: npm install -g @openai/codex @anthropic-ai/claude-code
+      - name: install from the marketplace into Codex, and ask Codex what it holds
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state-market"
+          export CODEX_HOME="$RUNNER_TEMP/codex-market"
+          mkdir -p "$CODEX_HOME"
+          node bin/cli.js install frankfurter --targets codex -y
+          codex plugin list --json | grep -q '"frankfurter@context-plugins"'
+          node bin/cli.js install frankfurter --targets codex -y  # again: upgrade, not re-add
+          node bin/cli.js uninstall frankfurter --targets codex
+          test -z "$(codex plugin list --json | grep frankfurter || true)"
+      - name: install a folder into Codex, edit it, update, uninstall
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state-folder"
+          export CODEX_HOME="$RUNNER_TEMP/codex-folder"
+          mkdir -p "$CODEX_HOME"
+
+          src="$RUNNER_TEMP/codex plugin"
+          mkdir -p "$src/.claude-plugin" "$src/skills/smoke"
+          echo '{"name":"smoke-plugin","version":"0.1.0","description":"a folder"}' \
+            > "$src/.claude-plugin/plugin.json"
+          echo '# skill' > "$src/skills/smoke/SKILL.md"
+
+          node bin/cli.js install "$src" --targets codex -y
+          codex plugin marketplace list --json | grep -q context-plugins-local
+          codex plugin list --json | grep -q 'smoke-plugin@context-plugins-local'
+
+          # Same version, edited files: Codex must re-copy them into its cache.
+          echo '# edited' > "$src/skills/smoke/SKILL.md"
+          node bin/cli.js update
+          grep -rq edited "$CODEX_HOME/plugins/cache/context-plugins-local/smoke-plugin"
+
+          node bin/cli.js uninstall smoke-plugin --targets codex
+          test -z "$(codex plugin list --json | grep smoke-plugin || true)"
+          test -z "$(codex plugin marketplace list --json | grep context-plugins-local || true)"
+          test -f "$src/.claude-plugin/plugin.json"
+      # The generated marketplace is shared: Claude letting go must not take it
+      # from Codex, whose every listing fails once its directory is gone.
+      - name: a folder in both CLIs keeps working when one lets go
+        run: |
+          export CP_STATE_DIR="$RUNNER_TEMP/state-both"
+          export CODEX_HOME="$RUNNER_TEMP/codex-both"
+          export CLAUDE_CONFIG_DIR="$RUNNER_TEMP/claude-both"
+          mkdir -p "$CODEX_HOME" "$CLAUDE_CONFIG_DIR"
+
+          src="$RUNNER_TEMP/both plugin"
+          mkdir -p "$src/.claude-plugin" "$src/skills/smoke"
+          echo '{"name":"both-plugin","version":"0.1.0"}' > "$src/.claude-plugin/plugin.json"
+          echo '# skill' > "$src/skills/smoke/SKILL.md"
+
+          node bin/cli.js install "$src" --targets claude,codex -y
+          node bin/cli.js uninstall both-plugin --targets claude
+          codex plugin list --json | grep -q 'both-plugin@context-plugins-local'
+
+          node bin/cli.js uninstall both-plugin --targets codex
+          codex plugin list --json > /dev/null  # exits non-zero if a marketplace dangles
+          test -z "$(codex plugin marketplace list --json | grep context-plugins-local || true)"
+          test -z "$(claude plugin marketplace list --json | grep context-plugins-local || true)"

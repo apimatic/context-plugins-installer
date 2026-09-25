@@ -68,6 +68,16 @@ export interface Session {
    * and every plugin from that marketplace shares the one answer.
    */
   marketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
+  /**
+   * The same for Codex, in a map of its own: each CLI files a marketplace under
+   * a name of its own, and Codex has one more answer - `unsupported`, for a
+   * Codex too old to have a `plugin` command - which every plugin in the run
+   * shares too, so it is asked once rather than refused once per plugin.
+   */
+  codexMarketplaces: Map<
+    string,
+    Promise<Result<{ known: string; updated: boolean } | 'unsupported', Failure>>
+  >;
   catalog(args: { repo: string; ref: string }): Promise<Result<Catalog | null, Failure>>;
   manifest(args: {
     repo: string;

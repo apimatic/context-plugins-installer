@@ -23,6 +23,7 @@ const CODE_USER = new DirectoryPath('/home/dev/.config/Code/User', POSIX);
 const DEST = new DirectoryPath('/home/dev/.cursor/plugins/local/my-sdk', POSIX);
 const SETTINGS = new FilePath('/home/dev/.config/Code/User/settings.json', POSIX);
 const BACKUP = new FilePath('/home/dev/.config/Code/User/settings.json.bak-20260907', POSIX);
+const CODEX_CACHE = new DirectoryPath('/home/dev/.codex/plugins/cache/apimatic/my-sdk', POSIX);
 
 type Line = [level: 'ok' | 'info' | 'warn' | 'debug', text: string];
 
@@ -175,10 +176,6 @@ const CASES: [HarnessEvent, Line[]][] = [
     [['info', "Removed the generated marketplace 'context-plugins-local' - it holds nothing now."]],
   ],
   [
-    { harness: 'claude', kind: 'staging-left', detail: 'Could not remove x from /tmp/m.' },
-    [['warn', 'Could not remove x from /tmp/m. You can remove that directory by hand.']],
-  ],
-  [
     { harness: 'claude', kind: 'no-marketplace-name', after: 'uninstall' },
     [['warn', 'No marketplace name to uninstall from - skipping Claude Code.']],
   ],
@@ -247,6 +244,118 @@ const CASES: [HarnessEvent, Line[]][] = [
       detail: 'EPERM',
     },
     [['warn', 'claude plugin uninstall my-sdk@apimatic returned 3. EPERM']],
+  ],
+
+  // Codex's conversation with its own CLI, in the same words as Claude Code's
+  // where the two steps are the same.
+  [
+    { harness: 'codex', kind: 'cli-missing' },
+    [['warn', "'codex' CLI not on PATH - skipping Codex."]],
+  ],
+  [
+    { harness: 'codex', kind: 'plugins-unsupported' },
+    [
+      [
+        'warn',
+        'This Codex is too old to have a `codex plugin` command - skipping Codex. Update Codex to install plugins into it.',
+      ],
+    ],
+  ],
+  [
+    { harness: 'codex', kind: 'no-marketplace-name', after: 'install' },
+    [['warn', 'No marketplace name to install from - skipping Codex.']],
+  ],
+  [
+    { harness: 'codex', kind: 'no-marketplace-name', after: 'uninstall' },
+    [['warn', 'No marketplace name to uninstall from - skipping Codex.']],
+  ],
+  [
+    { harness: 'codex', kind: 'marketplace-renamed', known: 'apimatic', configured: 'context' },
+    [['debug', "Codex knows this marketplace as 'apimatic', not 'context'."]],
+  ],
+  [
+    { harness: 'codex', kind: 'marketplace-registered', known: 'apimatic' },
+    [['info', "Marketplace 'apimatic' is already registered with Codex."]],
+  ],
+  [
+    { harness: 'codex', kind: 'marketplace-upgraded', known: 'apimatic' },
+    [['ok', "Upgraded marketplace 'apimatic'"]],
+  ],
+  [
+    {
+      harness: 'codex',
+      kind: 'marketplace-upgrade-failed',
+      known: 'apimatic',
+      code: 1,
+      detail: 'network unreachable',
+    },
+    [
+      [
+        'warn',
+        "Could not upgrade marketplace 'apimatic' (exit 1) - continuing with the local copy. network unreachable",
+      ],
+    ],
+  ],
+  [
+    { harness: 'codex', kind: 'marketplace-added', marketplace: 'apimatic' },
+    [['ok', "Added marketplace 'apimatic'"]],
+  ],
+  [
+    { harness: 'codex', kind: 'plugin-stale', target: 'my-sdk@apimatic', known: 'apimatic' },
+    [['debug', "'my-sdk@apimatic' is not in the local copy - upgrading 'apimatic' and retrying."]],
+  ],
+  [
+    { harness: 'codex', kind: 'plugin-installed', target: 'my-sdk@apimatic' },
+    [['ok', 'Installed my-sdk@apimatic']],
+  ],
+  [
+    { harness: 'codex', kind: 'plugin-absent', target: 'my-sdk@apimatic' },
+    [['info', "Codex has no 'my-sdk@apimatic' - nothing left to remove."]],
+  ],
+  [
+    { harness: 'codex', kind: 'plugin-uninstalled', target: 'my-sdk@apimatic' },
+    [['ok', 'Uninstalled my-sdk@apimatic']],
+  ],
+  [
+    {
+      harness: 'codex',
+      kind: 'plugin-uninstall-failed',
+      target: 'my-sdk@apimatic',
+      code: 1,
+      detail: 'EPERM',
+    },
+    [['warn', 'codex plugin remove my-sdk@apimatic returned 1. EPERM']],
+  ],
+  [
+    {
+      harness: 'codex',
+      kind: 'plugin-left-behind',
+      target: 'my-sdk@apimatic',
+      dir: CODEX_CACHE,
+    },
+    [
+      [
+        'warn',
+        'codex plugin remove my-sdk@apimatic reported success, but ~/.codex/plugins/cache/apimatic/my-sdk is still there.',
+      ],
+    ],
+  ],
+  [
+    { harness: 'codex', kind: 'marketplace-removed', known: 'context-plugins-local' },
+    [
+      [
+        'info',
+        "Removed the generated marketplace 'context-plugins-local' from Codex - it holds nothing now.",
+      ],
+    ],
+  ],
+  [
+    { harness: 'codex', kind: 'reload', after: 'install' },
+    [['info', 'Start a new `codex` session to load the plugin.']],
+  ],
+  [
+    { harness: 'codex', kind: 'reload', after: 'uninstall' },
+    [['info', 'Start a new `codex` session to unload the plugin.']],
   ],
 ];
 

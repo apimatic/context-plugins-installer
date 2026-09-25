@@ -196,10 +196,11 @@ export class InstallAction {
 
     const { files } = resolved;
     let srcDir: DirectoryPath | null = files.kind === 'on-disk' ? files.dir : null;
-    // Claude Code installs only from a marketplace, so a plugin from anywhere
-    // else is staged into the generated one - which needs the files fetched
-    // even when no editor in this run copies them.
-    const mustStage = origin.kind === 'directory' && want.includes('claude');
+    // Claude Code and Codex install only from a marketplace, so a plugin from
+    // anywhere else is staged into the generated one - which needs the files
+    // fetched even when no editor in this run copies them.
+    const mustStage =
+      origin.kind === 'directory' && want.some((name) => !harnesses.byName(name).needsSource);
     if (
       files.kind === 'remote' &&
       (mustStage || want.some((name) => harnesses.byName(name).needsSource))
@@ -233,6 +234,22 @@ export class InstallAction {
       listener: this.prompts.harnessListener,
     };
     const installed: HarnessName[] = [];
+    // Written on the way out of either arm below. An editor later in the loop
+    // can fail after earlier ones have their copy - Codex comes last and is
+    // the second CLI that can - and a copy with no row is one nothing will
+    // ever update or uninstall.
+    const record = (): void => {
+      report.targets = installed;
+      if (!installed.length) return;
+      records.recordInstall({
+        plugin,
+        repo: source.key(),
+        marketplace,
+        ref: report.ref,
+        installed,
+        untouched: report.untouched,
+      });
+    };
     for (const name of want) {
       const harness = harnesses.byName(name);
       this.prompts.beginHarness(harness.title);
@@ -244,21 +261,13 @@ export class InstallAction {
       // An editor that looked and could not is the user's to fix, so the run
       // stops here and says so - never tested for truth, because both arms of
       // a `Result` and both outcomes inside one are objects and strings.
-      if (!outcome.ok) return failed(outcome.error);
+      if (!outcome.ok) {
+        record();
+        return failed(outcome.error);
+      }
       if (outcome.value === 'installed') installed.push(name);
     }
-    report.targets = installed;
-
-    if (installed.length) {
-      records.recordInstall({
-        plugin,
-        repo: source.key(),
-        marketplace,
-        ref: report.ref,
-        installed,
-        untouched: report.untouched,
-      });
-    }
+    record();
 
     this.prompts.summary(installed, report.untouched);
     return ActionResult.success(done());

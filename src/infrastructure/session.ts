@@ -29,9 +29,11 @@ export function createSession({
   const repos = new Map<string, Promise<RepoHandle>>();
   const archives = new Map<string, ArchiveHandle>();
   const marketplaces: Session['marketplaces'] = new Map();
+  const codexMarketplaces: Session['codexMarketplaces'] = new Map();
 
   return {
     marketplaces,
+    codexMarketplaces,
 
     catalog({ repo, ref }) {
       const key = keyOf(repo, ref);

@@ -24,7 +24,13 @@ import type { InstallReport, UninstallResult, UpdateReport } from '../src/types/
 import { DirectoryPath } from '../src/types/file/paths.js';
 import type { EventSink } from '../src/types/events/domain-event.js';
 import type { Harness, HarnessName, HarnessOpts } from '../src/types/harness.js';
-import type { FetchLike, RegistryClient, SourceFetcher, SourcePorts } from '../src/types/ports.js';
+import type {
+  FetchLike,
+  RegistryClient,
+  RunResult,
+  SourceFetcher,
+  SourcePorts,
+} from '../src/types/ports.js';
 import { ok } from '../src/types/result.js';
 import {
   noArchives,
@@ -164,6 +170,9 @@ export function machine() {
     CP_STATE_DIR: path.join(root, 'state'),
     CP_CURSOR_DIR: path.join(root, '.cursor'),
     CP_VSCODE_USER_DIR: path.join(root, 'code-user'),
+    // Codex is found on PATH, which this machine has none of; its home is
+    // sandboxed anyway, so nothing can read the developer's real ~/.codex.
+    CODEX_HOME: path.join(root, 'codex-home'),
   };
   fs.mkdirSync(env.CP_CURSOR_DIR, { recursive: true }); // Cursor "installed"
   fs.mkdirSync(env.CP_VSCODE_USER_DIR, { recursive: true }); // VS Code "installed"
@@ -261,6 +270,54 @@ export function withClaude(m: Machine) {
   // dropped in silence rather than refused.
   return {
     ...m,
+    pathOpts: { ...m.pathOpts, env, runner: runnerFor(run, env) } satisfies HarnessOpts,
+  };
+}
+
+/**
+ * Adds a `codex` on PATH beside whatever the machine has, with a fake CLI that
+ * answers the way a real Codex does when nothing is installed: empty `--json`
+ * listings in Codex's own `{ key: [...] }` shape, and a `plugin remove` that
+ * succeeds either way. Calls to any other binary go to the runner already there,
+ * so `withCodex(withClaude(m))` has both. Every codex call is recorded.
+ */
+export function withCodex<M extends Machine & { pathOpts: HarnessOpts }>(
+  m: M,
+  /** An answer for a codex command line, ahead of the defaults; undefined falls through. */
+  answer: (line: string) => Partial<RunResult> | undefined = () => undefined,
+): M & { codexCalls: string[] } {
+  const bin = tmpDir('cp-bin-');
+  fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\n');
+  fs.writeFileSync(path.join(bin, 'codex.cmd'), '@echo off\n');
+  const codexCalls: string[] = [];
+  const prior = m.pathOpts.runner;
+  const sep = process.platform === 'win32' ? ';' : ':';
+  const env = {
+    ...m.pathOpts.env,
+    PATH: [bin, m.pathOpts.env.PATH].filter(Boolean).join(sep),
+    PATHEXT: '.CMD',
+    CODEX_HOME: path.join(m.root, 'codex-home'),
+  };
+  const run = async (file: string, args: string[]) => {
+    if (!path.basename(file).toLowerCase().startsWith('codex')) {
+      return prior ? prior.run(file, args) : { code: 127, stdout: '', stderr: 'not found' };
+    }
+    const line = args.join(' ');
+    codexCalls.push(line);
+    const given = answer(line);
+    if (given)
+      return { code: given.code || 0, stdout: given.stdout || '', stderr: given.stderr || '' };
+    if (line.startsWith('plugin marketplace list')) {
+      return { code: 0, stdout: '{"marketplaces":[]}', stderr: '' };
+    }
+    if (line.startsWith('plugin list')) {
+      return { code: 0, stdout: '{"installed":[],"available":[]}', stderr: '' };
+    }
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  return {
+    ...m,
+    codexCalls,
     pathOpts: { ...m.pathOpts, env, runner: runnerFor(run, env) } satisfies HarnessOpts,
   };
 }

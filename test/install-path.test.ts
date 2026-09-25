@@ -18,6 +18,7 @@ import {
   sinkInto,
   uninstallPlugin,
   updateAll,
+  withCodex,
   wiring as marketWiring,
   type Machine,
   type Tracked,
@@ -455,6 +456,175 @@ test('one path plugin leaving does not unstage another', () => {
       rowsOf(m).map((r) => r.plugin),
       ['second'],
     );
+  });
+});
+
+// Codex installs from a marketplace too, and reads the same generated one - so
+// a path plugin is staged for it exactly as for Claude Code.
+test('installing into Codex stages the plugin and addresses the generated marketplace', async () => {
+  const m = withCodex(machine());
+
+  const report = await quietly(() =>
+    installPlugin({
+      brand: brand(),
+      plugin: pluginDir(),
+      targets: ['codex'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    }),
+  );
+
+  assert.deepEqual(report.targets, ['codex']);
+  const root = localMarketplace(m.pathOpts).dir.toString();
+  assert.ok(fs.existsSync(path.join(root, 'plugins', 'my-sdk', 'skills', 'thing')));
+  assert.ok(m.codexCalls.includes(`plugin marketplace add ${root}`), m.codexCalls.join(' | '));
+  assert.ok(m.codexCalls.includes(`plugin add my-sdk@${LOCAL_MARKETPLACE}`));
+});
+
+/** A path plugin installed into both CLI-driven editors, on one machine. */
+async function inBoth(answer?: (line: string) => { code?: number; stderr?: string } | undefined) {
+  const m = withCodex(claudeMachine(), answer);
+  await installPlugin({
+    brand: brand(),
+    plugin: pluginDir(),
+    targets: ['claude', 'codex'],
+    assumeYes: true,
+    pathOpts: m.pathOpts,
+    wiring: wiring(),
+  });
+  const staged = (): boolean =>
+    fs.existsSync(path.join(localMarketplace(m.pathOpts).dir.toString(), 'plugins', 'my-sdk'));
+  assert.ok(staged(), 'staged once, for both');
+  return { m, staged };
+}
+
+// The marketplace is shared, so the first editor out must not take it from the
+// other: Codex left registered to a directory that has gone cannot list any
+// plugin at all, and one whose plugin vanished from it no longer shows it.
+test('a path plugin Codex still holds stays staged when Claude Code lets it go', () => {
+  return quietly(async () => {
+    const { m, staged } = await inBoth();
+
+    const report = await uninstallPlugin({
+      brand: brand(),
+      plugin: 'my-sdk',
+      targets: ['claude'],
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    assert.deepEqual(report.targets, ['claude']);
+    assert.ok(staged(), 'Codex still reads it');
+    assert.deepEqual(rowsOf(m)[0]?.targets, ['codex']);
+    assert.ok(!m.calls.some((c) => c.startsWith('plugin marketplace remove')));
+    assert.ok(!m.codexCalls.some((c) => c.startsWith('plugin marketplace remove')));
+  });
+});
+
+test('the last editor out unstages it, and every CLI forgets the generated marketplace', () => {
+  return quietly(async () => {
+    // Once the directory is gone a real Codex cannot list marketplaces at all,
+    // which is exactly when the registration has to go.
+    let gone = false;
+    const { m, staged } = await inBoth((line) =>
+      gone && line.startsWith('plugin marketplace list')
+        ? { code: 1, stderr: 'failed to load marketplace(s)' }
+        : undefined,
+    );
+    await uninstallPlugin({
+      brand: brand(),
+      plugin: 'my-sdk',
+      targets: ['claude'],
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+    gone = true;
+
+    await uninstallPlugin({
+      brand: brand(),
+      plugin: 'my-sdk',
+      targets: ['codex'],
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    assert.equal(staged(), false);
+    assert.equal(fs.existsSync(localMarketplace(m.pathOpts).dir.toString()), false);
+    assert.deepEqual(rowsOf(m), []);
+    assert.ok(m.codexCalls.includes(`plugin marketplace remove ${LOCAL_MARKETPLACE}`));
+    assert.ok(
+      m.calls.includes(`plugin marketplace remove ${LOCAL_MARKETPLACE}`),
+      'Claude Code was not asked this run, and still points at the same directory',
+    );
+  });
+});
+
+// Codex comes last in the loop and can fail after the editors before it have
+// their copy. Unrecorded, those copies are ones nothing can update or remove.
+test('editors installed before a failing one are still recorded', () => {
+  return quietly(async () => {
+    const m = withCodex(machine(), (line) =>
+      line.startsWith('plugin add') ? { code: 1, stderr: 'Error: disk full' } : undefined,
+    );
+
+    await assert.rejects(
+      installPlugin({
+        brand: brand(),
+        plugin: pluginDir(),
+        targets: ['cursor', 'vscode', 'codex'],
+        assumeYes: true,
+        pathOpts: m.pathOpts,
+        wiring: wiring(),
+      }),
+      /codex plugin add my-sdk@context-plugins-local failed/,
+    );
+
+    assert.deepEqual(rowsOf(m)[0]?.targets, ['cursor', 'vscode']);
+    assert.ok(fs.existsSync(paths.cursorLocalDir(m.pathOpts).join('my-sdk').toString()));
+  });
+});
+
+test('a Codex too old for plugins is skipped, and the others install as usual', () => {
+  return quietly(async () => {
+    const tooOld = { code: 2, stderr: "error: unexpected argument 'marketplace' found" };
+    const m = withCodex(machine(), (line) =>
+      line.startsWith('plugin marketplace') ? tooOld : undefined,
+    );
+
+    const report = await installPlugin({
+      brand: brand(),
+      plugin: pluginDir(),
+      targets: ['cursor', 'codex'],
+      assumeYes: true,
+      pathOpts: m.pathOpts,
+      wiring: wiring(),
+    });
+
+    assert.deepEqual(report.targets, ['cursor']);
+    assert.deepEqual(rowsOf(m)[0]?.targets, ['cursor']);
+    assert.ok(!m.codexCalls.some((c) => c.startsWith('plugin add')));
+  });
+});
+
+test('a Codex removal that fails keeps the plugin staged for the retry', () => {
+  return quietly(async () => {
+    const { m, staged } = await inBoth((line) =>
+      line.startsWith('plugin remove') ? { code: 1, stderr: 'EPERM' } : undefined,
+    );
+
+    await assert.rejects(
+      uninstallPlugin({
+        brand: brand(),
+        plugin: 'my-sdk',
+        pathOpts: m.pathOpts,
+        wiring: wiring(),
+      }),
+      /Could not uninstall 'my-sdk' from Codex/,
+    );
+
+    assert.ok(staged(), 'Codex may still read it');
+    assert.deepEqual(rowsOf(m)[0]?.targets, ['codex']);
   });
 });
 

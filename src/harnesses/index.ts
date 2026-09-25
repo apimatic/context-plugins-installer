@@ -1,5 +1,6 @@
 import { NAMES, type Harness, type HarnessName, type HarnessOpts } from '../types/harness.js';
 import { ClaudeHarness } from './claude.js';
+import { CodexHarness } from './codex.js';
 import { CursorHarness } from './cursor.js';
 import { VscodeHarness } from './vscode.js';
 
@@ -41,4 +42,5 @@ export const harnesses = new HarnessRegistry({
   claude: new ClaudeHarness(),
   cursor: new CursorHarness(),
   vscode: new VscodeHarness(),
+  codex: new CodexHarness(),
 });

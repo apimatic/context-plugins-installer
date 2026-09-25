@@ -1,11 +1,12 @@
 {
   "name": "context-plugins",
   "version": "0.10.0",
-  "description": "Install a plugin from a plugin marketplace into Claude Code, Cursor, and VS Code with one command.",
+  "description": "Install a plugin from a plugin marketplace into Claude Code, Cursor, VS Code, and Codex with one command.",
   "keywords": [
     "claude-code",
     "cursor",
     "vscode",
+    "codex",
     "copilot",
     "plugin",
     "plugins",

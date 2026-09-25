@@ -2,7 +2,7 @@ import { resolvePlugin } from '../application/plugin-resolution.js';
 import { resolveTargets } from '../application/target-selection.js';
 import { decideUninstall, uninstallLines } from '../application/uninstall-decision.js';
 import { harnesses } from '../harnesses/index.js';
-import { localMarketplace } from '../infrastructure/local-marketplace.js';
+import { localMarketplace, unstageLocalPlugin } from '../infrastructure/local-marketplace.js';
 import { openManifest } from '../infrastructure/manifest-store.js';
 import * as paths from '../infrastructure/paths.js';
 import type { UninstallPrompts } from '../prompts/uninstall.js';
@@ -15,12 +15,20 @@ import {
   type UninstallOutcome,
 } from '../types/harness.js';
 import { PluginId } from '../types/ids/plugin-id.js';
-import { RepoMarketplace, type MarketplaceOrigin } from '../types/marketplace-origin.js';
+import {
+  RepoMarketplace,
+  type DirectoryMarketplace,
+  type MarketplaceOrigin,
+} from '../types/marketplace-origin.js';
 import { restoreSource, type PluginSource, type SourceKind } from '../types/plugin-source.js';
 import type { RegistryClient } from '../types/ports.js';
 import type { UninstallResult } from '../types/reports.js';
+import type { UninstallDecision } from '../types/uninstall.js';
 import { errorMessage, nonEmptyString } from '../types/util.js';
 import { ActionResult } from './action-result.js';
+
+/** An editor that installs from a marketplace, and so addresses a plugin by one. */
+const viaMarketplace = (name: HarnessName): boolean => !harnesses.byName(name).needsSource;
 
 export interface UninstallRequest {
   brand: Brand;
@@ -78,7 +86,8 @@ export class UninstallAction {
     });
     const known =
       brand.id || (recorded && nonEmptyString(recorded.marketplace) ? recorded.marketplace : null);
-    if (known || !want.includes('claude')) return at(known);
+    // Only an editor that addresses a plugin as `plugin@marketplace` needs the name.
+    if (known || !want.some(viaMarketplace)) return at(known);
 
     const read = await this.registry.readRegistry({
       repo: brand.repo,
@@ -94,6 +103,41 @@ export class UninstallAction {
     if (!recorded) return { failure: resolved.error };
     this.prompts.marketplaceUnknown(plugin, resolved.error);
     return at(null);
+  }
+
+  /**
+   * Take a path plugin out of the generated marketplace once no editor that
+   * installs from it still holds the plugin, and when that empties it, have
+   * every such CLI forget the directory. Here rather than in a harness because
+   * the marketplace is shared: one editor's uninstall cannot see whether the
+   * other still reads it, and Codex left registered to a directory that has
+   * gone refuses to list any plugin at all. "Still holds" is the record's
+   * answer - an editor left on the row, or one whose removal failed.
+   */
+  private async release(
+    plugin: string,
+    origin: DirectoryMarketplace,
+    decision: UninstallDecision,
+  ): Promise<void> {
+    if ([...decision.stuck, ...decision.failed].some(viaMarketplace)) return;
+    const unstaged = unstageLocalPlugin({ plugin }, this.pathOpts);
+    if (!unstaged.ok) {
+      this.prompts.stagingLeft(unstaged.error.message);
+      return;
+    }
+    if (!unstaged.value.removed) return;
+    // Every such editor on the machine, not only the ones asked: a CLI that
+    // registered it for another plugin points at the same missing directory.
+    // Caught per editor, like the uninstalls above: the plugin is already gone
+    // and recorded as such, so a spawn that fails here is a warning, not a crash.
+    for (const harness of harnesses.all()) {
+      if (!harness.forgetMarketplace || !harness.detect(this.pathOpts)) continue;
+      try {
+        await harness.forgetMarketplace(origin, this.prompts.harnessListener, this.pathOpts);
+      } catch (err) {
+        this.prompts.harnessThrew(harness.title, errorMessage(err));
+      }
+    }
   }
 
   readonly execute = async (req: UninstallRequest): Promise<ActionResult<UninstallResult>> => {
@@ -162,6 +206,8 @@ export class UninstallAction {
     // Not in a `finally`: a write failure on the success path must not pass
     // silently as one more thing that went wrong.
     records.applyUninstall(key, decision);
+
+    if (found.origin.kind === 'directory') await this.release(plugin, found.origin, decision);
 
     this.prompts.summary(uninstallLines(decision, { plugin, bin: BIN }));
 

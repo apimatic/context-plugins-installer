@@ -2,14 +2,14 @@ import type { PathOpts } from './env.js';
 import type { Failure } from './failure.js';
 import type { Result } from './result.js';
 import type { DirectoryPath, FilePath } from './file/paths.js';
-import type { MarketplaceOrigin } from './marketplace-origin.js';
+import type { DirectoryMarketplace, MarketplaceOrigin } from './marketplace-origin.js';
 import type { ProcessRunner } from './ports.js';
 import type { Session } from './session.js';
 
 // One editor's install strategy, and the vocabulary the rest of the program uses
 // to talk about editors.
 
-export type HarnessName = 'claude' | 'cursor' | 'vscode';
+export type HarnessName = 'claude' | 'cursor' | 'vscode' | 'codex';
 
 /**
  * Editor titles, and through them the list of editors this build knows. Static
@@ -30,6 +30,7 @@ export const TITLES: Readonly<Record<HarnessName, string>> = Object.freeze({
   claude: 'Claude Code',
   cursor: 'Cursor',
   vscode: 'VS Code',
+  codex: 'Codex',
 });
 
 export const isHarnessName = (name: unknown): name is HarnessName =>
@@ -135,8 +136,32 @@ export type ClaudeEvent = { harness: 'claude' } & (
   | { kind: 'plugin-absent'; plugin: string; scope: string }
   | { kind: 'plugin-uninstalled'; target: string }
   | { kind: 'marketplace-removed'; known: string }
-  | { kind: 'staging-left'; detail: string }
   | { kind: 'plugin-uninstall-failed'; target: string; code: number; detail: string }
+  | { kind: 'reload'; after: HarnessVerb }
+);
+
+/**
+ * Codex installs through its own CLI too, in the same `plugin@marketplace`
+ * vocabulary, so its steps mirror Claude's. What differs is what the CLI can
+ * answer: `plugin remove` succeeds whether or not the plugin was there, so
+ * absence is established by looking before the removal rather than read off it.
+ */
+export type CodexEvent = { harness: 'codex' } & (
+  | { kind: 'cli-missing' }
+  | { kind: 'plugins-unsupported' }
+  | { kind: 'no-marketplace-name'; after: HarnessVerb }
+  | { kind: 'marketplace-renamed'; known: string; configured: string }
+  | { kind: 'marketplace-registered'; known: string }
+  | { kind: 'marketplace-upgraded'; known: string }
+  | { kind: 'marketplace-upgrade-failed'; known: string; code: number; detail: string }
+  | { kind: 'marketplace-added'; marketplace: string }
+  | { kind: 'plugin-stale'; target: string; known: string }
+  | { kind: 'plugin-installed'; target: string }
+  | { kind: 'plugin-absent'; target: string }
+  | { kind: 'plugin-uninstalled'; target: string }
+  | { kind: 'plugin-uninstall-failed'; target: string; code: number; detail: string }
+  | { kind: 'plugin-left-behind'; target: string; dir: DirectoryPath }
+  | { kind: 'marketplace-removed'; known: string }
   | { kind: 'reload'; after: HarnessVerb }
 );
 
@@ -151,7 +176,7 @@ export type ClaudeEvent = { harness: 'claude' } & (
  * makes a recorded event say what it is about without its surroundings, and it
  * is what lets one listener render whichever harness a loop reaches next.
  */
-export type HarnessEvent = ClaudeEvent | CursorEvent | VscodeEvent;
+export type HarnessEvent = ClaudeEvent | CursorEvent | VscodeEvent | CodexEvent;
 
 export type HarnessListener = (event: HarnessEvent) => void;
 
@@ -199,6 +224,20 @@ export interface Harness {
   location(opts?: HarnessOpts): DirectoryPath | string;
   install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>>;
   uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome>;
+  /**
+   * For an editor that installs from a marketplace (`needsSource: false`):
+   * drop its registration of the generated one, whose directory is gone. The
+   * uninstall action calls it on every such editor once the last staged plugin
+   * has left - not only the ones the run asked - because a CLI still pointing
+   * at a directory that no longer exists is left broken: Codex refuses to list
+   * any plugin at all. Says what it removed and nothing else; a CLI that never
+   * registered it has nothing to say.
+   */
+  forgetMarketplace?(
+    origin: DirectoryMarketplace,
+    listener: HarnessListener,
+    opts?: HarnessOpts,
+  ): Promise<void>;
 }
 
 /** `claude plugin marketplace list --json` entries; the shape varies by CLI version. */
@@ -209,4 +248,11 @@ export interface InstalledPlugin {
   plugin: string;
   /** null when the listing does not say, which counts as "could be ours". */
   scope: string | null;
+}
+
+/** One `installed` row of `codex plugin list --json`, as much of it as this build reads. */
+export interface CodexPlugin {
+  plugin: string;
+  /** The name Codex files the marketplace under; null when the id does not say. */
+  marketplace: string | null;
 }

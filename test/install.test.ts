@@ -22,6 +22,7 @@ import {
   updateAll,
   wiring,
   withClaude,
+  withCodex,
 } from './install-fixture.js';
 import {
   FailureError,
@@ -590,7 +591,8 @@ test('a row whose targets this build cannot read is left exactly as found', asyn
 // disk by every uninstall, --force included, while `read()` filed it under
 // `ignored` - so `update` failed on it on every future run, forever.
 test('a row that names no editor is dropped once every editor has answered', async () => {
-  const m = withClaude(machine());
+  // Every editor has to answer, so both CLI-driven ones need a fake on PATH.
+  const m = withCodex(withClaude(machine()));
   const repo = 'context-plugins/plugin-marketplace';
   const file = paths.manifestPath(m.pathOpts).toString();
   fs.mkdirSync(path.dirname(file), { recursive: true });

@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`context-plugins` installs plugins into Claude Code, Cursor, and VS Code with one
-command - from a plugin marketplace (a GitHub repo carrying a
+`context-plugins` installs plugins into Claude Code, Cursor, VS Code, and Codex with
+one command - from a plugin marketplace (a GitHub repo carrying a
 `.claude-plugin/marketplace.json` registry), from a directory on the machine
 that is itself a plugin, from a GitHub repository (or a folder inside one)
 that is itself a plugin, or from a `.zip` or `.tar.gz` of one, at an https URL
@@ -561,11 +561,18 @@ add ''` is an error, so the git arm turns the clone's sparseness off instead
   refuse; `name` is forced because this tool owns it. A field this schema gains
   later is the same class of bug, and only a real `claude` can find it - the
   unit tests drive a fake runner, so they assert the argv and never what Claude
-  makes of the bytes. Staging happens in the action and only when
-  Claude Code is actually a target, so a run that never touched it leaves no
-  marketplace holding a plugin it never got - and the last plugin out takes the
-  whole directory with it, since an empty generated marketplace is a row in
-  `claude plugin marketplace list` offering nothing. A `github` source stages
+  makes of the bytes. Staging happens in the action and only when an editor
+  that installs from a marketplace (`needsSource: false` - Claude Code or
+  Codex) is actually a target, so a run that never touched one leaves no
+  marketplace holding a plugin it never got. Unstaging is the uninstall
+  action's too, for the same reason: the marketplace is shared by both CLIs,
+  so a plugin leaves it only once neither editor is still on the row (or failed
+  to let go), and the last plugin out takes the whole directory with it -
+  after which the action asks **every** detected CLI-driven harness to
+  `forgetMarketplace`, not only the ones the run asked. That is not tidiness:
+  Codex left registered to a directory that has gone refuses to list any
+  plugin at all (`codex plugin list` exits 1), and one whose plugin vanished
+  from the registry silently stops showing it. A `github` source stages
   the same way from the checkout instead of from a folder the user has, which
   is the reason the fetch condition is a compound one: `needsSource` stays a
   fact about an editor, "this origin has to be staged" is the fact about the
@@ -680,7 +687,37 @@ edited plugin whose manifest version did not move would re-install and
 copy nothing. That call reports nothing, and its exit code is kept rather than
 ignored: it is the one signal that tells a failed install whether the user's
 previous copy is already gone, which is the only thing the hint after it can
-say that no other line would. To add an editor, use the
+say that no other line would.
+
+Codex (`harnesses/codex.ts` over `infrastructure/codex-cli.ts`) is the second
+CLI-driven harness, the same `plugin@marketplace` shape as Claude, and it reads
+`.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json` as they are,
+so neither the built-in marketplace nor the generated one needs anything
+written for it. What differs, measured against codex-cli 0.149.1 and 0.156.1:
+a git marketplace is a snapshot refreshed with `marketplace upgrade`, which
+refuses a local one (read where it lies, so never upgraded); `plugin add`
+re-copies into the cache even at an unchanged version, so there is no remove
+before a directory install; and `plugin remove` exits 0 whether or not the
+plugin was there - even for a marketplace Codex never heard of - so it cannot
+tell `removed` from `absent`. The harness therefore looks **before** removing:
+the cache folder `$CODEX_HOME/plugins/cache/<marketplace>/<plugin>` (what Codex
+loads, and what `remove` deletes) or an `installed` row of `codex plugin list
+--json`. The listing alone is not enough: it hides a plugin its marketplace no
+longer offers. A removal that exits 0 and leaves the cache is `failed`.
+`CODEX_HOME` is honoured instead of a `CP_*` override because it is what the
+binary reads, so one variable sandboxes both views. Its registration memo is a
+map of its own on the session (`codexMarketplaces`), since each CLI files a
+marketplace under a name of its own - and Codex has one more answer to share
+across a run: `unsupported`. A Codex from before `codex plugin` existed
+(0.100.0 and older, measured) reads `plugin` as a prompt and clap refuses the
+rest (`unexpected argument 'marketplace' found`); `NO_PLUGIN_COMMAND` matches
+only the words this harness sends, and the harness answers a **skip**, never a
+`Failure`. That matters beyond wording: Codex is last in the loop, and the
+install action records the editors already installed before it returns any
+harness `Failure` - a copy with no row is one nothing can update or uninstall -
+but a skip keeps the run green as well.
+
+To add an editor, use the
 `add-harness` skill (`.claude/skills/add-harness/`) - it lists the hand-written
 editor names and CI steps the compiler cannot flag.
 
@@ -974,7 +1011,8 @@ field that no longer exists on that type is refused where it is written. That
 is not hypothetical - when the harness seam moved from `run` to `runner`, the
 inferred literal dropped the fake silently and one behavioural test caught it.
 Tests build a sandboxed "machine" from env overrides
-(`CP_STATE_DIR`, `CP_CURSOR_DIR`, `CP_VSCODE_USER_DIR`) and assert on real files.
+(`CP_STATE_DIR`, `CP_CURSOR_DIR`, `CP_VSCODE_USER_DIR`, `CODEX_HOME`) and assert on real files;
+`withClaude` / `withCodex` put a fake CLI on its PATH.
 Never touch the developer's real home directory in tests; never add I/O that
 bypasses these seams.
 
