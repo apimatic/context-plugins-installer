@@ -135,12 +135,9 @@ export function stageLocalPlugin(
 }
 
 /**
- * Whether taking this plugin out would leave the marketplace holding nothing -
- * the question the uninstall action asks *before* unstaging, because the CLIs'
- * registrations have to be dropped while the directory still stands: deleting
- * it first is what breaks Codex's listing, and a live listing is what lets
- * each CLI find the name it filed the marketplace under. A directory that does
- * not exist is already empty.
+ * Whether taking this plugin out would leave the marketplace holding nothing,
+ * asked before unstaging because the CLIs have to deregister while the
+ * directory still stands. One that does not exist is already empty.
  */
 export function wouldEmptyMarketplace({ plugin }: { plugin: string }, opts?: PathOpts): boolean {
   const origin = localMarketplace(opts);

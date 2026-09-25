@@ -235,17 +235,13 @@ export class InstallAction {
     };
     const installed: HarnessName[] = [];
     // Written on the way out of every arm below. An editor later in the loop
-    // can fail after earlier ones have their copy - Codex comes last and is
-    // the second CLI that can - and a copy with no row is one nothing will
-    // ever update or uninstall.
+    // can fail after earlier ones have their copy, and a copy with no row is
+    // one nothing will ever update or uninstall.
     const record = (): void => {
       report.targets = installed;
       if (!installed.length) return;
-      // An editor recorded by an earlier run that this run asked but did not
-      // (re)install into - it failed, threw, or was skipped - still holds that
-      // earlier copy, so it stays on the row: `recordInstall` replaces the
-      // known targets, and dropping one here would strand a copy nothing could
-      // ever update or uninstall.
+      // A recorded editor this run asked but did not (re)install into still
+      // holds its earlier copy, and `recordInstall` replaces the known targets.
       const kept = (recorded?.targets ?? []).filter(
         (n) => !installed.includes(n) && !report.untouched.includes(n),
       );
@@ -277,10 +273,8 @@ export class InstallAction {
         if (outcome.value === 'installed') installed.push(name);
       }
     } catch (e) {
-      // A throw out of a harness is a bug and stays one - the router still
-      // reports it as such - but the editors already installed get their row
-      // first, or their copies would be exactly the unrecorded state this
-      // closure exists to prevent.
+      // A throw is still a bug the router reports, but the editors already
+      // installed get their row first.
       record();
       throw e;
     }

@@ -323,10 +323,9 @@ export function withCodex<M extends Machine & { pathOpts: HarnessOpts }>(
 }
 
 /**
- * Unlike `withClaude`, this fake answers every call, not just a listing - and
- * it remembers directory registrations the way a real Claude does, so the
- * ownership check `forgetMarketplace` runs against the listing has something
- * real to check. Seed `marketplaces` to model a registration from elsewhere.
+ * Unlike `withClaude`, this fake answers every call, not just a listing, and it
+ * remembers directory registrations so `forgetMarketplace`'s ownership check
+ * has something real to read. Seed `marketplaces` for one from elsewhere.
  */
 export type ClaudeMachine = ReturnType<typeof withClaude> & {
   calls: string[];
@@ -338,8 +337,7 @@ export function claudeMachine(): ClaudeMachine {
   const calls: string[] = [];
   const marketplaces: Record<string, unknown>[] = [];
   // The name a real Claude files a directory marketplace under: the one its
-  // registry declares. An address that is not one is left unremembered, which
-  // is the stateless answer this fake always gave for a repo.
+  // registry declares. Anything else stays unremembered, as before.
   const nameFor = (at: string): string | null => {
     try {
       const parsed: unknown = JSON.parse(

@@ -143,8 +143,8 @@ export type ClaudeEvent = { harness: 'claude' } & (
 /**
  * Codex installs through its own CLI too, in the same `plugin@marketplace`
  * vocabulary, so its steps mirror Claude's. What differs is what the CLI can
- * answer: `plugin remove` succeeds whether or not the plugin was there, so
- * absence is established by looking before the removal rather than read off it.
+ * answer: `plugin remove` succeeds either way, so absence is established by
+ * looking before the removal rather than read off it.
  */
 export type CodexEvent = { harness: 'codex' } & (
   | { kind: 'cli-missing' }
@@ -226,13 +226,11 @@ export interface Harness {
   install(ctx: HarnessContext, opts?: HarnessOpts): Promise<Result<InstallOutcome, Failure>>;
   uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome>;
   /**
-   * For an editor that installs from a marketplace (`needsSource: false`):
-   * drop its registration of the generated one, whose directory is gone. The
-   * uninstall action calls it on every such editor once the last staged plugin
-   * has left - not only the ones the run asked - because a CLI still pointing
-   * at a directory that no longer exists is left broken: Codex refuses to list
-   * any plugin at all. Says what it removed and nothing else; a CLI that never
-   * registered it has nothing to say.
+   * For an editor that installs from a marketplace: drop its registration of
+   * the generated one as the last staged plugin leaves. The uninstall action
+   * calls it on every such editor, not only the ones the run asked, because a
+   * CLI pointing at a directory that has gone is left broken - Codex refuses
+   * to list any plugin at all.
    */
   forgetMarketplace?(
     origin: DirectoryMarketplace,

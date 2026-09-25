@@ -313,14 +313,11 @@ export class ClaudeHarness implements Harness {
   /**
    * Unstaging is the uninstall action's, because the generated marketplace is
    * shared with Codex and only the action can see whether either editor still
-   * reads it; forgetting the registration once it is gone is this CLI's.
-   *
-   * Only an entry the listing shows pointing at this directory is removed: the
-   * bare name is the same constant for every state directory on the machine,
-   * so removing by it can take out a registration that was never this run's.
-   * A listing that cannot answer removes nothing - unlike Codex, a dangling
-   * entry does not stop Claude listing, so leaving one costs little and
-   * guessing could cost somebody else's marketplace.
+   * reads it; forgetting the registration once it is gone is this CLI's. Only
+   * an entry the listing shows pointing at this directory is removed: the bare
+   * name is the same constant for every state directory on the machine, and a
+   * dangling entry does not stop Claude listing, so guessing costs more than
+   * leaving one.
    */
   async forgetMarketplace(
     origin: DirectoryMarketplace,

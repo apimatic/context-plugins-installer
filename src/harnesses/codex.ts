@@ -35,15 +35,13 @@ const tail = (res: RunResult): string =>
 
 const output = (res: RunResult): string => `${res.stderr || ''}${res.stdout || ''}`;
 
-// What Codex says for a plugin its snapshot of the marketplace does not list,
-// whether the snapshot is stale or the plugin does not exist; this only decides
-// whether an upgrade is worth one retry.
+// Said whether the snapshot is stale or the plugin does not exist; this only
+// decides whether an upgrade is worth one retry.
 const LOOKS_STALE = /not found in marketplace/i;
 
 // A Codex from before `codex plugin` existed (0.100.0 and older, measured) reads
-// `plugin` as a prompt and refuses the rest of the command line in clap's words.
-// Named words only, so a real refusal from a Codex that has plugins is not
-// mistaken for this.
+// `plugin` as a prompt and refuses the rest in clap's words. Named words only,
+// so a real refusal is not mistaken for this.
 const NO_PLUGIN_COMMAND =
   /unexpected argument '(marketplace|list|add|remove|upgrade)' found|unrecognized subcommand '(marketplace|list|add|remove|upgrade)'/i;
 
@@ -84,16 +82,13 @@ export interface CodexRegistration {
 /**
  * Codex installs through the `codex` CLI from a marketplace it has registered -
  * the same shape as Claude Code, and it reads the same
- * `.claude-plugin/marketplace.json`, so neither the built-in marketplace nor the
- * one generated for a path plugin needs anything written for it. Spelling the
- * argv is `infrastructure/codex-cli.ts`; this is the policy.
+ * `.claude-plugin/marketplace.json`, so nothing has to be written for it.
+ * Spelling the argv is `infrastructure/codex-cli.ts`; this is the policy.
  *
  * Two things differ from Claude and shape everything below. A git marketplace
- * is a snapshot Codex refreshes with `marketplace upgrade`, while a local one is
- * read where it lies and cannot be upgraded at all. And `plugin remove`
- * succeeds whether or not the plugin was installed, so it cannot tell `removed`
- * from `absent`: what Codex held is read before the removal, from its listing
- * and from the cache folder a removal deletes.
+ * is a snapshot refreshed with `marketplace upgrade`, while a local one is read
+ * where it lies. And `plugin remove` succeeds whether or not the plugin was
+ * there, so what Codex held is read before the removal.
  */
 export class CodexHarness implements Harness {
   readonly name: HarnessName = 'codex';
@@ -166,8 +161,7 @@ export class CodexHarness implements Harness {
     }
 
     // Every Codex entry says where it came from, so a same-named one that is
-    // not this origin is somebody else's, and installing into it would install
-    // their plugin of the same name.
+    // not this origin would install somebody else's plugin of that name.
     const clash = entries?.find((e) => e.name === marketplace);
     if (clash) {
       return err(
@@ -181,8 +175,7 @@ export class CodexHarness implements Harness {
     // `add` of a source Codex already holds succeeds, so an unreadable listing
     // costs nothing here - and a refusal is a real one.
     const added = await cli.marketplaceAdd(addressOf(origin));
-    // Not a refusal to fix but a Codex that cannot take plugins at all: a skip,
-    // so the editors already installed this run are still recorded.
+    // A Codex that cannot take plugins at all, not a refusal to fix: a skip.
     if (added.code !== 0 && NO_PLUGIN_COMMAND.test(output(added))) return ok('unsupported');
     if (added.code !== 0) {
       return err(
@@ -199,8 +192,7 @@ export class CodexHarness implements Harness {
   /**
    * Memoized per session like Claude's, in a map of Codex's own: the two CLIs
    * file one marketplace under names of their own, and neither may be handed
-   * the other's answer. The promise is cached, so an `unsupported` is found
-   * once per run rather than once per plugin.
+   * the other's answer.
    */
   ensureMarketplaceOnce(
     cli: CodexCli,
@@ -268,7 +260,7 @@ export class CodexHarness implements Harness {
    * enough: the listing hides a plugin its marketplace no longer offers, while
    * the cache folder is what Codex actually loads and what `remove` deletes.
    * `null` is "could not tell": with the marketplace listing broken too,
-   * `known` is a guess, and an empty cache under a guessed name proves nothing.
+   * `known` is a guess, and an empty cache under one proves nothing.
    */
   private async holds(
     cli: CodexCli,
@@ -295,9 +287,7 @@ export class CodexHarness implements Harness {
     }
     const cli = this.cliFor(codex, opts);
     // The listing itself, not just the name it resolves: whether it answered
-    // decides what an empty cache is allowed to mean below. A listing that
-    // answered without our entry has itself answered - the marketplace is not
-    // registered, so nothing under it is loaded.
+    // decides what an empty cache is allowed to mean below.
     const entries = await cli.listMarketplaces();
     const hit = entries?.find((e) => isSameOrigin(e, origin));
     const known = (hit && nonEmptyString(hit.name) ? hit.name : null) || origin.name;
@@ -331,9 +321,8 @@ export class CodexHarness implements Harness {
       say({ harness: 'codex', kind: 'plugin-left-behind', target, dir });
       return 'failed';
     }
-    // `remove` exits 0 whether or not anything was there, so with the question
-    // above unanswered this run has established nothing: `absent` is a positive
-    // finding that clears the record, and an unanswered question is a skip.
+    // `remove` exits 0 either way, so an unanswered question establishes
+    // nothing - and `absent` is a positive finding that clears the record.
     if (had === null) {
       say({ harness: 'codex', kind: 'plugin-unverified', target });
       return 'skipped';
@@ -348,14 +337,12 @@ export class CodexHarness implements Harness {
   }
 
   /**
-   * By the name Codex filed it under, which the listing resolves - the name in
-   * marketplace.json can drift after registration, and removing by today's
-   * name would miss the entry and leave it dangling. A listing that answers
-   * without an entry of ours removes nothing: a same-named entry from another
-   * directory is not ours to remove. Only a listing that cannot answer falls
-   * back to the configured name, because a registration whose directory has
-   * gone is exactly what stops Codex listing anything - so a failed listing is
-   * no reason to keep it.
+   * By the name Codex filed it under, which the listing resolves: the name in
+   * marketplace.json can drift after registration. A listing that answers
+   * without an entry of ours removes nothing - that name is somebody else's.
+   * Only a listing that cannot answer falls back to the configured name,
+   * because a registration whose directory has gone is exactly what stops
+   * Codex listing anything.
    */
   async forgetMarketplace(
     origin: DirectoryMarketplace,

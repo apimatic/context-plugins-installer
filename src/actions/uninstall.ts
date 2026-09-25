@@ -111,24 +111,15 @@ export class UninstallAction {
 
   /**
    * Take a path plugin out of the generated marketplace once no editor that
-   * installs from it still holds the plugin, and when that empties it, have
-   * every such CLI forget the directory. Here rather than in a harness because
-   * the marketplace is shared: one editor's uninstall cannot see whether the
-   * other still reads it, and Codex left registered to a directory that has
-   * gone refuses to list any plugin at all.
-   *
-   * "Still holds" has three spellings, and any of them keeps the staging: an
-   * editor left on the row or one whose removal failed; an asked editor that
-   * could not look (`skipped` - a CLI off `PATH` right now is still registered
-   * to the directory, and `--force` dropping its row does not deregister it);
-   * and a row that survives in a shape this build cannot read, which is
-   * exactly the row that says an editor this build cannot see may hold it.
-   *
-   * Registrations are dropped before the directory goes, not after: deleting
-   * it first is what breaks Codex's listing, and a live listing is what lets
-   * each CLI find the name it filed the marketplace under - possibly drifted -
-   * and check the entry really points here rather than at a same-named
-   * marketplace from another directory.
+   * installs from it still holds it, and when that empties it, have every such
+   * CLI forget the directory. Here rather than in a harness because the
+   * marketplace is shared: one editor's uninstall cannot see whether the other
+   * still reads it, and Codex left registered to a directory that has gone
+   * refuses to list any plugin at all. Any of three answers keeps the staging -
+   * an editor still on the row or failed, an asked one that could not look, or
+   * a surviving row this build cannot read. Registrations go before the
+   * directory does: deleting it first breaks the listing each CLI needs to find
+   * the name it filed the marketplace under.
    */
   private async release(
     plugin: string,
@@ -144,8 +135,6 @@ export class UninstallAction {
     if (wouldEmptyMarketplace({ plugin }, this.pathOpts)) {
       // Every such editor on the machine, not only the ones asked: a CLI that
       // registered it for another plugin points at the same doomed directory.
-      // Caught per editor, like the uninstalls above: a spawn that fails here
-      // is a warning, not a crash.
       for (const harness of harnesses.all()) {
         if (!harness.forgetMarketplace || !harness.detect(this.pathOpts)) continue;
         try {
@@ -222,10 +211,8 @@ export class UninstallAction {
     }
 
     const decision = decideUninstall({ recorded: recorded ?? null, outcomes, want, force });
-    // Released before the record write, not after: the write can fail - and
-    // throws when it does - and a release skipped then would never run again,
-    // because a later run that finds no row rebuilds a marketplace-kind origin
-    // and cannot reach it.
+    // Before the record write, which throws on failure: skipped then, it would
+    // never run again - a later run with no row rebuilds a repo origin.
     if (found.origin.kind === 'directory') {
       await this.release(plugin, found.origin, decision, outcomes);
     }

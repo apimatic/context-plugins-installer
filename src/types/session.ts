@@ -70,9 +70,8 @@ export interface Session {
   marketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
   /**
    * The same for Codex, in a map of its own: each CLI files a marketplace under
-   * a name of its own, and Codex has one more answer - `unsupported`, for a
-   * Codex too old to have a `plugin` command - which every plugin in the run
-   * shares too, so it is asked once rather than refused once per plugin.
+   * a name of its own. `unsupported` is the extra answer, for a Codex too old
+   * to have a `plugin` command.
    */
   codexMarketplaces: Map<
     string,

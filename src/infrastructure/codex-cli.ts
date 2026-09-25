@@ -26,8 +26,8 @@ export interface CodexCli {
 
 /**
  * The one `codex ... --json` read: `{ [key]: [...] }`. null means the CLI could
- * not answer - which is also what a marketplace whose directory has gone makes
- * of every listing - so every caller must read it as "unknown", never "none".
+ * not answer - which is what a marketplace whose directory has gone makes of
+ * every listing - so every caller reads it as "unknown", never "none".
  */
 async function listJson(
   exec: RunCommand,
@@ -50,8 +50,7 @@ export function codexCli(codex: string, runner: ProcessRunner): CodexCli {
   return {
     /**
      * Junk rows are dropped rather than fatal, as for Claude: one unreadable
-     * marketplace must not hide the rest. Not memoised, for the same reason
-     * either - the harness lists again right after an add to learn the name.
+     * marketplace must not hide the rest.
      */
     async listMarketplaces() {
       const entries = await listJson(
