@@ -111,10 +111,10 @@ export const isArchiveKey = (repo: unknown): repo is string =>
 export type ArchiveAt = { kind: 'url'; url: string } | { kind: 'file'; file: FilePath };
 
 /**
- * A zip or a tarball that is itself a plugin, at an https URL or on this
- * machine. Like a repository it carries no id - what the plugin is called comes
- * from its own manifest, read once the archive is open - and like a folder
- * inside a repository it can name one inside the archive.
+ * A zip or a tarball that is itself a plugin, at an http or https URL or on
+ * this machine. Like a repository it carries no id - what the plugin is called
+ * comes from its own manifest, read once the archive is open - and like a
+ * folder inside a repository it can name one inside the archive.
  */
 export class ArchiveSource {
   readonly kind = 'archive' as const;
@@ -141,6 +141,14 @@ export class ArchiveSource {
 
   reportableId(): PluginId | null {
     return null;
+  }
+
+  /**
+   * Fetched with nothing vouching for the bytes: no TLS, and no signature to
+   * fall back on. Allowed, because the user typed it - but said out loud.
+   */
+  plainHttp(): boolean {
+    return this.at.kind === 'url' && /^http:/i.test(this.at.url);
   }
 
   toString(): string {
@@ -324,12 +332,6 @@ const bareFile = (spec: string): Failure =>
     `A relative path starts with ./ - write it as ./${spec}, or give the full path.`,
   );
 
-const notHttps = (spec: string): Failure =>
-  new Failure(
-    `${spec} is not an https URL.`,
-    'A plugin can run commands through its hooks, and there is no signature to check, so the connection is the only thing vouching for what arrives. Use https, or download it and install the file.',
-  );
-
 function archiveFile(spec: string, { cwd, home, rules }: Required<ParseSourceOptions>): FilePath {
   const expanded =
     spec === '~' ? home : HOME_PREFIXED.test(spec) ? rules.join(home, spec.slice(2)) : spec;
@@ -351,7 +353,6 @@ function parseArchive(
   // meaning what it did. A bare `my-plugin.zip` is neither, and the id's own
   // failure - "expected kebab-case" - would send the user the wrong way.
   if (!isUrl && !PATH_LIKE.test(at)) return at.includes('/') ? null : err(bareFile(spec));
-  if (isUrl && !/^https:/i.test(at)) return err(notHttps(at));
 
   const folder = path === null ? ok(null) : repoPath(path.split('/').filter(Boolean), spec);
   if (!folder.ok) return err(folder.error);

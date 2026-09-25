@@ -127,9 +127,9 @@ npx context-plugins install https://acme.com/mono.zip#tools/foo     # a folder i
 ```
 
 Which one you meant is read off the argument, so there is no extra flag: anything starting with
-`.`, `/`, `~` or a drive letter is a path, an https URL whose path ends in `.zip`, `.tar.gz`,
-`.tgz` or `.tar` is an archive, anything holding a `/` after that is a repository, and a plain name
-is a plugin in the marketplace as it has always been. An `@ref` on a repository wins over `--ref`,
+`.`, `/`, `~` or a drive letter is a path, an http or https URL whose path ends in `.zip`,
+`.tar.gz`, `.tgz` or `.tar` is an archive, anything holding a `/` after that is a repository, and a
+plain name is a plugin in the marketplace as it has always been. An `@ref` on a repository wins over `--ref`,
 on a URL or an `scp` address as much as on the short `owner/repo` form.
 
 Of the links github.com hands out, the one for a **folder** - `.../tree/<ref>/<folder>` - is the one
@@ -157,10 +157,12 @@ A few things worth knowing:
   downloading the archive again — so editing a plugin and running `update` is the loop. A folder or
   an archive you have since moved or deleted is reported and skipped rather than failing the run;
   install it again from its new home, or uninstall it.
-- **An archive is fetched over https, with no credential.** Nothing is sent that could identify
-  you, and a redirect to a plain `http` link ends the download. A private archive is therefore not
-  installable by URL: download it yourself and install the file. A link that expires — a presigned
-  one, say — works while it works, query string and all.
+- **An archive is fetched with no credential.** Nothing is sent that could identify you, so a
+  private archive is not installable by URL: download it yourself and install the file. A link that
+  expires — a presigned one, say — works while it works, query string and all.
+- **Prefer https.** An `http://` link installs, but you are warned first: nothing checks what
+  arrives over it, and a plugin can run commands. An `https://` link is never followed down to
+  plain `http` — a redirect that tries ends the download.
 - **What comes out of an archive is checked.** A file that would land outside the plugin's folder,
   a name Windows cannot hold, or the same name twice (in any case) ends the install with nothing
   written; links are skipped, and their absence is reported. An archive is refused above 200 MB
