@@ -52,6 +52,34 @@ test('Cursor local plugin dir is the same shape on all three platforms', () => {
   assert.equal(paths.cursorLocalDir(LINUX).toString(), '/home/dev/.cursor/plugins/local');
 });
 
+test('Codex home is ~/.codex on all three platforms', () => {
+  assert.equal(paths.codexHome(WIN).toString(), 'C:\\Users\\dev\\.codex');
+  assert.equal(paths.codexHome(MAC).toString(), '/Users/dev/.codex');
+  assert.equal(paths.codexHome(LINUX).toString(), '/home/dev/.codex');
+});
+
+// CODEX_HOME rather than a CP_* variable of our own: it is what the `codex`
+// binary reads, so one override moves this program's view and the CLI's together.
+test('Codex home honours CODEX_HOME, the variable the codex CLI itself reads', () => {
+  assert.equal(paths.codexHome({ ...LINUX, env: { CODEX_HOME: '/tmp/cx' } }).toString(), '/tmp/cx');
+  assert.equal(paths.codexHome({ ...WIN, env: { CODEX_HOME: 'D:\\cx' } }).toString(), 'D:\\cx');
+  assert.equal(
+    paths.codexHome({ ...LINUX, env: { CODEX_HOME: '' } }).toString(),
+    '/home/dev/.codex',
+  );
+});
+
+test('a Codex plugin is cached under plugins/cache/<marketplace>/<plugin>', () => {
+  assert.equal(
+    paths.codexPluginCacheDir('context-plugins', 'my-sdk', WIN).toString(),
+    'C:\\Users\\dev\\.codex\\plugins\\cache\\context-plugins\\my-sdk',
+  );
+  assert.equal(
+    paths.codexPluginCacheDir('context-plugins', 'my-sdk', LINUX).toString(),
+    '/home/dev/.codex/plugins/cache/context-plugins/my-sdk',
+  );
+});
+
 test('state dir, manifest, and VS Code store', () => {
   assert.equal(paths.stateDir(MAC).toString(), '/Users/dev/.context-plugins');
   assert.equal(paths.manifestPath(MAC).toString(), '/Users/dev/.context-plugins/installed.json');

@@ -43,10 +43,10 @@ test('the title table cannot be added to at runtime', () => {
 });
 
 test('editor lists are prose, derived rather than written out', () => {
-  assert.equal(titlesOf(NAMES), 'Claude Code, Cursor, VS Code');
+  assert.equal(titlesOf(NAMES), 'Claude Code, Cursor, VS Code, Codex');
   assert.equal(titlesOf(['vscode', 'claude']), 'VS Code, Claude Code', 'in the order given');
   assert.equal(titlesOf([]), '');
-  assert.equal(everyEditor(), 'Claude Code / Cursor / VS Code');
-  assert.equal(everyEditor('or'), 'Claude Code, Cursor, or VS Code');
-  assert.equal(everyEditor('and'), 'Claude Code, Cursor, and VS Code');
+  assert.equal(everyEditor(), 'Claude Code / Cursor / VS Code / Codex');
+  assert.equal(everyEditor('or'), 'Claude Code, Cursor, VS Code, or Codex');
+  assert.equal(everyEditor('and'), 'Claude Code, Cursor, VS Code, and Codex');
 });

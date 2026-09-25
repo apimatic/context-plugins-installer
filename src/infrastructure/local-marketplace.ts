@@ -126,12 +126,23 @@ export function stageLocalPlugin(
   } catch (e) {
     return err(
       new Failure(
-        `Could not stage '${plugin}' for Claude Code in ${origin.dir}: ${errorMessage(e)}`,
+        `Could not stage '${plugin}' into the generated marketplace at ${origin.dir}: ${errorMessage(e)}`,
         'Check that the state directory is writable, or set CP_STATE_DIR somewhere it is.',
       ),
     );
   }
   return ok(origin);
+}
+
+/**
+ * Whether taking this plugin out would leave the marketplace holding nothing,
+ * asked before unstaging because the CLIs have to deregister while the
+ * directory still stands. One that does not exist is already empty.
+ */
+export function wouldEmptyMarketplace({ plugin }: { plugin: string }, opts?: PathOpts): boolean {
+  const origin = localMarketplace(opts);
+  if (!exists(origin.dir)) return true;
+  return stagedPlugins(origin.dir).every((name) => name === plugin);
 }
 
 export interface Unstaged {

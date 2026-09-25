@@ -26,6 +26,7 @@ export class VscodeHarness implements Harness {
   readonly name: HarnessName = 'vscode';
   readonly title = TITLES.vscode;
   readonly needsSource = true;
+  readonly installsFromMarketplace = false;
 
   detect(opts?: HarnessOpts): boolean {
     return exists(paths.vscodeUserDir(opts));

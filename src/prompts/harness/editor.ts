@@ -26,6 +26,10 @@ export const RELOAD: Readonly<Record<HarnessName, (after: HarnessVerb) => string
       : 'Restart `claude` or /reload-plugins to unload the plugin.',
   cursor: () => reloadWindow('cursor'),
   vscode: () => reloadWindow('vscode'),
+  codex: (after: HarnessVerb) =>
+    after === 'install'
+      ? 'Start a new `codex` session to load the plugin.'
+      : 'Start a new `codex` session to unload the plugin.',
 });
 
 export function announceEditor(event: EditorEvent, home?: string): void {

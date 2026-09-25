@@ -1,5 +1,4 @@
 import { claudeCli, findClaude, type ClaudeCli } from '../infrastructure/claude-cli.js';
-import { unstageLocalPlugin } from '../infrastructure/local-marketplace.js';
 import { processRunner } from '../infrastructure/process-runner.js';
 import { BIN } from '../types/brand.js';
 import { Failure } from '../types/failure.js';
@@ -17,7 +16,11 @@ import {
 } from '../types/harness.js';
 import type { DirectoryPath } from '../types/file/paths.js';
 import { RepoSlug } from '../types/ids/repo-slug.js';
-import type { MarketplaceOrigin, NamedMarketplace } from '../types/marketplace-origin.js';
+import type {
+  DirectoryMarketplace,
+  MarketplaceOrigin,
+  NamedMarketplace,
+} from '../types/marketplace-origin.js';
 import type { ProcessRunner, RunResult } from '../types/ports.js';
 import { err, ok, type Result } from '../types/result.js';
 import type { Session } from '../types/session.js';
@@ -102,6 +105,7 @@ export class ClaudeHarness implements Harness {
   readonly name: HarnessName = 'claude';
   readonly title = TITLES.claude;
   readonly needsSource = false;
+  readonly installsFromMarketplace = true;
 
   detect(opts?: HarnessOpts): boolean {
     return Boolean(this.binary(opts));
@@ -307,23 +311,29 @@ export class ClaudeHarness implements Harness {
     return !rows.some((r) => r.plugin === plugin && ours(r.scope));
   }
 
-  private async unstage(
-    cli: ClaudeCli,
-    origin: MarketplaceOrigin,
-    plugin: string,
-    known: string,
-    say: Say,
+  /**
+   * Unstaging is the uninstall action's, because the generated marketplace is
+   * shared with Codex and only the action can see whether either editor still
+   * reads it; forgetting the registration once it is gone is this CLI's. Only
+   * an entry the listing shows pointing at this directory is removed: the bare
+   * name is the same constant for every state directory on the machine, and a
+   * dangling entry does not stop Claude listing, so guessing costs more than
+   * leaving one.
+   */
+  async forgetMarketplace(
+    origin: DirectoryMarketplace,
+    listener: HarnessListener,
     opts?: HarnessOpts,
   ): Promise<void> {
-    if (origin.kind !== 'directory') return;
-    const unstaged = unstageLocalPlugin({ plugin }, opts);
-    if (!unstaged.ok) {
-      say({ harness: 'claude', kind: 'staging-left', detail: unstaged.error.message });
-      return;
-    }
-    if (!unstaged.value.removed) return;
+    const claude = this.binary(opts);
+    if (!claude) return;
+    const cli = this.cliFor(claude, opts);
+    const entries = await cli.listMarketplaces();
+    const entry = entries?.find((e) => isSameOrigin(e, origin));
+    if (!entry) return;
+    const known = nonEmptyString(entry.name) ? entry.name : origin.name;
     const dropped = await cli.marketplaceRemove(known);
-    if (dropped.code === 0) say({ harness: 'claude', kind: 'marketplace-removed', known });
+    if (dropped.code === 0) listener({ harness: 'claude', kind: 'marketplace-removed', known });
   }
 
   async uninstall(ctx: HarnessContext, opts?: HarnessOpts): Promise<UninstallOutcome> {
@@ -348,7 +358,6 @@ export class ClaudeHarness implements Harness {
       // True whether it was never installed or a command removed it and then failed.
       if (await this.isAbsent(cli, plugin, res)) {
         say({ harness: 'claude', kind: 'plugin-absent', plugin, scope: SCOPE });
-        await this.unstage(cli, origin, plugin, known, say, opts);
         return 'absent';
       }
       say({
@@ -361,7 +370,6 @@ export class ClaudeHarness implements Harness {
       return 'failed';
     }
     say({ harness: 'claude', kind: 'plugin-uninstalled', target });
-    await this.unstage(cli, origin, plugin, known, say, opts);
     say({ harness: 'claude', kind: 'reload', after: 'uninstall' });
     return 'removed';
   }

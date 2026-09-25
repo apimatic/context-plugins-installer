@@ -196,10 +196,12 @@ export class InstallAction {
 
     const { files } = resolved;
     let srcDir: DirectoryPath | null = files.kind === 'on-disk' ? files.dir : null;
-    // Claude Code installs only from a marketplace, so a plugin from anywhere
-    // else is staged into the generated one - which needs the files fetched
-    // even when no editor in this run copies them.
-    const mustStage = origin.kind === 'directory' && want.includes('claude');
+    // An editor that addresses a plugin as `plugin@marketplace` can only take
+    // one from anywhere else through the generated marketplace - which needs
+    // the files fetched even when no editor in this run copies them.
+    const mustStage =
+      origin.kind === 'directory' &&
+      want.some((name) => harnesses.byName(name).installsFromMarketplace);
     if (
       files.kind === 'remote' &&
       (mustStage || want.some((name) => harnesses.byName(name).needsSource))
@@ -233,32 +235,51 @@ export class InstallAction {
       listener: this.prompts.harnessListener,
     };
     const installed: HarnessName[] = [];
-    for (const name of want) {
-      const harness = harnesses.byName(name);
-      this.prompts.beginHarness(harness.title);
-      if (harness.needsSource && !ctx.srcDir) {
-        this.prompts.noSource(harness.title);
-        continue;
-      }
-      const outcome = await harness.install(ctx, this.pathOpts);
-      // An editor that looked and could not is the user's to fix, so the run
-      // stops here and says so - never tested for truth, because both arms of
-      // a `Result` and both outcomes inside one are objects and strings.
-      if (!outcome.ok) return failed(outcome.error);
-      if (outcome.value === 'installed') installed.push(name);
-    }
-    report.targets = installed;
-
-    if (installed.length) {
+    // Written on the way out of every arm below. An editor later in the loop
+    // can fail after earlier ones have their copy, and a copy with no row is
+    // one nothing will ever update or uninstall.
+    const record = (): void => {
+      report.targets = installed;
+      if (!installed.length) return;
+      // A recorded editor this run asked but did not (re)install into still
+      // holds its earlier copy, and `recordInstall` replaces the known targets.
+      const kept = (recorded?.targets ?? []).filter(
+        (n) => !installed.includes(n) && !report.untouched.includes(n),
+      );
       records.recordInstall({
         plugin,
         repo: source.key(),
         marketplace,
         ref: report.ref,
         installed,
-        untouched: report.untouched,
+        untouched: [...report.untouched, ...kept],
       });
+    };
+    try {
+      for (const name of want) {
+        const harness = harnesses.byName(name);
+        this.prompts.beginHarness(harness.title);
+        if (harness.needsSource && !ctx.srcDir) {
+          this.prompts.noSource(harness.title);
+          continue;
+        }
+        const outcome = await harness.install(ctx, this.pathOpts);
+        // An editor that looked and could not is the user's to fix, so the run
+        // stops here and says so - never tested for truth, because both arms of
+        // a `Result` and both outcomes inside one are objects and strings.
+        if (!outcome.ok) {
+          record();
+          return failed(outcome.error);
+        }
+        if (outcome.value === 'installed') installed.push(name);
+      }
+    } catch (e) {
+      // A throw is still a bug the router reports, but the editors already
+      // installed get their row first.
+      record();
+      throw e;
     }
+    record();
 
     this.prompts.summary(installed, report.untouched);
     return ActionResult.success(done());
@@ -313,8 +334,9 @@ export class InstallAction {
       this.id = manifest.value.id;
       return ok({
         id: manifest.value.id,
-        // No registry lists this plugin, so Claude Code addresses it through
-        // the same generated marketplace a directory install uses.
+        // No registry lists this plugin, so the editors that install from a
+        // marketplace address it through the same generated one a directory
+        // install uses.
         origin: localMarketplace(this.pathOpts),
         description: manifest.value.description,
         files: {

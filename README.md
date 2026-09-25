@@ -1,7 +1,7 @@
 # context-plugins
 
 Install a plugin from a plugin marketplace into every AI coding assistant on the machine —
-**Claude Code**, **Cursor**, and **VS Code (Copilot)** — with one command.
+**Claude Code**, **Cursor**, **VS Code (Copilot)**, and **Codex** — with one command.
 
 ```bash
 npx context-plugins install <plugin>
@@ -31,8 +31,8 @@ See [Installing from a folder, a repository or an archive](#installing-from-a-fo
 
 - **Node.js 18 or newer** — the only requirement for the CLI itself.
 - **At least one assistant.** Each has its own prerequisite: Claude Code needs the `claude` CLI on
-  `PATH`, Cursor needs `~/.cursor`, VS Code needs its user directory. Missing ones are skipped, so
-  an install succeeds as long as one is present.
+  `PATH`, Cursor needs `~/.cursor`, VS Code needs its user directory, Codex needs the `codex` CLI
+  on `PATH`. Missing ones are skipped, so an install succeeds as long as one is present.
 - `git` is optional — it makes fetching faster; without it the CLI uses the GitHub API instead.
 
 ## Commands
@@ -52,19 +52,19 @@ context-plugins telemetry [status|enable|disable]   # anonymous usage data, see 
 
 ## Options
 
-| Option                     | Default                      | Description                                                                                                                                                    |
-| -------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                                                                                                                           |
-| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                                                                                                                        |
-| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                                                                                                                               |
-| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, or `all`. On install/uninstall it picks the editors and skips the prompt; on `installed` it lists only what is recorded for them |
-| `-y`, `--yes`              | off                          | Accept every detected assistant without asking                                                                                                                 |
-| `--force`                  | off                          | Replace a plugin from a different marketplace; on `uninstall`, drop an unconfirmed record                                                                      |
-| `--long`                   | off                          | Show plugin descriptions in `list`                                                                                                                             |
-| `--json`                   | off                          | Machine-readable output for `list` / `installed` / `doctor`                                                                                                    |
-| `--verbose` / `--quiet`    | off                          | More or less progress detail                                                                                                                                   |
-| `-h`, `--help`             | —                            | Show usage and exit                                                                                                                                            |
-| `-v`, `--version`          | —                            | Print the version and exit                                                                                                                                     |
+| Option                     | Default                      | Description                                                                                                                                                             |
+| -------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--repo <owner/repo>`      | the bundled marketplace      | Install from a different marketplace                                                                                                                                    |
+| `--ref <branch\|tag\|sha>` | `main`                       | Version to install from                                                                                                                                                 |
+| `--marketplace <name>`     | read from `marketplace.json` | Marketplace name                                                                                                                                                        |
+| `--targets <list>`         | ask                          | `claude`, `cursor`, `vscode`, `codex`, or `all`. On install/uninstall it picks the editors and skips the prompt; on `installed` it lists only what is recorded for them |
+| `-y`, `--yes`              | off                          | Accept every detected assistant without asking                                                                                                                          |
+| `--force`                  | off                          | Replace a plugin from a different marketplace; on `uninstall`, drop an unconfirmed record                                                                               |
+| `--long`                   | off                          | Show plugin descriptions in `list`                                                                                                                                      |
+| `--json`                   | off                          | Machine-readable output for `list` / `installed` / `doctor`                                                                                                             |
+| `--verbose` / `--quiet`    | off                          | More or less progress detail                                                                                                                                            |
+| `-h`, `--help`             | —                            | Show usage and exit                                                                                                                                                     |
+| `-v`, `--version`          | —                            | Print the version and exit                                                                                                                                              |
 
 With `--json`, stdout carries the payload and nothing else — warnings and `--verbose` detail go
 to stderr, so `... --json | jq` is safe to script against. The commands that read `installed.json` show only what
@@ -97,8 +97,9 @@ Only the ones you accept are installed. Assistants that aren't detected are neve
 the plugin is downloaded _after_ you answer — decline everything and nothing is fetched, written,
 or recorded.
 
-Detection is a directory check, not a true install check: Claude Code is found by looking for the
-`claude` CLI on `PATH`, but Cursor and VS Code are found by the presence of their user directories.
+Detection is a directory check, not a true install check: Claude Code and Codex are found by
+looking for the `claude` and `codex` CLIs on `PATH`, but Cursor and VS Code are found by the
+presence of their user directories.
 A leftover directory from an uninstalled editor still counts as present, and an editor that has
 never been launched may not be found yet.
 
@@ -169,10 +170,10 @@ A few things worth knowing:
   the bit. Its `.tar.gz` of the same commit does carry it, and is the link to prefer. A zip you
   made yourself on Linux or macOS keeps its modes, and they are applied — Windows ignores the bit
   either way.
-- **Claude Code needs a marketplace**, so one is generated at `~/.context-plugins/marketplace/`
-  holding every plugin you installed this way. It appears once in
-  `claude plugin marketplace list`, as `context-plugins-local`, and goes away when the last such
-  plugin is uninstalled.
+- **Claude Code and Codex need a marketplace**, so one is generated at
+  `~/.context-plugins/marketplace/` holding every plugin you installed this way. It appears once
+  in `claude plugin marketplace list` and `codex plugin marketplace list`, as
+  `context-plugins-local`, and goes away when the last such plugin is uninstalled from both.
 - **Uninstall by name**, not by path or repository: `context-plugins uninstall my-plugin`. Your
   source folder is never touched.
 - **A marketplace is still named by `--repo`.** `install acme/plugin-marketplace` reads that
@@ -181,17 +182,18 @@ acme/plugin-marketplace` is how you install from one.
 
 ## What it does per assistant
 
-| Assistant       | Mechanism                                                                                                                   | Location                              |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| **Claude Code** | Adds the marketplace, or updates it if you already had it, then `claude plugin install <plugin>@<marketplace> --scope user` | Managed by Claude Code                |
-| **Cursor**      | Copies the plugin folder into the local-plugin directory                                                                    | `~/.cursor/plugins/local/<plugin>/`   |
-| **VS Code**     | Copies the folder to the state directory and registers it in `chat.pluginLocations`                                         | `~/.context-plugins/vscode/<plugin>/` |
+| Assistant       | Mechanism                                                                                                                   | Location                                        |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| **Claude Code** | Adds the marketplace, or updates it if you already had it, then `claude plugin install <plugin>@<marketplace> --scope user` | Managed by Claude Code                          |
+| **Cursor**      | Copies the plugin folder into the local-plugin directory                                                                    | `~/.cursor/plugins/local/<plugin>/`             |
+| **VS Code**     | Copies the folder to the state directory and registers it in `chat.pluginLocations`                                         | `~/.context-plugins/vscode/<plugin>/`           |
+| **Codex**       | Adds the marketplace, or upgrades it if you already had it, then `codex plugin add <plugin>@<marketplace>`                  | Managed by Codex (`~/.codex`, or `$CODEX_HOME`) |
 
 Everything is installed for the current user, so it is available in every project you open.
 
 After installing, reload the editor: `Ctrl+Shift+P` (`Cmd+Shift+P`) → **Developer: Reload Window**.
 In Claude Code, run `/reload-plugins` to load the plugin without restarting — or start a new
-`claude` session.
+`claude` session. In Codex, start a new `codex` session.
 
 `settings.json` is edited as text and never reparsed, so comments and trailing commas survive —
 and it is backed up to `settings.json.bak-<timestamp>` before any change. If the file is shaped in
@@ -291,6 +293,8 @@ The live plugin list and count are at [the Context Plugins directory](https://hu
 | `Could not determine the marketplace name`                                | The repository has no `.claude-plugin/marketplace.json`. Pass `--marketplace <name>`.                                                                                                                               |
 | `Claude Code would not register '<name>' from <source>`                   | Claude refused the marketplace and said why on the same line - most often a `marketplace.json` it will not parse. The run stops there rather than reporting the plugin missing from something that was never added. |
 | `Claude Code already has a marketplace named '<name>', from <other-repo>` | An unrelated marketplace occupies that name. Remove it with `claude plugin marketplace remove <name>`, then re-run.                                                                                                 |
+| `'codex' CLI not on PATH - skipping`                                      | Codex isn't installed, or its CLI isn't on `PATH`. Other assistants still install.                                                                                                                                  |
+| `Codex already has a marketplace named '<name>', from <source>`           | An unrelated marketplace occupies that name in Codex. Remove it with `codex plugin marketplace remove <name>`, then re-run.                                                                                         |
 | `'<plugin>' is not listed in <marketplace>`                               | Wrong id, or the plugin was renamed upstream — the message suggests the closest match, and `list` shows them all.                                                                                                   |
 | A plugin fails during `update`                                            | Usually a plugin renamed upstream, so the recorded id no longer exists: `uninstall <old-id>`, then `install <new-id>`.                                                                                              |
 | `Nothing was installed in <assistant> - cleared that from the record`     | The record claimed an assistant that no longer had the plugin (removed by hand, or renamed upstream). The record is now correct.                                                                                    |
