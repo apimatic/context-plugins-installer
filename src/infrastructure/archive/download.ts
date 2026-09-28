@@ -32,10 +32,18 @@ const HEADERS: Record<string, string> = {
   Accept: '*/*',
 };
 
-const insecureHop = (from: string, to: string): Failure =>
+const SECURE = /^https:/i;
+
+const downgradedHop = (from: string, to: string): Failure =>
   new Failure(
-    `${hostOf(from)} redirected to a link that is not https.`,
+    `${hostOf(from)} redirected an https download to a plain http link.`,
     `Nothing was downloaded. The redirect pointed at ${hostOf(to)}.`,
+  );
+
+const foreignHop = (from: string, to: URL): Failure =>
+  new Failure(
+    `${hostOf(from)} redirected to a link that is not http or https.`,
+    `Nothing was downloaded. The redirect pointed at a ${to.protocol} link.`,
   );
 
 const tooBig = (url: string): Failure =>
@@ -88,13 +96,19 @@ async function follow(
     if (location === null) return ok(res);
 
     discard(res);
-    let next: string;
+    let target: URL;
     try {
-      next = new URL(location, at).toString();
+      target = new URL(location, at);
     } catch {
       return err(new Failure(`${hostOf(at)} redirected to a link that could not be read.`));
     }
-    if (!next.toLowerCase().startsWith('https:')) return err(insecureHop(at, next));
+    const next = target.toString();
+    if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+      return err(foreignHop(at, target));
+    }
+    // Plain http is the user's choice to make, by typing it - never a server's,
+    // by redirecting an https download to it.
+    if (SECURE.test(at) && target.protocol === 'http:') return err(downgradedHop(at, next));
     at = next;
   }
   return err(new Failure(`${hostOf(url)} redirected more than ${MAX_HOPS} times.`));

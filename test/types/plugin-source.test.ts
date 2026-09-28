@@ -316,11 +316,14 @@ test('an archive on this machine is resolved against the cwd, and the home is ex
   assert.equal(archive('C:\\dl\\my-plugin.zip', WIN).location(), 'C:\\dl\\my-plugin.zip');
 });
 
-test('http is refused where it is written, and says why', () => {
-  const result = parse('http://acme.com/my-plugin.zip');
-  assert.ok(!result.ok);
-  assert.match(result.error.message, /is not an https URL/);
-  assert.match(result.error.hint ?? '', /hooks/);
+test('an http URL is an archive too, and says it is one fetched over plain http', () => {
+  const plain = archive('http://acme.com/my-plugin.zip#tools/foo');
+  assert.equal(plain.location(), 'http://acme.com/my-plugin.zip');
+  assert.equal(plain.path, 'tools/foo');
+  assert.equal(plain.plainHttp(), true);
+  assert.equal(archive('HTTP://acme.com/my-plugin.zip').plainHttp(), true);
+  assert.equal(archive('https://acme.com/my-plugin.zip').plainHttp(), false);
+  assert.equal(archive('./my-plugin.zip').plainHttp(), false, 'a file is fetched over nothing');
 });
 
 test('a bare file name is told how to be a path, rather than failing as a bad id', () => {
@@ -396,6 +399,7 @@ test('a recorded key restores as the source it was written from', () => {
     '/opt/x',
     'https://acme.com/p.zip',
     'https://acme.com/mono.zip#tools/foo',
+    'http://acme.com/p.zip',
     '/opt/my-plugin.tar.gz',
   ]) {
     const source = value(parse(spec));

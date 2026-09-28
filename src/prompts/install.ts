@@ -73,6 +73,11 @@ export class InstallPrompts {
     const where = this.where(source);
     log.warn(`This installs a plugin from ${where}, not from ${TITLES.claude}'s marketplace.`);
     log.info('A plugin can run commands through its hooks and MCP servers.');
+    if (source.kind === 'archive' && source.plainHttp()) {
+      log.warn(
+        'It is fetched over plain http, so anyone on the network in between can change what arrives.',
+      );
+    }
     if (assumed) return true;
     const question = 'Install from this source?';
     if (this.confirm) return this.confirm(question, false);
