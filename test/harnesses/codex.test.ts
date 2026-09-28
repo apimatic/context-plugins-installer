@@ -382,7 +382,7 @@ test("the session memo never hands Codex Claude Code's registration", async () =
     fetcher: sourceFetcher(ports, root),
   });
   const origin = CTX.origin;
-  session.marketplaces.set(
+  session.claudeMarketplaces.set(
     origin.key(),
     Promise.resolve(ok({ known: 'claude-name', updated: true })),
   );

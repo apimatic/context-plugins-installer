@@ -67,7 +67,7 @@ export interface Session {
    * A `Result`, because a registration that cannot be made is the user's to fix
    * and every plugin from that marketplace shares the one answer.
    */
-  marketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
+  claudeMarketplaces: Map<string, Promise<Result<{ known: string; updated: boolean }, Failure>>>;
   /**
    * The same for Codex, in a map of its own: each CLI files a marketplace under
    * a name of its own. `unsupported` is the extra answer, for a Codex too old

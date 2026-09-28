@@ -238,14 +238,14 @@ export class ClaudeHarness implements Harness {
     session: Session | null | undefined,
     listener: HarnessListener,
   ): Promise<Result<Registration, Failure>> {
-    if (!session?.marketplaces) {
+    if (!session?.claudeMarketplaces) {
       return this.ensureMarketplace(cli, origin, listener);
     }
     const key = origin.key();
-    let pending = session.marketplaces.get(key);
+    let pending = session.claudeMarketplaces.get(key);
     if (!pending) {
       pending = this.ensureMarketplace(cli, origin, listener);
-      session.marketplaces.set(key, pending);
+      session.claudeMarketplaces.set(key, pending);
     }
     return pending;
   }
