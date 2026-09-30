@@ -1,3 +1,15 @@
+# [0.12.0](https://github.com/apimatic/context-plugins-installer/compare/v0.11.0...v0.12.0) (2026-09-30)
+
+
+### Bug Fixes
+
+* **harness:** keep records and registrations honest on partial failures ([36e07af](https://github.com/apimatic/context-plugins-installer/commit/36e07af8a1ec079f7463387e0b640ec81769d56b))
+
+
+### Features
+
+* **harness:** add Codex ([9d2c3a1](https://github.com/apimatic/context-plugins-installer/commit/9d2c3a1b4d75363078182c2ecafd5412e178b3db))
+
 # [0.11.0](https://github.com/apimatic/context-plugins-installer/compare/v0.10.0...v0.11.0) (2026-09-25)
 
 
