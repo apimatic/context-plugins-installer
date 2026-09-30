@@ -40,6 +40,7 @@ function machine({ cursor = true, vscode = true } = {}) {
     CP_STATE_DIR: path.join(root, 'state'),
     CP_CURSOR_DIR: path.join(root, '.cursor'),
     CP_VSCODE_USER_DIR: path.join(root, 'code-user'),
+    CODEX_HOME: path.join(root, 'codex-home'),
   };
   if (cursor) fs.mkdirSync(env.CP_CURSOR_DIR, { recursive: true });
   if (vscode) fs.mkdirSync(env.CP_VSCODE_USER_DIR, { recursive: true });

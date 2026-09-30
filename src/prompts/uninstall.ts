@@ -37,6 +37,11 @@ export class UninstallPrompts {
     log.warn(`${title}: ${message}`);
   }
 
+  /** The generated marketplace could not be tidied; the plugin itself is gone. */
+  stagingLeft(detail: string): void {
+    log.warn(`${detail} You can remove that directory by hand.`);
+  }
+
   /**
    * One line per thing that happened and nothing that did not - which is why
    * the lines come from the decision rather than from anything here. Nothing to

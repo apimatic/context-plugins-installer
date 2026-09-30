@@ -148,4 +148,5 @@ test("detect and location answer about Cursor's own root", () => {
   assert.equal(cursor.detect(gone.opts), false);
   assert.match(cursor.location(here.opts).toString(), /[/\\]\.cursor$/);
   assert.equal(cursor.needsSource, true, 'Cursor installs from files, so it needs them');
+  assert.equal(cursor.installsFromMarketplace, false, 'and names no marketplace to take them from');
 });

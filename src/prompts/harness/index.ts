@@ -1,5 +1,6 @@
 import type { HarnessEvent, HarnessListener } from '../../types/harness.js';
 import { announceClaude } from './claude.js';
+import { announceCodex } from './codex.js';
 import { announceCursor } from './cursor.js';
 import { announceVscode } from './vscode.js';
 
@@ -18,6 +19,9 @@ export function announceHarness(event: HarnessEvent, home?: string): void {
       return;
     case 'vscode':
       announceVscode(event, home);
+      return;
+    case 'codex':
+      announceCodex(event, home);
       return;
     default: {
       // A new editor reaches here as `never`, so one added without any lines of

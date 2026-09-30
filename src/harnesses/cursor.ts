@@ -23,6 +23,7 @@ export class CursorHarness implements Harness {
   readonly name: HarnessName = 'cursor';
   readonly title = TITLES.cursor;
   readonly needsSource = true;
+  readonly installsFromMarketplace = false;
 
   detect(opts?: HarnessOpts): boolean {
     return exists(paths.cursorRoot(opts));

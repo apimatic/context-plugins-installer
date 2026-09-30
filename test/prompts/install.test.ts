@@ -118,12 +118,12 @@ test('a summary names what was installed, and what was already there', async () 
 test('the no-editor failure names the editor when the user did, and the list when not', () => {
   const named = InstallPrompts.noEditor(true, ['cursor']);
   assert.match(named.message, /^Cursor is not installed on this machine\.$/);
-  assert.match(named.hint, /--targets claude,cursor,vscode/);
+  assert.match(named.hint, /--targets claude,cursor,vscode,codex/);
 
   const two = InstallPrompts.noEditor(true, ['cursor', 'vscode']);
   assert.match(two.message, /^Cursor and VS Code are not installed on this machine\.$/);
 
   const none = InstallPrompts.noEditor(false, ['cursor', 'vscode']);
   assert.match(none.message, /No supported editor found/);
-  assert.match(none.hint, /Claude Code, Cursor, or VS Code/);
+  assert.match(none.hint, /Claude Code, Cursor, VS Code, or Codex/);
 });

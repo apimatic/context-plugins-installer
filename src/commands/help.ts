@@ -36,8 +36,8 @@ Install sources
                         folder is the one its page showed you.
 
   A plugin from a path, a repo or an archive is named by its own manifest rather
-  than by the folder, the repository or the file, and Claude Code installs it
-  through a marketplace this tool generates under ~/.context-plugins.
+  than by the folder, the repository or the file, and the editors that install
+  from a marketplace take it from one this tool generates under ~/.context-plugins.
   ${bin} update re-syncs it from wherever it came from; a folder or an archive
   that has moved away is reported rather than failing the run.
 

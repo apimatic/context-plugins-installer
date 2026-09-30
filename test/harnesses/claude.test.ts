@@ -78,6 +78,7 @@ test('it installs from the marketplace itself, so it needs no plugin files', () 
   // unasserted: flipping it to `true` made every Claude install clone a
   // repository it never reads, and the whole suite stayed green.
   assert.equal(claude.needsSource, false);
+  assert.equal(claude.installsFromMarketplace, true);
 });
 
 test('an already-registered marketplace is updated, not re-added', async () => {

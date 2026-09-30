@@ -28,10 +28,12 @@ export function createSession({
   const manifests = new Map<string, Promise<Result<PluginManifest, Failure>>>();
   const repos = new Map<string, Promise<RepoHandle>>();
   const archives = new Map<string, ArchiveHandle>();
-  const marketplaces: Session['marketplaces'] = new Map();
+  const claudeMarketplaces: Session['claudeMarketplaces'] = new Map();
+  const codexMarketplaces: Session['codexMarketplaces'] = new Map();
 
   return {
-    marketplaces,
+    claudeMarketplaces,
+    codexMarketplaces,
 
     catalog({ repo, ref }) {
       const key = keyOf(repo, ref);

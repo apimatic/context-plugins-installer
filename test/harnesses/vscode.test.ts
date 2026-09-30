@@ -244,4 +244,5 @@ test("detect and location answer about VS Code's user directory", () => {
   assert.equal(vscode.detect(gone.opts), false);
   assert.match(vscode.location(here.opts).toString(), /code-user$/);
   assert.equal(vscode.needsSource, true, 'VS Code installs from files, so it needs them');
+  assert.equal(vscode.installsFromMarketplace, false, 'and names no marketplace to take them from');
 });

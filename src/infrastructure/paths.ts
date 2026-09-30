@@ -84,3 +84,25 @@ export function vscodeUserDir(o?: PathOpts): DirectoryPath {
 export function vscodeSettingsPath(o?: PathOpts): FilePath {
   return vscodeUserDir(o).file('settings.json');
 }
+
+/**
+ * Codex's own home. `CODEX_HOME` is the override the `codex` binary itself
+ * reads, so honouring it rather than a `CP_*` variable of our own keeps this
+ * program's view of Codex and the CLI's on one directory.
+ */
+export function codexHome(o?: PathOpts): DirectoryPath {
+  const c = ctx(o);
+  return given(c.env.CODEX_HOME, c.rules) ?? c.home.join('.codex');
+}
+
+/**
+ * Where Codex keeps an installed plugin, one folder per version: what it loads,
+ * and what `plugin remove` deletes.
+ */
+export function codexPluginCacheDir(
+  marketplace: string,
+  plugin: string,
+  o?: PathOpts,
+): DirectoryPath {
+  return codexHome(o).join('plugins', 'cache', marketplace, plugin);
+}
